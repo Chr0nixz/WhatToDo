@@ -1,0 +1,97 @@
+import * as Dialog from "@radix-ui/react-dialog";
+import { CalendarClock, Check, Clock, Plus, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+
+import { Button } from "@/components/ui/button";
+import { sortTasks } from "@/data/date";
+import type { Task, Workspace } from "@/data/types";
+
+type WorkspaceTaskPickerDialogProps = {
+  tasks: Task[];
+  workspaces: Workspace[];
+  onAddTask: (taskId: string) => Promise<void>;
+};
+
+export function WorkspaceTaskPickerDialog({ tasks, workspaces, onAddTask }: WorkspaceTaskPickerDialogProps) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const sortedTasks = useMemo(() => sortTasks(tasks), [tasks]);
+
+  const addTask = async (taskId: string) => {
+    await onAddTask(taskId);
+    setOpen(false);
+  };
+
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger asChild>
+        <Button size="sm" type="button">
+          <Plus />
+          {t("addExistingTask")}
+        </Button>
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-background/65 backdrop-blur-[2px]" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[min(680px,calc(100vh-32px))] w-[min(640px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-xl outline-none">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <Dialog.Title className="text-base font-semibold">{t("addExistingTask")}</Dialog.Title>
+              <Dialog.Description className="mt-1 text-sm text-muted-foreground">
+                {t("addExistingTaskHint")}
+              </Dialog.Description>
+            </div>
+            <Dialog.Close asChild>
+              <Button size="icon-sm" type="button" variant="ghost">
+                <X />
+              </Button>
+            </Dialog.Close>
+          </div>
+
+          {sortedTasks.length === 0 ? (
+            <p className="flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-background/45 px-4 text-center text-sm text-muted-foreground">
+              {t("noAvailableTasks")}
+            </p>
+          ) : (
+            <div className="min-h-0 flex-1 space-y-2 overflow-auto pr-1">
+              {sortedTasks.map((task) => {
+                const sourceWorkspace = workspaces.find((workspace) => workspace.id === task.workspaceId);
+
+                return (
+                  <article key={task.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-border bg-background/70 px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 items-center gap-2">
+                        {task.status === "completed" && <Check className="size-3.5 shrink-0 text-muted-foreground" />}
+                        <h3 className="truncate text-sm font-medium">{task.title}</h3>
+                        <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                          {task.status === "todo" ? t("openTasks") : t("completed")}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span>{sourceWorkspace?.name ?? t("workspaces")}</span>
+                        <span className="inline-flex items-center gap-1">
+                          <CalendarClock className="size-3" />
+                          {task.dueDate}
+                        </span>
+                        {task.dueTime && (
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="size-3" />
+                            {task.dueTime}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <Button size="sm" type="button" variant="secondary" onClick={() => void addTask(task.id)}>
+                      <Plus />
+                      {t("addToWorkspace")}
+                    </Button>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}

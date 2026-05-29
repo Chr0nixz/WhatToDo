@@ -1,0 +1,70 @@
+import { useEffect } from "react";
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
+
+import type { AppData } from "@/data/types";
+
+const isTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+export const useReminders = (
+  data: AppData | null,
+  markReminderFired: (id: string) => Promise<AppData>,
+  onOpenTask: (taskId: string) => void,
+) => {
+  useEffect(() => {
+    if (!data?.settings.notificationsEnabled || !isTauriRuntime()) {
+      return;
+    }
+
+    const tick = async () => {
+      let permissionGranted = await isPermissionGranted();
+      if (!permissionGranted) {
+        const permission = await requestPermission();
+        permissionGranted = permission === "granted";
+      }
+
+      if (!permissionGranted) {
+        return;
+      }
+
+      const now = Date.now();
+      const dueReminder = data.reminders.find((reminder) => {
+        const task = data.tasks.find((item) => item.id === reminder.taskId);
+
+        return (
+          reminder.enabled &&
+          reminder.firedAt === null &&
+          task?.deletedAt === null &&
+          task?.status === "todo" &&
+          new Date(reminder.snoozedUntil ?? reminder.remindAt).getTime() <= now
+        );
+      });
+
+      if (!dueReminder) {
+        return;
+      }
+
+      const task = data.tasks.find((item) => item.id === dueReminder.taskId);
+      if (!task) {
+        return;
+      }
+
+      sendNotification({
+        title: "WhatToDo",
+        body: task.dueTime ? `${task.title} · ${task.dueTime}` : task.title,
+      });
+      onOpenTask(task.id);
+      await markReminderFired(dueReminder.id);
+    };
+
+    void tick();
+    const timer = window.setInterval(() => {
+      void tick();
+    }, 30_000);
+
+    return () => window.clearInterval(timer);
+  }, [data, markReminderFired, onOpenTask]);
+};

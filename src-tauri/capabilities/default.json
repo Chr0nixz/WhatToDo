@@ -1,0 +1,22 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for local WhatToDo windows",
+  "windows": ["*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:window:allow-is-always-on-top",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-start-dragging",
+    "opener:default",
+    "sql:default",
+    "sql:allow-load",
+    "sql:allow-execute",
+    "sql:allow-select",
+    "dialog:default",
+    "notification:default",
+    "window-state:default"
+  ]
+}
