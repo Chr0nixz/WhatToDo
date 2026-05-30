@@ -19,9 +19,11 @@ pnpm tauri dev
 - `pnpm release:check` verifies release metadata, updater configuration, changelog coverage, a clean Git tree, and updater signing secrets.
 - `pnpm release:build` runs the release checks and builds signed Tauri updater artifacts.
 
-## Release and updates
+## CI, release, and updates
 
-Releases are published by the GitHub Actions workflow in `.github/workflows/release.yml`. Push a tag like `app-v0.1.2`, or run the workflow manually, to build platform installers and a draft GitHub Release.
+Pull requests and pushes to `main` are verified by `.github/workflows/ci.yml`. The CI job installs dependencies, runs Vitest, builds the frontend, and runs `cargo check` for the Tauri backend.
+
+Releases are published by `.github/workflows/release.yml`. Push a tag like `app-v0.1.2`, or run the workflow manually, to run the same verification checks, build the signed Windows NSIS installer, generate `latest.json`, and upload the installer, signature, and updater metadata to GitHub Releases.
 
 The app uses the Tauri v2 updater plugin and checks:
 
@@ -35,6 +37,6 @@ Before publishing a release:
 2. Add release notes to `CHANGELOG.md`.
 3. Commit the version and changelog changes.
 4. Ensure GitHub Secrets contains `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-5. Push `app-v<version>` and verify the draft release artifacts.
+5. Push `app-v<version>` and verify the release assets.
 
 The generated updater private key and password are intentionally local-only in `.tauri-updater-private-key.local` and `.tauri-updater-private-key-password.local`. The public key is committed in `src-tauri/tauri.conf.json`; the private key and password must stay in GitHub Secrets or another secure secret store.
