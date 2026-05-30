@@ -12,6 +12,10 @@ export type TaskStatus = "todo" | "completed";
 
 export type TaskPriority = "low" | "medium" | "high";
 
+export type DateRangeFilter = "all" | "today" | "week" | "overdue";
+
+export type PresenceFilter = "all" | "with" | "without";
+
 export type Workspace = {
   id: string;
   name: string;
@@ -70,7 +74,28 @@ export type Reminder = {
   offsetMinutes: number | null;
   snoozedUntil: string | null;
   firedAt: string | null;
+  failedAt: string | null;
+  lastError: string | null;
+  lastAttemptedAt: string | null;
   enabled: boolean;
+};
+
+export type TaskViewFilters = {
+  scope: "open" | "completed" | "all";
+  priority: TaskPriority | "all";
+  projectId: string | "all" | "none";
+  reminder: PresenceFilter;
+  folder: PresenceFilter;
+  dateRange: DateRangeFilter;
+};
+
+export type SavedTaskView = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  filters: TaskViewFilters;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type Settings = {
@@ -89,8 +114,11 @@ export type AppData = {
   workspaceFolders: WorkspaceFolder[];
   projects: Project[];
   tasks: Task[];
+  deletedTasks: Task[];
+  deletedWorkspaceFolders: WorkspaceFolder[];
   availableTasks: Task[];
   reminders: Reminder[];
+  savedViews: SavedTaskView[];
   settings: Settings;
 };
 
@@ -122,4 +150,22 @@ export type CreateProjectInput = {
   color: string;
   dueDate?: string | null;
   workingFolder?: string | null;
+};
+
+export type CreateSavedTaskViewInput = {
+  name: string;
+  filters: TaskViewFilters;
+};
+
+export type BackupPayload = {
+  whattodoBackupVersion: 1;
+  exportedAt: string;
+  workspaceId: string;
+  workspaces: Workspace[];
+  workspaceFolders: WorkspaceFolder[];
+  projects: Project[];
+  tasks: Task[];
+  reminders: Reminder[];
+  settingsByWorkspace: Record<string, Settings>;
+  savedViews: SavedTaskView[];
 };

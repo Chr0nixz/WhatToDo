@@ -74,7 +74,7 @@ export function UpdateSettingsPanel() {
   };
 
   return (
-    <section className="rounded-lg border border-border bg-card/70 p-4 shadow-sm">
+    <section className="motion-surface rounded-lg border border-border bg-card/70 p-4 shadow-sm">
       <div className="mb-4 flex items-center gap-3">
         <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
           <RefreshCw className="size-4" />

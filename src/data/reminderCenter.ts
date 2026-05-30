@@ -1,6 +1,6 @@
 import type { AppData, Reminder, Task } from "./types";
 
-export type ReminderCenterGroupId = "missed" | "upcoming" | "fired";
+export type ReminderCenterGroupId = "failed" | "missed" | "upcoming" | "fired";
 
 export type SnoozeOption = "tenMinutes" | "oneHour" | "tomorrowMorning";
 
@@ -14,6 +14,7 @@ export type ReminderCenterItem = {
 export type ReminderCenterGroups = Record<ReminderCenterGroupId, ReminderCenterItem[]>;
 
 export const emptyReminderCenterGroups = (): ReminderCenterGroups => ({
+  failed: [],
   missed: [],
   upcoming: [],
   fired: [],
@@ -41,6 +42,11 @@ export const groupReminderCenterItems = (data: AppData, now = Date.now()): Remin
       continue;
     }
 
+    if (reminder.failedAt != null && reminder.firedAt === null) {
+      groups.failed.push({ reminder, task, effectiveAt, group: "failed" });
+      continue;
+    }
+
     if (reminder.firedAt !== null) {
       groups.fired.push({ reminder, task, effectiveAt, group: "fired" });
       continue;
@@ -59,6 +65,10 @@ export const groupReminderCenterItems = (data: AppData, now = Date.now()): Remin
   }
 
   groups.missed.sort((a, b) => new Date(a.effectiveAt).getTime() - new Date(b.effectiveAt).getTime());
+  groups.failed.sort(
+    (a, b) =>
+      new Date(b.reminder.failedAt ?? b.effectiveAt).getTime() - new Date(a.reminder.failedAt ?? a.effectiveAt).getTime(),
+  );
   groups.upcoming.sort((a, b) => new Date(a.effectiveAt).getTime() - new Date(b.effectiveAt).getTime());
   groups.fired.sort(
     (a, b) =>

@@ -1,4 +1,5 @@
 import { CalendarClock, Check, Clock, EyeOff, Trash2 } from "lucide-react";
+import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -41,15 +42,15 @@ export function TaskList({
 
   if (tasks.length === 0) {
     return (
-      <div className="flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
+      <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
         {t("emptyDay")}
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
-      {tasks.map((task) => {
+    <div className="motion-list space-y-2">
+      {tasks.map((task, index) => {
         const project = projectById(projects, task.projectId);
         const reminder = reminders.find((item) => item.taskId === task.id && item.enabled);
 
@@ -57,15 +58,17 @@ export function TaskList({
           <article
             key={task.id}
             className={cn(
-              "group grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-2 shadow-sm transition-colors hover:border-ring/70",
+              "motion-surface group grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-2 shadow-sm hover:border-ring/70",
               selectedTaskId === task.id && "border-ring bg-accent/80",
               task.status === "completed" && "opacity-60",
               compact && "py-1.5",
             )}
+            style={{ "--motion-index": index } as CSSProperties}
           >
             <button
+              aria-pressed={task.status === "completed"}
               className={cn(
-                "flex size-6 items-center justify-center rounded-full border transition-colors",
+                "flex size-6 items-center justify-center rounded-full border transition-[background-color,border-color,color,transform] duration-150 ease-[var(--ease-out-quart)] active:scale-90",
                 task.status === "completed"
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-input bg-background hover:border-ring",
@@ -74,15 +77,21 @@ export function TaskList({
               aria-label={task.status === "completed" ? t("completed") : t("openTasks")}
               onClick={() => void actions.toggleTask(task.id)}
             >
-              {task.status === "completed" && <Check className="size-3.5" />}
+              {task.status === "completed" && <Check className="motion-status size-3.5" />}
             </button>
             <button
+              aria-current={selectedTaskId === task.id ? "true" : undefined}
+              aria-label={`${t("openTask")}: ${task.title}`}
               className="min-w-0 text-left"
               type="button"
               onClick={() => onSelectTask?.(task.id)}
             >
               <div className="flex min-w-0 items-center gap-2">
-                <span className={cn("size-2 shrink-0 rounded-full", priorityClasses[task.priority])} />
+                <span
+                  aria-label={`${t("priority")}: ${t(task.priority)}`}
+                  className={cn("size-2 shrink-0 rounded-full", priorityClasses[task.priority])}
+                  role="img"
+                />
                 <h3
                   className={cn(
                     "truncate text-sm font-medium",
@@ -118,7 +127,8 @@ export function TaskList({
               </div>
             </button>
             <Button
-              className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+              aria-label={deleteMode === "hide" ? t("hideFromFloatingWindow") : t("delete")}
+              className="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
               size="icon-sm"
               type="button"
               variant="ghost"

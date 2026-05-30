@@ -28,6 +28,9 @@ const makeReminder = (patch: Partial<Reminder>): Reminder => ({
   offsetMinutes: patch.offsetMinutes ?? 30,
   snoozedUntil: patch.snoozedUntil ?? null,
   firedAt: patch.firedAt ?? null,
+  failedAt: patch.failedAt ?? null,
+  lastError: patch.lastError ?? null,
+  lastAttemptedAt: patch.lastAttemptedAt ?? null,
   enabled: patch.enabled ?? true,
 });
 
@@ -37,8 +40,11 @@ const makeData = (tasks: Task[], reminders: Reminder[]): AppData => ({
   workspaceFolders: [],
   projects: [],
   tasks,
+  deletedTasks: [],
+  deletedWorkspaceFolders: [],
   availableTasks: [],
   reminders,
+  savedViews: [],
   settings: {
     theme: "system",
     accentColor: "blue",
@@ -71,6 +77,26 @@ describe("groupReminderCenterItems", () => {
     expect(groups.missed.map((item) => item.reminder.id)).toEqual(["r-missed"]);
     expect(groups.upcoming.map((item) => item.reminder.id)).toEqual(["r-upcoming"]);
     expect(groups.fired.map((item) => item.reminder.id)).toEqual(["r-fired"]);
+  });
+
+  it("puts failed open reminders before missed reminders", () => {
+    const data = makeData(
+      [makeTask({ id: "failed" }), makeTask({ id: "missed" })],
+      [
+        makeReminder({
+          id: "r-failed",
+          taskId: "failed",
+          failedAt: "2026-06-01T00:03:00.000Z",
+          lastError: "send failed",
+        }),
+        makeReminder({ id: "r-missed", taskId: "missed" }),
+      ],
+    );
+
+    const groups = groupReminderCenterItems(data, new Date("2026-06-01T00:05:00.000Z").getTime());
+
+    expect(groups.failed.map((item) => item.reminder.id)).toEqual(["r-failed"]);
+    expect(groups.missed.map((item) => item.reminder.id)).toEqual(["r-missed"]);
   });
 
   it("uses snoozedUntil before remindAt", () => {

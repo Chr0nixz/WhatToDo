@@ -4,7 +4,59 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/app-icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f4f8fa" />
     <title>WhatToDo</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --boot-background: #f4f8fa;
+        --boot-foreground: #263238;
+        --boot-card: #edf4f7;
+        --boot-border: #c7d4dc;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --boot-background: #171d25;
+          --boot-foreground: #e5eef2;
+          --boot-card: #202832;
+          --boot-border: #394653;
+        }
+      }
+
+      html,
+      body,
+      #root {
+        min-height: 100%;
+        margin: 0;
+        background: var(--boot-background);
+      }
+
+      body {
+        color: var(--boot-foreground);
+        font-family:
+          "Geist Variable", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+      }
+
+      #root:empty {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #root:empty::before {
+        content: "";
+        width: 40px;
+        height: 40px;
+        border: 1px solid var(--boot-border);
+        border-radius: 8px;
+        background:
+          var(--boot-card) url("/app-icon.svg") center / 32px 32px no-repeat;
+        color: var(--boot-foreground);
+        box-shadow: 0 1px 2px rgb(15 23 42 / 0.06);
+      }
+    </style>
   </head>
 
   <body>

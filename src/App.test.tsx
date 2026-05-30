@@ -15,6 +15,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn().mockResolvedValue(null),
+  save: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("@tauri-apps/plugin-notification", () => ({
@@ -59,5 +60,7 @@ describe("App", () => {
     expect(screen.getAllByText("系统通知").length).toBeGreaterThan(0);
     expect(screen.getByText("关闭到托盘")).toBeInTheDocument();
     expect(screen.getByText("默认文件夹")).toBeInTheDocument();
+    expect(screen.getByText("恢复中心")).toBeInTheDocument();
+    expect(screen.getByText("数据管理")).toBeInTheDocument();
   });
 });

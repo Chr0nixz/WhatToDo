@@ -1,4 +1,5 @@
 use std::fs::{create_dir_all, OpenOptions};
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -122,6 +123,24 @@ CREATE INDEX IF NOT EXISTS idx_projects_workspace_id ON projects(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_reminders_task_id ON reminders(task_id);
 "#;
 
+const ADD_REMINDER_FAILURE_AND_SAVED_VIEWS_SQL: &str = r#"
+ALTER TABLE reminders ADD COLUMN failed_at TEXT;
+ALTER TABLE reminders ADD COLUMN last_error TEXT;
+ALTER TABLE reminders ADD COLUMN last_attempted_at TEXT;
+
+CREATE TABLE IF NOT EXISTS saved_views (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    filters_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_saved_views_workspace_id ON saved_views(workspace_id);
+"#;
+
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -156,6 +175,16 @@ struct CloseToTray(Arc<AtomicBool>);
 #[tauri::command]
 fn set_close_to_tray(state: tauri::State<CloseToTray>, value: bool) {
     state.0.store(value, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    fs::read_to_string(path).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    fs::write(path, contents).map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -353,6 +382,12 @@ pub fn run() {
             sql: ADD_WORKSPACE_QUERY_INDEXES_SQL,
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 7,
+            description: "add_reminder_failure_and_saved_views",
+            sql: ADD_REMINDER_FAILURE_AND_SAVED_VIEWS_SQL,
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -405,7 +440,12 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![set_close_to_tray, open_workspace_window])
+        .invoke_handler(tauri::generate_handler![
+            set_close_to_tray,
+            open_workspace_window,
+            read_text_file,
+            write_text_file
+        ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() != "main" {

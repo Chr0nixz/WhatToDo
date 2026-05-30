@@ -33,6 +33,9 @@ const makeReminder = (patch: Partial<Reminder>): Reminder => ({
   offsetMinutes: 30,
   snoozedUntil: patch.snoozedUntil ?? null,
   firedAt: patch.firedAt ?? null,
+  failedAt: patch.failedAt ?? null,
+  lastError: patch.lastError ?? null,
+  lastAttemptedAt: patch.lastAttemptedAt ?? null,
   enabled: patch.enabled ?? true,
 });
 
@@ -42,8 +45,11 @@ const makeData = (tasks: Task[], reminders: Reminder[]): AppData => ({
   workspaceFolders: [],
   projects: [],
   tasks,
+  deletedTasks: [],
+  deletedWorkspaceFolders: [],
   availableTasks: [],
   reminders,
+  savedViews: [],
   settings: {
     theme: "system",
     accentColor: "blue",
@@ -99,6 +105,30 @@ describe("ReminderCenterView", () => {
     expect(screen.getByText("Missed task")).toBeInTheDocument();
     expect(screen.getByText("Upcoming task")).toBeInTheDocument();
     expect(screen.getByText("Fired task")).toBeInTheDocument();
+  });
+
+  it("renders failed reminders with their last error", () => {
+    render(
+      <ReminderCenterView
+        actions={makeActions()}
+        data={makeData(
+          [makeTask({ id: "failed", title: "Failed task" })],
+          [
+            makeReminder({
+              id: "r-failed",
+              taskId: "failed",
+              failedAt: "2026-06-01T00:01:00.000Z",
+              lastError: "send failed",
+            }),
+          ],
+        )}
+        onOpenTask={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText("Failed").length).toBeGreaterThan(0);
+    expect(screen.getByText("send failed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
   });
 
   it("snoozes and disables reminders", async () => {

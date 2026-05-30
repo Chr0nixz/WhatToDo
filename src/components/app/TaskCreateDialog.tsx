@@ -40,12 +40,12 @@ export function TaskCreateDialog({
         </Button>
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-background/65 backdrop-blur-[2px]" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(560px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-xl outline-none">
-          <div className="mb-4 flex items-start justify-between gap-3">
+        <Dialog.Overlay className="motion-dialog-overlay fixed inset-0 z-50 bg-background/65 backdrop-blur-[2px]" />
+        <Dialog.Content className="motion-dialog-content fixed left-1/2 top-1/2 z-50 w-[min(520px,calc(100vw-32px))] rounded-lg border border-border bg-popover p-5 text-popover-foreground shadow-xl outline-none">
+          <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <Dialog.Title className="text-base font-semibold">{t("add")}</Dialog.Title>
-              <Dialog.Description className="mt-1 text-sm text-muted-foreground">
+              <Dialog.Description className="mt-0.5 text-sm text-muted-foreground">
                 {defaultProjectId ? t("addToProject") : t("addLooseTask")}
               </Dialog.Description>
             </div>

@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { Bell, FolderOpen, Plus } from "lucide-react";
+import { Bell, ChevronDown, FolderOpen, Plus, Wand2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { parseQuickAdd } from "@/data/quickAdd";
 import type { Project, Settings, TaskPriority } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
@@ -37,13 +38,17 @@ export function TaskComposer({
   const [projectId, setProjectId] = useState(defaultProjectId ?? "none");
   const [workingFolder, setWorkingFolder] = useState("");
   const [useReminder, setUseReminder] = useState(true);
+  const [reminderOffset, setReminderOffset] = useState(settings.defaultReminderOffset);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [parseFeedback, setParseFeedback] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
     setDueDate(defaultDate);
     setProjectId(defaultProjectId ?? "none");
-  }, [defaultDate, defaultProjectId]);
+    setReminderOffset(settings.defaultReminderOffset);
+  }, [defaultDate, defaultProjectId, settings.defaultReminderOffset]);
 
   const chooseFolder = async () => {
     const selected = await openDialog({
@@ -55,6 +60,23 @@ export function TaskComposer({
     if (typeof selected === "string") {
       setWorkingFolder(selected);
     }
+  };
+
+  const applyQuickAdd = () => {
+    const result = parseQuickAdd({
+      input: title,
+      projects,
+      defaultReminderOffset: settings.defaultReminderOffset,
+    });
+
+    setTitle(result.draft.title);
+    setDueDate(result.draft.dueDate);
+    setDueTime(result.draft.dueTime ?? "");
+    setPriority(result.draft.priority ?? "medium");
+    setProjectId(result.draft.projectId ?? "none");
+    setUseReminder(result.draft.reminderOffset !== null);
+    setReminderOffset(result.draft.reminderOffset ?? settings.defaultReminderOffset);
+    setParseFeedback(t("quickAddApplied"));
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -77,7 +99,7 @@ export function TaskComposer({
         priority,
         projectId: projectId === "none" ? null : projectId,
         workingFolder: workingFolder.trim() || null,
-        reminderOffset: useReminder ? settings.defaultReminderOffset : null,
+        reminderOffset: useReminder ? reminderOffset : null,
       });
 
       setTitle("");
@@ -86,6 +108,8 @@ export function TaskComposer({
       setPriority("medium");
       setProjectId(defaultProjectId ?? "none");
       setWorkingFolder("");
+      setReminderOffset(settings.defaultReminderOffset);
+      setDetailsOpen(false);
       onCreated?.();
     } catch {
       setSubmitError(t("operationFailed"));
@@ -94,13 +118,171 @@ export function TaskComposer({
     }
   };
 
+  if (variant === "dialog") {
+    return (
+      <form className="grid gap-3" onSubmit={handleSubmit}>
+        <label className="sr-only" htmlFor="task-title">
+          {t("taskTitle")}
+        </label>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+          <input
+            id="task-title"
+            className="h-11 min-w-0 rounded-md border border-input bg-background px-3 text-base outline-none transition-colors placeholder:text-muted-foreground focus:border-ring"
+            placeholder={t("taskTitle")}
+            value={title}
+            onChange={(event) => {
+              setTitle(event.target.value);
+              setParseFeedback(null);
+            }}
+          />
+          <Button
+            aria-label={t("parseQuickAdd")}
+            disabled={!title.trim() || isSubmitting}
+            size="lg"
+            title={t("parseQuickAdd")}
+            type="button"
+            variant="secondary"
+            onClick={applyQuickAdd}
+          >
+            <Wand2 />
+            <span className="max-sm:hidden">{t("parseQuickAdd")}</span>
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-[minmax(0,1fr)_128px] gap-2 max-sm:grid-cols-1">
+          <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="task-date">
+            <span>{t("dueDate")}</span>
+            <input
+              id="task-date"
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
+              type="date"
+              value={dueDate}
+              onChange={(event) => setDueDate(event.target.value)}
+            />
+          </label>
+          <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="task-time">
+            <span>{t("dueTime")}</span>
+            <input
+              id="task-time"
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
+              type="time"
+              value={dueTime}
+              onChange={(event) => setDueTime(event.target.value)}
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div className="grid gap-1 text-xs text-muted-foreground">
+            <span>{t("priority")}</span>
+            <div aria-label={t("priority")} className="inline-grid grid-cols-3 gap-1 rounded-lg border border-border bg-background/55 p-1" role="group">
+              {priorityOptions.map((option) => (
+                <button
+                  key={option}
+                  aria-pressed={priority === option}
+                  className={cn(
+                    "h-7 rounded-md px-3 text-sm font-medium text-foreground transition-[background-color,border-color,color] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent disabled:pointer-events-none disabled:opacity-50",
+                    priority === option && "bg-primary text-primary-foreground hover:bg-primary",
+                  )}
+                  disabled={isSubmitting}
+                  type="button"
+                  onClick={() => setPriority(option)}
+                >
+                  {t(option)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <Button
+            aria-label={t("reminder")}
+            aria-pressed={useReminder}
+            className={cn(
+              "h-9 gap-2 px-3",
+              useReminder && "border-amber-500/30 bg-amber-500/12 text-amber-700 hover:bg-amber-500/18 dark:text-amber-300",
+            )}
+            disabled={isSubmitting}
+            size="sm"
+            title={t("reminder")}
+            type="button"
+            variant={useReminder ? "outline" : "ghost"}
+            onClick={() => setUseReminder((value) => !value)}
+          >
+            <Bell className={cn("transition-[color,transform] duration-150 ease-[var(--ease-out-quart)]", useReminder && "scale-105")} />
+            <span>{t("reminder")}</span>
+          </Button>
+        </div>
+
+        {detailsOpen && (
+          <div className="motion-status grid grid-cols-2 gap-3 border-t border-border pt-3 max-sm:grid-cols-1">
+            <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="task-project">
+              <span>{t("projects")}</span>
+              <select
+                id="task-project"
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none transition-colors focus:border-ring"
+                value={projectId}
+                onChange={(event) => setProjectId(event.target.value)}
+              >
+                <option value="none">{t("noProject")}</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="grid gap-1 text-xs text-muted-foreground">
+              <label htmlFor="task-folder">{t("taskFolder")}</label>
+              <div className="grid grid-cols-[minmax(0,1fr)_40px] gap-2">
+                <input
+                  id="task-folder"
+                  className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
+                  placeholder={t("inheritedFolder")}
+                  value={workingFolder}
+                  onChange={(event) => setWorkingFolder(event.target.value)}
+                />
+                <Button size="icon-lg" title={t("chooseFolder")} type="button" variant="secondary" onClick={() => void chooseFolder()}>
+                  <FolderOpen />
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(submitError || parseFeedback) && (
+          <p className={cn("motion-status text-xs", submitError ? "text-destructive" : "text-muted-foreground")}>
+            {submitError ?? parseFeedback}
+          </p>
+        )}
+
+        <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
+          <Button
+            aria-expanded={detailsOpen}
+            className="h-8 gap-1.5 px-2 text-muted-foreground"
+            size="sm"
+            type="button"
+            variant="ghost"
+            onClick={() => setDetailsOpen((value) => !value)}
+          >
+            <span>{detailsOpen ? t("lessOptions") : t("moreOptions")}</span>
+            <ChevronDown
+              className={cn(
+                "size-3.5 transition-transform duration-150 ease-[var(--ease-out-quart)]",
+                detailsOpen && "rotate-180",
+              )}
+            />
+          </Button>
+          <Button className="min-w-24 shadow-sm shadow-primary/20" disabled={isSubmitting} size="lg" type="submit">
+            <Plus />
+            {isSubmitting ? t("adding") : t("add")}
+          </Button>
+        </div>
+      </form>
+    );
+  }
+
   return (
     <form
-      className={cn(
-        variant === "inline" &&
-          "grid grid-cols-[minmax(150px,1fr)_128px_96px_82px_112px_36px_36px] gap-1.5 rounded-lg border border-border bg-card/75 p-2 shadow-sm max-xl:grid-cols-[minmax(150px,1fr)_128px_92px_36px_36px] max-xl:[&_.project-field]:hidden",
-        variant === "dialog" && "grid grid-cols-2 gap-3",
-      )}
+      className="grid grid-cols-[minmax(150px,1fr)_36px_128px_96px_82px_112px_36px_36px] gap-1.5 rounded-lg border border-border bg-card/75 p-2 shadow-sm max-xl:grid-cols-[minmax(150px,1fr)_36px_128px_92px_82px_36px_36px] max-lg:grid-cols-2 max-sm:grid-cols-1"
       onSubmit={handleSubmit}
     >
       <label className="sr-only" htmlFor="task-title">
@@ -108,14 +290,24 @@ export function TaskComposer({
       </label>
       <input
         id="task-title"
-        className={cn(
-          "h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring",
-          variant === "dialog" && "col-span-2",
-        )}
+        className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring"
         placeholder={t("taskTitle")}
         value={title}
-        onChange={(event) => setTitle(event.target.value)}
+        onChange={(event) => {
+          setTitle(event.target.value);
+          setParseFeedback(null);
+        }}
       />
+      <Button
+        disabled={!title.trim() || isSubmitting}
+        size="icon-lg"
+        title={t("parseQuickAdd")}
+        type="button"
+        variant="outline"
+        onClick={applyQuickAdd}
+      >
+        <Wand2 />
+      </Button>
       <label className="sr-only" htmlFor="task-date">
         {t("dueDate")}
       </label>
@@ -156,10 +348,7 @@ export function TaskComposer({
       </label>
       <select
         id="task-project"
-        className={cn(
-          "project-field h-9 rounded-md border border-input bg-background px-2 text-sm outline-none transition-colors focus:border-ring",
-          variant === "dialog" && "col-span-2",
-        )}
+        className="project-field h-9 rounded-md border border-input bg-background px-2 text-sm outline-none transition-colors focus:border-ring"
         value={projectId}
         onChange={(event) => setProjectId(event.target.value)}
       >
@@ -170,49 +359,33 @@ export function TaskComposer({
           </option>
         ))}
       </select>
-      {variant === "dialog" && (
-        <div className="col-span-2">
-          <label className="mb-1 block text-xs text-muted-foreground" htmlFor="task-folder">
-            {t("taskFolder")}
-          </label>
-          <div className="grid grid-cols-[minmax(0,1fr)_40px] gap-2">
-            <input
-              id="task-folder"
-              className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
-              placeholder={t("inheritedFolder")}
-              value={workingFolder}
-              onChange={(event) => setWorkingFolder(event.target.value)}
-            />
-            <Button size="icon-lg" type="button" variant="secondary" onClick={() => void chooseFolder()}>
-              <FolderOpen />
-            </Button>
-          </div>
-        </div>
-      )}
       <Button
         aria-pressed={useReminder}
-        className={variant === "dialog" ? "justify-start" : undefined}
-        size={variant === "dialog" ? "lg" : "icon-lg"}
+        size="icon-lg"
         type="button"
         disabled={isSubmitting}
         variant={useReminder ? "secondary" : "ghost"}
         title={t("reminder")}
         onClick={() => setUseReminder((value) => !value)}
       >
-        <Bell className={useReminder ? "text-amber-500" : "text-muted-foreground"} />
+        <Bell className={cn("transition-[color,transform] duration-150 ease-[var(--ease-out-quart)]", useReminder ? "scale-105 text-amber-500" : "text-muted-foreground")} />
       </Button>
       <Button
-        className={cn("relative", variant === "dialog" && "shadow-sm shadow-primary/20")}
-        size={variant === "dialog" ? "lg" : "icon-lg"}
+        className="relative"
+        size="icon-lg"
         type="submit"
         disabled={isSubmitting}
         title={t("add")}
       >
         <Plus />
-        {variant === "dialog" && (isSubmitting ? t("adding") : t("add"))}
       </Button>
       {submitError && (
-        <p className={cn("col-span-full text-xs text-destructive", variant === "dialog" && "col-span-2")}>{submitError}</p>
+        <p className="motion-status col-span-full text-xs text-destructive">{submitError}</p>
+      )}
+      {parseFeedback && !submitError && (
+        <p className="motion-status col-span-full text-xs text-muted-foreground">
+          {parseFeedback}
+        </p>
       )}
     </form>
   );

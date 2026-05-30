@@ -16,6 +16,7 @@ export const dueRemindersForData = (data: AppData, now = Date.now()) =>
     return (
       reminder.enabled &&
       reminder.firedAt === null &&
+      reminder.failedAt === null &&
       task?.deletedAt === null &&
       task?.status === "todo" &&
       new Date(reminder.snoozedUntil ?? reminder.remindAt).getTime() <= now
@@ -25,6 +26,7 @@ export const dueRemindersForData = (data: AppData, now = Date.now()) =>
 export const useReminders = (
   data: AppData | null,
   markReminderFired: (id: string) => Promise<AppData>,
+  markReminderFailed: (id: string, reason: string) => Promise<AppData>,
   onOpenTask: (taskId: string) => void,
   onPermissionDenied?: () => Promise<void> | void,
 ) => {
@@ -67,12 +69,17 @@ export const useReminders = (
             continue;
           }
 
-          sendNotification({
-            title: "WhatToDo",
-            body: task.dueTime ? `${task.title} · ${task.dueTime}` : task.title,
-          });
-          onOpenTask(task.id);
-          await markReminderFired(reminder.id);
+          try {
+            await sendNotification({
+              title: "WhatToDo",
+              body: task.dueTime ? `${task.title} · ${task.dueTime}` : task.title,
+            });
+            onOpenTask(task.id);
+            await markReminderFired(reminder.id);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            await markReminderFailed(reminder.id, message);
+          }
         }
       } catch {
         return;
@@ -87,5 +94,5 @@ export const useReminders = (
     }, 30_000);
 
     return () => window.clearInterval(timer);
-  }, [data, markReminderFired, onOpenTask, onPermissionDenied]);
+  }, [data, markReminderFailed, markReminderFired, onOpenTask, onPermissionDenied]);
 };

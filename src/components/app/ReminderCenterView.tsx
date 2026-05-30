@@ -1,4 +1,6 @@
-import { Bell, Check, CircleSlash, Clock3, ExternalLink, RotateCcw } from "lucide-react";
+import { Bell, Check, CircleSlash, Clock3, ExternalLink, RefreshCw, RotateCcw } from "lucide-react";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import type { CSSProperties } from "react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -20,9 +22,10 @@ type ReminderCenterViewProps = {
   onOpenTask: (taskId: string) => void;
 };
 
-const groupOrder: ReminderCenterGroupId[] = ["missed", "upcoming", "fired"];
+const groupOrder: ReminderCenterGroupId[] = ["failed", "missed", "upcoming", "fired"];
 
 const groupClasses = {
+  failed: "bg-red-500/10 text-red-600",
   missed: "bg-red-500/10 text-red-600",
   upcoming: "bg-amber-500/12 text-amber-600",
   fired: "bg-emerald-500/10 text-emerald-600",
@@ -76,6 +79,35 @@ export function ReminderCenterView({ actions, data, onOpenTask }: ReminderCenter
   const handleComplete = (item: ReminderCenterItem) =>
     runReminderAction(item.reminder.id, () => actions.toggleTask(item.task.id), t("saved"));
 
+  const handleRetry = (item: ReminderCenterItem) =>
+    runReminderAction(
+      item.reminder.id,
+      async () => {
+        let permissionGranted = await isPermissionGranted();
+        if (!permissionGranted) {
+          permissionGranted = (await requestPermission()) === "granted";
+        }
+
+        if (!permissionGranted) {
+          await actions.markReminderFailed(item.reminder.id, t("notificationPermissionDenied"));
+          throw new Error("notification permission denied");
+        }
+
+        try {
+          await sendNotification({
+            title: "WhatToDo",
+            body: item.task.dueTime ? `${item.task.title} · ${item.task.dueTime}` : item.task.title,
+          });
+          await actions.markReminderFired(item.reminder.id);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          await actions.markReminderFailed(item.reminder.id, message);
+          throw err;
+        }
+      },
+      t("reminderRetried"),
+    );
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <header className="shrink-0 border-b border-border bg-background px-4 py-4">
@@ -91,13 +123,13 @@ export function ReminderCenterView({ actions, data, onOpenTask }: ReminderCenter
           </div>
         </div>
         {(feedback || error) && (
-          <p className={cn("mt-3 text-sm", error ? "text-destructive" : "text-emerald-600")}>{error ?? feedback}</p>
+          <p className={cn("motion-status mt-3 text-sm", error ? "text-destructive" : "text-emerald-600")}>{error ?? feedback}</p>
         )}
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto p-4">
         {total === 0 ? (
-          <div className="flex min-h-56 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
+          <div className="motion-status flex min-h-56 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
             {t("emptyReminders")}
           </div>
         ) : (
@@ -111,15 +143,16 @@ export function ReminderCenterView({ actions, data, onOpenTask }: ReminderCenter
                   </span>
                 </div>
                 {groups[group].length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-border bg-card/30 px-4 py-5 text-sm text-muted-foreground">
+                  <div className="motion-status rounded-lg border border-dashed border-border bg-card/30 px-4 py-5 text-sm text-muted-foreground">
                     {t("emptyReminderGroup")}
                   </div>
                 ) : (
-                  <div className="grid gap-2">
-                    {groups[group].map((item) => (
+                  <div className="motion-list grid gap-2">
+                    {groups[group].map((item, index) => (
                       <article
                         key={item.reminder.id}
-                        className="grid gap-3 rounded-lg border border-border bg-card/80 px-3 py-3 shadow-sm"
+                        className="motion-surface grid gap-3 rounded-lg border border-border bg-card/80 px-3 py-3 shadow-sm hover:border-ring/70"
+                        style={{ "--motion-index": index } as CSSProperties}
                       >
                         <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0">
@@ -134,7 +167,11 @@ export function ReminderCenterView({ actions, data, onOpenTask }: ReminderCenter
                               </span>
                               {item.reminder.snoozedUntil && <span>{t("snoozed")}</span>}
                               {item.reminder.firedAt && <span>{t("fired")}</span>}
+                              {item.reminder.failedAt && <span>{t("failed")}</span>}
                             </div>
+                            {item.group === "failed" && item.reminder.lastError && (
+                              <p className="mt-1 line-clamp-2 text-xs text-destructive">{item.reminder.lastError}</p>
+                            )}
                           </div>
                           <div className="flex flex-wrap justify-end gap-1.5">
                             <Button size="sm" type="button" variant="outline" onClick={() => onOpenTask(item.task.id)}>
@@ -158,6 +195,18 @@ export function ReminderCenterView({ actions, data, onOpenTask }: ReminderCenter
 
                         {item.group !== "fired" && (
                           <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
+                            {item.group === "failed" && (
+                              <Button
+                                disabled={pendingId === item.reminder.id}
+                                size="xs"
+                                type="button"
+                                variant="secondary"
+                                onClick={() => void handleRetry(item)}
+                              >
+                                <RefreshCw />
+                                {t("retry")}
+                              </Button>
+                            )}
                             <span className="mr-1 text-xs text-muted-foreground">{t("snooze")}</span>
                             {snoozeOptions.map((option) => (
                               <Button

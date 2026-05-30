@@ -126,7 +126,7 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
   return (
     <main
       className={cn(
-        "flex h-screen flex-col overflow-hidden bg-background/78 text-foreground shadow-2xl backdrop-blur-md",
+        "flex h-screen flex-col overflow-hidden bg-background/78 text-foreground shadow-2xl backdrop-blur-md transition-[background-color,box-shadow] duration-200 ease-[var(--ease-out-quart)]",
         isCollapsed ? "min-h-[96px]" : "min-h-[420px]",
       )}
     >
@@ -175,10 +175,10 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
       </header>
 
       {!isCollapsed && (
-        <>
+        <div className="motion-pane-content flex min-h-0 flex-1 flex-col">
           <section className="shrink-0 border-b border-border/75 bg-background/35 px-3 py-2">
             {data.workspaceFolders.length === 0 ? (
-              <p className="py-2 text-sm text-muted-foreground">{t("emptyFolders")}</p>
+              <p className="motion-status py-2 text-sm text-muted-foreground">{t("emptyFolders")}</p>
             ) : (
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {data.workspaceFolders.map((folder) => (
@@ -202,7 +202,7 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
               tasks={tasks}
             />
           </section>
-        </>
+        </div>
       )}
     </main>
   );

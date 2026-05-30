@@ -2,6 +2,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { FolderOpen, FolderPlus, MonitorUp, Plus, Trash2 } from "lucide-react";
+import type { CSSProperties } from "react";
 import { FormEvent, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -20,7 +21,13 @@ type WorkspacesViewProps = {
   setSelectedTaskId: (taskId: string | null) => void;
 };
 
-const workspaceColors = ["#4fb8d8", "#6cc083", "#d7a742", "#ec6f5d", "#8b7cf6"];
+const workspaceColors = [
+  { labelKey: "accentBlue", value: "#4fb8d8" },
+  { labelKey: "accentEmerald", value: "#6cc083" },
+  { labelKey: "accentAmber", value: "#d7a742" },
+  { labelKey: "accentRose", value: "#ec6f5d" },
+  { labelKey: "accentViolet", value: "#8b7cf6" },
+];
 
 const folderNameFromPath = (path: string) => {
   const parts = path.split(/[\\/]/).filter(Boolean);
@@ -30,7 +37,7 @@ const folderNameFromPath = (path: string) => {
 export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskId }: WorkspacesViewProps) {
   const { t } = useTranslation();
   const [workspaceName, setWorkspaceName] = useState("");
-  const [workspaceColor, setWorkspaceColor] = useState(workspaceColors[0]);
+  const [workspaceColor, setWorkspaceColor] = useState(workspaceColors[0].value);
   const [folderName, setFolderName] = useState("");
   const [folderPath, setFolderPath] = useState("");
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
@@ -79,7 +86,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
     try {
       await actions.createWorkspace({ name, color: workspaceColor });
       setWorkspaceName("");
-      setWorkspaceColor(workspaceColors[0]);
+      setWorkspaceColor(workspaceColors[0].value);
       setSelectedTaskId(null);
     } catch {
       setWorkspaceError(t("operationFailed"));
@@ -135,8 +142,8 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
   };
 
   return (
-    <main className="flex h-full min-h-0">
-      <aside className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/45 max-lg:w-[292px]">
+    <main className="flex h-full min-h-0 max-md:flex-col">
+      <aside className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/45 max-lg:w-[292px] max-md:max-h-[360px] max-md:w-full max-md:border-b max-md:border-r-0">
         <section className="border-b border-border p-3">
           <div className="mb-3 flex items-center justify-between">
             <h1 className="text-sm font-semibold">{t("workspaces")}</h1>
@@ -145,9 +152,10 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
           <div className="space-y-2">
             {data.workspaces.map((workspace) => (
               <button
+                aria-current={workspace.id === data.workspaceId ? "true" : undefined}
                 key={workspace.id}
                 className={cn(
-                  "flex w-full items-center justify-between rounded-md border border-transparent px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent",
+                  "motion-surface flex w-full items-center justify-between rounded-md border border-transparent px-2.5 py-2 text-left text-sm hover:bg-accent",
                   workspace.id === data.workspaceId && "border-ring bg-accent text-accent-foreground",
                 )}
                 type="button"
@@ -182,12 +190,16 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
           <div className="mt-3 flex gap-2">
             {workspaceColors.map((item) => (
               <button
-                key={item}
-                aria-label={item}
-                className={cn("size-7 rounded-md border border-border ring-offset-background", workspaceColor === item && "ring-2 ring-ring")}
-                style={{ backgroundColor: item }}
+                key={item.value}
+                aria-label={t(item.labelKey)}
+                aria-pressed={workspaceColor === item.value}
+                className={cn(
+                  "size-7 rounded-md border border-border ring-offset-background transition-[box-shadow,border-color] duration-150 ease-[var(--ease-out-quart)]",
+                  workspaceColor === item.value && "ring-2 ring-ring",
+                )}
+                style={{ backgroundColor: item.value }}
                 type="button"
-                onClick={() => setWorkspaceColor(item)}
+                onClick={() => setWorkspaceColor(item.value)}
               />
             ))}
           </div>
@@ -231,7 +243,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
             </div>
           </div>
 
-          <form className="mt-4 grid grid-cols-[minmax(120px,180px)_minmax(0,1fr)_40px_auto] gap-2 max-xl:grid-cols-2" onSubmit={createFolder}>
+          <form className="mt-4 grid grid-cols-[minmax(120px,180px)_minmax(0,1fr)_40px_auto] gap-2 max-xl:grid-cols-2 max-sm:grid-cols-1" onSubmit={createFolder}>
             <input
               className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
               placeholder={t("folderName")}
@@ -255,20 +267,24 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
           </form>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(240px,320px)_minmax(0,1fr)] overflow-hidden max-xl:grid-cols-1">
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(240px,320px)_minmax(0,1fr)] overflow-hidden max-xl:grid-cols-1 max-md:overflow-auto">
           <section className="min-h-0 overflow-auto border-r border-border p-4 max-xl:border-b max-xl:border-r-0">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold">{t("commonFolders")}</h3>
               <span className="text-xs text-muted-foreground">{data.workspaceFolders.length}</span>
             </div>
             {data.workspaceFolders.length === 0 ? (
-              <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-4 text-center text-sm text-muted-foreground">
+              <div className="motion-status flex min-h-28 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-4 text-center text-sm text-muted-foreground">
                 {t("emptyFolders")}
               </div>
             ) : (
-              <div className="space-y-2">
-                {data.workspaceFolders.map((folder) => (
-                  <div key={folder.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-border bg-card/70 px-3 py-2">
+              <div className="motion-list space-y-2">
+                {data.workspaceFolders.map((folder, index) => (
+                  <div
+                    key={folder.id}
+                    className="motion-surface grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-border bg-card/70 px-3 py-2"
+                    style={{ "--motion-index": index } as CSSProperties}
+                  >
                     <button className="min-w-0 text-left" type="button" onClick={() => void openPath(folder.path)}>
                       <p className="truncate text-sm font-medium">{folder.name}</p>
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">{folder.path}</p>

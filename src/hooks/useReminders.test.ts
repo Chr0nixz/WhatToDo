@@ -29,6 +29,9 @@ const makeReminder = (patch: Partial<Reminder>): Reminder => ({
   offsetMinutes: patch.offsetMinutes ?? 30,
   snoozedUntil: patch.snoozedUntil ?? null,
   firedAt: patch.firedAt ?? null,
+  failedAt: patch.failedAt ?? null,
+  lastError: patch.lastError ?? null,
+  lastAttemptedAt: patch.lastAttemptedAt ?? null,
   enabled: patch.enabled ?? true,
 });
 
@@ -38,8 +41,11 @@ const makeData = (tasks: Task[], reminders: Reminder[]): AppData => ({
   workspaceFolders: [],
   projects: [],
   tasks,
+  deletedTasks: [],
+  deletedWorkspaceFolders: [],
   availableTasks: [],
   reminders,
+  savedViews: [],
   settings: {
     theme: "system",
     accentColor: "blue",
@@ -67,7 +73,7 @@ describe("dueRemindersForData", () => {
     ]);
   });
 
-  it("excludes disabled, fired, completed, deleted, and future reminders", () => {
+  it("excludes disabled, fired, failed, completed, deleted, and future reminders", () => {
     const data = makeData(
       [
         makeTask({ id: "open" }),
@@ -79,6 +85,7 @@ describe("dueRemindersForData", () => {
         makeReminder({ id: "future", taskId: "open", remindAt: "2026-06-01T00:10:00.000Z" }),
         makeReminder({ id: "disabled", taskId: "open", enabled: false }),
         makeReminder({ id: "fired", taskId: "open", firedAt: "2026-06-01T00:00:00.000Z" }),
+        makeReminder({ id: "failed", taskId: "open", failedAt: "2026-06-01T00:00:00.000Z" }),
         makeReminder({ id: "done", taskId: "done" }),
         makeReminder({ id: "deleted", taskId: "deleted" }),
       ],

@@ -21,7 +21,13 @@ type ProjectsViewProps = {
   setSelectedTaskId: (taskId: string | null) => void;
 };
 
-const projectColors = ["#4fb8d8", "#8b7cf6", "#ec6f5d", "#6cc083", "#d7a742"];
+const projectColors = [
+  { labelKey: "accentBlue", value: "#4fb8d8" },
+  { labelKey: "accentViolet", value: "#8b7cf6" },
+  { labelKey: "accentRose", value: "#ec6f5d" },
+  { labelKey: "accentEmerald", value: "#6cc083" },
+  { labelKey: "accentAmber", value: "#d7a742" },
+];
 
 export function ProjectsView({
   data,
@@ -37,7 +43,7 @@ export function ProjectsView({
   const [dueDate, setDueDate] = useState("");
   const [workingFolder, setWorkingFolder] = useState("");
   const [selectedWorkingFolder, setSelectedWorkingFolder] = useState("");
-  const [color, setColor] = useState(projectColors[0]);
+  const [color, setColor] = useState(projectColors[0].value);
   const [isCreating, setIsCreating] = useState(false);
   const [isSavingFolder, setIsSavingFolder] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -84,7 +90,7 @@ export function ProjectsView({
       setName("");
       setDueDate("");
       setWorkingFolder("");
-      setColor(projectColors[0]);
+      setColor(projectColors[0].value);
     } catch {
       setFormError(t("operationFailed"));
     } finally {
@@ -133,8 +139,8 @@ export function ProjectsView({
   };
 
   return (
-    <main className="flex h-full min-h-0">
-      <aside className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/45 max-lg:w-[292px]">
+    <main className="flex h-full min-h-0 max-md:flex-col">
+      <aside className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/45 max-lg:w-[292px] max-md:max-h-[360px] max-md:w-full max-md:border-b max-md:border-r-0">
         <section className="border-b border-border p-3">
           <div className="mb-3 flex items-center justify-between">
             <h1 className="text-sm font-semibold">{t("projects")}</h1>
@@ -204,12 +210,16 @@ export function ProjectsView({
           <div className="mt-3 flex gap-2">
             {projectColors.map((item) => (
               <button
-                key={item}
-                aria-label={item}
-                className={cn("size-7 rounded-md border border-border ring-offset-background", color === item && "ring-2 ring-ring")}
-                style={{ backgroundColor: item }}
+                key={item.value}
+                aria-label={t(item.labelKey)}
+                aria-pressed={color === item.value}
+                className={cn(
+                  "size-7 rounded-md border border-border ring-offset-background transition-[box-shadow,border-color] duration-150 ease-[var(--ease-out-quart)]",
+                  color === item.value && "ring-2 ring-ring",
+                )}
+                style={{ backgroundColor: item.value }}
                 type="button"
-                onClick={() => setColor(item)}
+                onClick={() => setColor(item.value)}
               />
             ))}
           </div>
@@ -223,8 +233,8 @@ export function ProjectsView({
 
       <section className="flex min-w-0 flex-1 flex-col">
         <div className="border-b border-border bg-background/65 p-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span
                   className="flex size-9 items-center justify-center rounded-lg border border-border bg-secondary"
@@ -232,15 +242,15 @@ export function ProjectsView({
                 >
                   <FolderKanban className="size-4" />
                 </span>
-                <div>
-                  <h2 className="text-xl font-semibold">{selectedProject?.name ?? t("noProject")}</h2>
+                <div className="min-w-0">
+                  <h2 className="truncate text-xl font-semibold">{selectedProject?.name ?? t("noProject")}</h2>
                   <p className="text-sm text-muted-foreground">
                     {selectedProject?.dueDate ? `${t("projectDue")} ${selectedProject.dueDate}` : t("loose")}
                   </p>
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {selectedProject && (
                 <Button
                   size="sm"
@@ -277,7 +287,7 @@ export function ProjectsView({
               <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="selected-project-folder">
                 {t("workingFolder")}
               </label>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-1.5">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-1.5 max-lg:grid-cols-2 max-sm:grid-cols-1">
                 <input
                   id="selected-project-folder"
                   className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
@@ -308,7 +318,7 @@ export function ProjectsView({
                 </Button>
               </div>
               {folderSaveState !== "idle" && (
-                <p className={cn("mt-2 text-xs", folderSaveState === "saved" ? "text-emerald-600" : "text-destructive")}>
+                <p className={cn("motion-status mt-2 text-xs", folderSaveState === "saved" ? "text-emerald-600" : "text-destructive")}>
                   {folderSaveState === "saved" ? t("saved") : t("operationFailed")}
                 </p>
               )}
@@ -346,8 +356,9 @@ function ProjectButton({
 }) {
   return (
     <button
+      aria-pressed={active}
       className={cn(
-        "flex w-full items-center justify-between rounded-md border border-transparent px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent",
+        "motion-surface flex w-full items-center justify-between rounded-md border border-transparent px-2.5 py-2 text-left text-sm hover:bg-accent",
         active && "border-ring bg-accent text-accent-foreground",
       )}
       type="button"
@@ -364,7 +375,7 @@ function ProjectButton({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-border bg-card/60 px-3 py-2">
+    <div className="motion-surface rounded-md border border-border bg-card/60 px-3 py-2">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-lg font-semibold">{value}</p>
     </div>

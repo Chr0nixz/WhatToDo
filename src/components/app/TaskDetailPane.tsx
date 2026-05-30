@@ -99,12 +99,12 @@ export function TaskDetailPane({ task, projects, reminders, settings, actions, o
   return (
     <aside
       className={cn(
-        "min-h-0 shrink-0 overflow-hidden border-l border-border bg-card/60 transition-[width] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
-        task ? "w-[360px] max-xl:w-[332px]" : "w-0",
+        "min-h-0 shrink-0 overflow-hidden border-l border-border bg-card/60 transition-[background-color,border-color] duration-150 ease-[var(--ease-out-quart)] max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-40 max-md:shadow-xl",
+        task ? "w-[360px] max-xl:w-[332px] max-md:w-[min(360px,calc(100vw-56px))]" : "w-0",
       )}
     >
       {task && (
-        <div className="flex h-full min-w-[320px] flex-col">
+        <div key={task.id} className="motion-pane-content flex h-full min-w-[320px] flex-col max-sm:min-w-0">
           <div className="flex h-14 items-center justify-between border-b border-border px-4">
             <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t("projectTask")}</p>
@@ -224,7 +224,7 @@ export function TaskDetailPane({ task, projects, reminders, settings, actions, o
               {reminder ? `${t("reminder")} · ${new Date(reminder.remindAt).toLocaleString()}` : t("none")}
             </div>
             {saveState !== "idle" && (
-              <p className={cn("mt-3 text-xs", saveState === "saved" ? "text-emerald-600" : "text-destructive")}>
+              <p className={cn("motion-status mt-3 text-xs", saveState === "saved" ? "text-emerald-600" : "text-destructive")}>
                 {saveState === "saved" ? t("saved") : t("operationFailed")}
               </p>
             )}

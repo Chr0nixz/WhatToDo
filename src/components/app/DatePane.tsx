@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { format, isSameMonth } from "date-fns";
+import type { CSSProperties } from "react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -31,14 +32,15 @@ export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps
   const weekDays = getWeekDays(selectedDate);
 
   return (
-    <aside className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/45 max-lg:w-[292px]">
+    <aside className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/45 max-lg:w-[292px] max-md:max-h-[280px] max-md:w-full max-md:border-b max-md:border-r-0">
       <div className="border-b border-border p-3">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold">{mode === "calendar" ? t("month") : t("week")}</h2>
           <div className="inline-grid grid-flow-col gap-1 rounded-lg border border-border bg-background/55 p-1">
             <button
+              aria-pressed={mode === "calendar"}
               className={cn(
-                "h-7 rounded-md px-2.5 text-xs transition-colors hover:bg-accent",
+                "h-7 rounded-md px-2.5 text-xs transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent active:scale-95",
                 mode === "calendar" && "bg-primary text-primary-foreground hover:bg-primary",
               )}
               type="button"
@@ -47,8 +49,9 @@ export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps
               {t("month")}
             </button>
             <button
+              aria-pressed={mode === "week"}
               className={cn(
-                "h-7 rounded-md px-2.5 text-xs transition-colors hover:bg-accent",
+                "h-7 rounded-md px-2.5 text-xs transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent active:scale-95",
                 mode === "week" && "bg-primary text-primary-foreground hover:bg-primary",
               )}
               type="button"
@@ -61,6 +64,7 @@ export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps
 
         <div className="flex items-center justify-between">
           <Button
+            aria-label={t("previousMonth")}
             size="icon-sm"
             type="button"
             variant="ghost"
@@ -70,6 +74,7 @@ export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps
           </Button>
           <span className="text-sm font-medium">{formatMonthTitle(monthCursor, i18n.language)}</span>
           <Button
+            aria-label={t("nextMonth")}
             size="icon-sm"
             type="button"
             variant="ghost"
@@ -82,49 +87,55 @@ export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps
 
       <div className="min-h-0 flex-1 overflow-auto p-3">
         {mode === "calendar" ? (
-          <>
+          <div key="calendar" className="motion-view">
             <div className="grid grid-cols-7 gap-1 text-center text-[0.68rem] text-muted-foreground">
               {weekDays.map((day) => (
                 <span key={day.toISOString()}>{formatWeekday(day, i18n.language)}</span>
               ))}
             </div>
-            <div className="mt-2 grid grid-cols-7 gap-1">
-              {monthDays.map((day) => {
+            <div className="motion-list mt-2 grid grid-cols-7 gap-1 max-md:auto-rows-[36px]">
+              {monthDays.map((day, index) => {
                 const key = toDateKey(day);
                 const count = counts[key] ?? 0;
 
                 return (
                   <button
+                    aria-current={isToday(day) ? "date" : undefined}
+                    aria-pressed={key === selectedDate}
                     key={key}
                     className={cn(
-                      "relative flex aspect-square items-center justify-center rounded-md text-sm transition-colors hover:bg-accent",
+                      "relative flex aspect-square items-center justify-center rounded-md text-sm transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent active:scale-95 max-md:aspect-auto",
                       !isSameMonth(day, new Date(`${monthCursor}T00:00:00`)) && "text-muted-foreground/45",
                       key === selectedDate && "bg-primary text-primary-foreground hover:bg-primary",
                       isToday(day) && key !== selectedDate && "text-primary",
                     )}
+                    style={{ "--motion-index": index } as CSSProperties}
                     type="button"
                     onClick={() => setSelectedDate(key)}
                   >
                     {format(day, "d")}
-                    {count > 0 && <span className="absolute bottom-1 h-1 w-4 rounded-full bg-current opacity-70" />}
+                    {count > 0 && <span className="motion-status absolute bottom-1 h-1 w-4 rounded-full bg-current opacity-70" />}
                   </button>
                 );
               })}
             </div>
-          </>
+          </div>
         ) : (
-          <div className="space-y-2">
-            {weekDays.map((day) => {
+          <div key="week" className="motion-list space-y-2">
+            {weekDays.map((day, index) => {
               const key = toDateKey(day);
               const count = counts[key] ?? 0;
 
               return (
                 <button
+                  aria-current={isToday(day) ? "date" : undefined}
+                  aria-pressed={selectedDate === key}
                   key={key}
                   className={cn(
-                    "flex w-full items-center justify-between rounded-lg border border-transparent px-3 py-3 text-left text-sm transition-colors hover:bg-accent",
+                    "motion-surface flex w-full items-center justify-between rounded-lg border border-transparent px-3 py-3 text-left text-sm hover:bg-accent",
                     selectedDate === key && "border-ring bg-accent text-accent-foreground",
                   )}
+                  style={{ "--motion-index": index } as CSSProperties}
                   type="button"
                   onClick={() => setSelectedDate(key)}
                 >

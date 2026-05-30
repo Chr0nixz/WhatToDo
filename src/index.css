@@ -50,6 +50,9 @@
 
 :root {
   color-scheme: light;
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --background: oklch(0.976 0.008 228);
   --foreground: oklch(0.19 0.022 235);
   --card: oklch(0.954 0.01 228);
@@ -243,6 +246,98 @@ textarea {
   font: inherit;
 }
 
+.motion-view {
+  animation: motion-view-in 180ms var(--ease-out-quint) both;
+}
+
+.motion-pane-content {
+  animation: motion-pane-content-in 190ms var(--ease-out-quint) both;
+}
+
+.motion-list > * {
+  animation: motion-list-item-in 140ms var(--ease-out-quint) both;
+}
+
+.motion-surface {
+  transition-duration: 160ms;
+  transition-property: background-color, border-color, color, opacity;
+  transition-timing-function: var(--ease-out-quart);
+}
+
+.motion-status {
+  animation: motion-status-in 180ms var(--ease-out-quint) both;
+}
+
+.motion-dialog-overlay {
+  animation: motion-overlay-in 160ms var(--ease-out-quart) both;
+}
+
+.motion-dialog-content {
+  animation: motion-dialog-in 210ms var(--ease-out-expo) both;
+}
+
+@keyframes motion-view-in {
+  from {
+    opacity: 0.92;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes motion-pane-content-in {
+  from {
+    opacity: 0.94;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes motion-list-item-in {
+  from {
+    opacity: 0.92;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes motion-status-in {
+  from {
+    opacity: 0.9;
+    transform: translateY(-3px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes motion-overlay-in {
+  from {
+    opacity: 0.86;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes motion-dialog-in {
+  from {
+    opacity: 0.94;
+    transform: translate(-50%, -48%) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
@@ -260,6 +355,20 @@ select:focus-visible {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@media (pointer: coarse) {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  input,
+  select,
+  textarea {
+    min-height: 44px;
   }
 }
 

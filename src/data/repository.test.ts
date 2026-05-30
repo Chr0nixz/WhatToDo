@@ -42,6 +42,7 @@ describe("LocalRepository", () => {
     const taskId = data.tasks[0].id;
     data = await repository.deleteTask(taskId);
     expect(data.tasks.find((task) => task.id === taskId)).toBeUndefined();
+    expect(data.deletedTasks.find((task) => task.id === taskId)?.title).toBe("Delete me");
 
     data = await repository.restoreTask(taskId);
     expect(data.tasks.find((task) => task.id === taskId)?.title).toBe("Delete me");
@@ -50,6 +51,7 @@ describe("LocalRepository", () => {
     const folderId = data.workspaceFolders[0].id;
     data = await repository.deleteWorkspaceFolder(folderId);
     expect(data.workspaceFolders.find((folder) => folder.id === folderId)).toBeUndefined();
+    expect(data.deletedWorkspaceFolders.find((folder) => folder.id === folderId)?.name).toBe("Docs");
 
     data = await repository.restoreWorkspaceFolder(folderId);
     expect(data.workspaceFolders.find((folder) => folder.id === folderId)?.name).toBe("Docs");
@@ -88,6 +90,31 @@ describe("LocalRepository", () => {
 
     data = await repository.disableReminder(reminderId);
     expect(data.reminders[0].enabled).toBe(false);
+  });
+
+  it("stores saved views and imports exported backups", async () => {
+    const repository = new LocalRepository();
+    let data = await repository.load();
+
+    data = await repository.createSavedView({
+      name: "High priority",
+      filters: {
+        scope: "open",
+        priority: "high",
+        projectId: "all",
+        reminder: "all",
+        folder: "all",
+        dateRange: "week",
+      },
+    });
+    expect(data.savedViews[0].name).toBe("High priority");
+
+    const backup = await repository.exportBackup();
+    const restoredRepository = new LocalRepository();
+    const restored = await restoredRepository.importBackup(backup);
+
+    expect(restored.savedViews[0].filters.priority).toBe("high");
+    expect(restored.workspaceId).toBe(data.workspaceId);
   });
 });
 
@@ -135,10 +162,10 @@ describe("SqlRepository", () => {
     await repository.snoozeReminder("reminder_a", "2026-06-01T09:45:00.000Z");
     await repository.disableReminder("reminder_a");
 
-    expect(db.execute).toHaveBeenCalledWith("UPDATE reminders SET snoozed_until = ?, fired_at = NULL WHERE id = ?", [
-      "2026-06-01T09:45:00.000Z",
-      "reminder_a",
-    ]);
+    expect(db.execute).toHaveBeenCalledWith(
+      "UPDATE reminders SET snoozed_until = ?, fired_at = NULL, failed_at = NULL, last_error = NULL WHERE id = ?",
+      ["2026-06-01T09:45:00.000Z", "reminder_a"],
+    );
     expect(db.execute).toHaveBeenCalledWith("UPDATE reminders SET enabled = ? WHERE id = ?", [0, "reminder_a"]);
   });
 });

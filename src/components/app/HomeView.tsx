@@ -48,7 +48,7 @@ export function HomeView({
   const overdue = useMemo(() => overdueTasks(data.tasks), [data.tasks]);
 
   return (
-    <main className="flex h-full min-h-0">
+    <main className="flex h-full min-h-0 max-md:flex-col">
       <DatePane selectedDate={selectedDate} setSelectedDate={setSelectedDate} tasks={data.tasks} />
 
       <section className="flex min-w-0 flex-1 flex-col">
@@ -62,7 +62,7 @@ export function HomeView({
             </div>
             <div className="flex items-center gap-2">
               {isSearchOpen && (
-                <div className="relative">
+                <div className="motion-status relative">
                   <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
                   <input
                     className="h-9 w-56 rounded-md border border-input bg-background pl-8 pr-8 text-sm outline-none transition-colors focus:border-ring max-md:w-40"
@@ -110,7 +110,7 @@ export function HomeView({
               })}
             </h2>
             {overdue.length > 0 && (
-              <span className="rounded-full bg-red-500/12 px-2 py-1 text-xs font-medium text-red-500">
+              <span className="motion-status rounded-full bg-red-500/12 px-2 py-1 text-xs font-medium text-red-500">
                 {t("overdue")} {overdue.length}
               </span>
             )}

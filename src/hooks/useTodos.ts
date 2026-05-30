@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { createRepository } from "@/data/repository";
 import type {
   AppData,
+  BackupPayload,
+  CreateSavedTaskViewInput,
   CreateProjectInput,
   CreateTaskInput,
   CreateWorkspaceFolderInput,
@@ -31,6 +33,7 @@ export type TodoActions = {
     patch: Partial<Pick<Project, "name" | "color" | "dueDate" | "status" | "workingFolder">>,
   ) => Promise<AppData>;
   archiveProject: (id: string) => Promise<AppData>;
+  unarchiveProject: (id: string) => Promise<AppData>;
   createTask: (input: CreateTaskInput) => Promise<AppData>;
   updateTask: (
     id: string,
@@ -40,8 +43,16 @@ export type TodoActions = {
   deleteTask: (id: string) => Promise<AppData>;
   restoreTask: (id: string) => Promise<AppData>;
   markReminderFired: (id: string) => Promise<AppData>;
+  markReminderFailed: (id: string, reason: string) => Promise<AppData>;
   snoozeReminder: (id: string, untilIso: string) => Promise<AppData>;
   disableReminder: (id: string) => Promise<AppData>;
+  createSavedView: (input: CreateSavedTaskViewInput) => Promise<AppData>;
+  updateSavedView: (id: string, input: CreateSavedTaskViewInput) => Promise<AppData>;
+  deleteSavedView: (id: string) => Promise<AppData>;
+  exportBackup: () => Promise<BackupPayload>;
+  importBackup: (payload: BackupPayload) => Promise<AppData>;
+  exportCurrentWorkspaceCsv: () => Promise<string>;
+  exportCurrentWorkspaceIcs: () => Promise<string>;
   saveSettings: (settings: Settings) => Promise<AppData>;
 };
 
@@ -128,6 +139,7 @@ export const useTodos = () => {
         patch: Partial<Pick<Project, "name" | "color" | "dueDate" | "status" | "workingFolder">>,
       ) => run(() => repository.updateProject(id, patch)),
       archiveProject: (id: string) => run(() => repository.archiveProject(id)),
+      unarchiveProject: (id: string) => run(() => repository.unarchiveProject(id)),
       createTask: (input: CreateTaskInput) => run(() => repository.createTask(input)),
       updateTask: (
         id: string,
@@ -137,8 +149,16 @@ export const useTodos = () => {
       deleteTask: (id: string) => run(() => repository.deleteTask(id)),
       restoreTask: (id: string) => run(() => repository.restoreTask(id)),
       markReminderFired: (id: string) => run(() => repository.markReminderFired(id)),
+      markReminderFailed: (id: string, reason: string) => run(() => repository.markReminderFailed(id, reason)),
       snoozeReminder: (id: string, untilIso: string) => run(() => repository.snoozeReminder(id, untilIso)),
       disableReminder: (id: string) => run(() => repository.disableReminder(id)),
+      createSavedView: (input: CreateSavedTaskViewInput) => run(() => repository.createSavedView(input)),
+      updateSavedView: (id: string, input: CreateSavedTaskViewInput) => run(() => repository.updateSavedView(id, input)),
+      deleteSavedView: (id: string) => run(() => repository.deleteSavedView(id)),
+      exportBackup: () => repository.exportBackup(),
+      importBackup: (payload: BackupPayload) => run(() => repository.importBackup(payload)),
+      exportCurrentWorkspaceCsv: () => repository.exportCurrentWorkspaceCsv(),
+      exportCurrentWorkspaceIcs: () => repository.exportCurrentWorkspaceIcs(),
       saveSettings: (settings: Settings) => run(() => repository.saveSettings(settings)),
     }),
     [repository, run],

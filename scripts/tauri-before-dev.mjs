@@ -31,10 +31,11 @@ if (await isWhatToDoViteServerRunning()) {
   console.log(`Reusing existing WhatToDo Vite dev server at ${DEV_URL}`);
   setInterval(() => undefined, 60_000);
 } else {
-  const command = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  const isWindows = process.platform === "win32";
+  const command = "pnpm";
   const child = spawn(command, ["dev", "--", "--host", DEV_HOST], {
     stdio: "inherit",
-    shell: false,
+    shell: isWindows,
   });
 
   const forwardSignal = (signal) => {
