@@ -28,8 +28,8 @@ jobs:
         include:
           - label: Windows
             os: windows-latest
-          - label: macOS
-            os: macos-13
+          - label: macOS ARM64
+            os: macos-14
           - label: Linux
             os: ubuntu-22.04
 

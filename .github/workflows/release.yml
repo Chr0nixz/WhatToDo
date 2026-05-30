@@ -113,6 +113,15 @@ jobs:
               src-tauri/target/release/bundle/macos/*.tar.gz
               src-tauri/target/release/bundle/macos/*.sig
             updater_glob: src-tauri/target/release/bundle/macos/*.app.tar.gz
+          - label: macOS ARM64
+            os: macos-14
+            platform: darwin-aarch64
+            build_args: --bundles dmg
+            release_paths: |
+              src-tauri/target/release/bundle/dmg/*.dmg
+              src-tauri/target/release/bundle/macos/*.tar.gz
+              src-tauri/target/release/bundle/macos/*.sig
+            updater_glob: src-tauri/target/release/bundle/macos/*.app.tar.gz
           - label: Linux x64
             os: ubuntu-22.04
             platform: linux-x86_64
@@ -241,7 +250,7 @@ jobs:
         with:
           pattern: release-*
           path: release-artifacts
-          merge-multiple: true
+          merge-multiple: false
 
       - name: Generate release notes and latest.json
         shell: pwsh
@@ -262,7 +271,7 @@ jobs:
           )
 
           $platforms = [ordered]@{}
-          Get-ChildItem release-artifacts -Filter "platform-*.json" | ForEach-Object {
+          Get-ChildItem release-artifacts -Recurse -Filter "platform-*.json" | ForEach-Object {
             $metadata = Get-Content -Raw $_.FullName | ConvertFrom-Json
             $platforms[$metadata.platform] = [ordered]@{
               signature = $metadata.signature
@@ -270,7 +279,7 @@ jobs:
             }
           }
 
-          foreach ($required in @("windows-x86_64", "darwin-x86_64", "linux-x86_64")) {
+          foreach ($required in @("windows-x86_64", "darwin-x86_64", "darwin-aarch64", "linux-x86_64")) {
             if (-not $platforms.Contains($required)) {
               throw "latest.json is missing $required metadata."
             }
@@ -292,7 +301,7 @@ jobs:
       - name: Publish GitHub Release
         shell: pwsh
         run: |
-          $assetPaths = Get-ChildItem release-artifacts -File |
+          $assetPaths = Get-ChildItem release-artifacts -Recurse -File |
             Where-Object { $_.Name -notlike "platform-*.json" } |
             ForEach-Object { $_.FullName }
 
@@ -322,7 +331,7 @@ jobs:
           if ($metadata.version -ne $env:APP_VERSION) {
             throw "latest.json version '$($metadata.version)' does not match '$env:APP_VERSION'."
           }
-          foreach ($required in @("windows-x86_64", "darwin-x86_64", "linux-x86_64")) {
+          foreach ($required in @("windows-x86_64", "darwin-x86_64", "darwin-aarch64", "linux-x86_64")) {
             if (-not $metadata.platforms.$required.signature) {
               throw "latest.json is missing the $required updater signature."
             }
