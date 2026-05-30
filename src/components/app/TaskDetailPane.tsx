@@ -1,12 +1,13 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { Check, FolderOpen, PanelRightClose, Trash2 } from "lucide-react";
+import { Check, FolderOpen, PanelRightClose, Repeat2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { formatReminderDateTime } from "@/data/dateFormat";
 import { projectById } from "@/data/project";
-import type { Project, Reminder, Settings, Task, TaskPriority } from "@/data/types";
+import type { Project, RecurrenceFrequency, RecurringTaskTemplate, Reminder, Settings, Task, TaskPriority } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
@@ -14,15 +15,23 @@ type TaskDetailPaneProps = {
   task: Task | null;
   projects: Project[];
   reminders: Reminder[];
+  recurringTaskTemplates: RecurringTaskTemplate[];
   settings: Settings;
   actions: TodoActions;
   onClose: () => void;
 };
 
 const priorities: TaskPriority[] = ["low", "medium", "high"];
+const recurrenceOptions: RecurrenceFrequency[] = ["daily", "weekly", "monthly"];
+const reminderOffsetOptions = [10, 30, 60, 1440];
+const recurrenceLabelKeys: Record<RecurrenceFrequency, string> = {
+  daily: "repeatDaily",
+  weekly: "repeatWeekly",
+  monthly: "repeatMonthly",
+};
 
-export function TaskDetailPane({ task, projects, reminders, settings, actions, onClose }: TaskDetailPaneProps) {
-  const { t } = useTranslation();
+export function TaskDetailPane({ task, projects, reminders, recurringTaskTemplates, settings, actions, onClose }: TaskDetailPaneProps) {
+  const { i18n, t } = useTranslation();
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -30,10 +39,22 @@ export function TaskDetailPane({ task, projects, reminders, settings, actions, o
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [projectId, setProjectId] = useState("none");
   const [workingFolder, setWorkingFolder] = useState("");
+  const [useReminder, setUseReminder] = useState(false);
+  const [reminderOffset, setReminderOffset] = useState(settings.defaultReminderOffset);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingFuture, setIsSavingFuture] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
+  const [deleteState, setDeleteState] = useState<"idle" | "error">("idle");
+  const [futureSaveState, setFutureSaveState] = useState<"idle" | "saved" | "error" | "disabled">("idle");
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency>("daily");
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
+  const recurringTemplate = task?.recurrenceTemplateId
+    ? recurringTaskTemplates.find((template) => template.id === task.recurrenceTemplateId) ?? null
+    : null;
 
   useEffect(() => {
+    const nextReminder = task ? reminders.find((item) => item.taskId === task.id && item.enabled) : null;
+
     setTitle(task?.title ?? "");
     setNotes(task?.notes ?? "");
     setDueDate(task?.dueDate ?? "");
@@ -41,8 +62,17 @@ export function TaskDetailPane({ task, projects, reminders, settings, actions, o
     setPriority(task?.priority ?? "medium");
     setProjectId(task?.projectId ?? "none");
     setWorkingFolder(task?.workingFolder ?? "");
+    setUseReminder(Boolean(nextReminder));
+    setReminderOffset(nextReminder?.offsetMinutes ?? settings.defaultReminderOffset);
     setSaveState("idle");
-  }, [task]);
+    setDeleteState("idle");
+    setFutureSaveState("idle");
+  }, [reminders, settings.defaultReminderOffset, task]);
+
+  useEffect(() => {
+    setRecurrenceFrequency(recurringTemplate?.frequency ?? "daily");
+    setRecurrenceEndDate(recurringTemplate?.endDate ?? "");
+  }, [recurringTemplate]);
 
   const visibleProjects = projects.filter((project) => project.deletedAt === null && project.status !== "archived");
   const project = task ? projectById(projects, task.projectId) : null;
@@ -65,7 +95,12 @@ export function TaskDetailPane({ task, projects, reminders, settings, actions, o
 
   const openFolder = async () => {
     if (effectiveFolder) {
-      await openPath(effectiveFolder);
+      try {
+        await openPath(effectiveFolder);
+        setSaveState("idle");
+      } catch {
+        setSaveState("error");
+      }
     }
   };
 
@@ -88,11 +123,59 @@ export function TaskDetailPane({ task, projects, reminders, settings, actions, o
         projectId: projectId === "none" ? null : projectId,
         workingFolder: workingFolder.trim() || null,
       });
+      await actions.updateTaskReminder(task.id, useReminder ? reminderOffset : null);
       setSaveState("saved");
     } catch {
       setSaveState("error");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const updateFutureRepeats = async () => {
+    if (!task || !recurringTemplate || !title.trim()) {
+      setFutureSaveState("error");
+      return;
+    }
+
+    setIsSavingFuture(true);
+    setFutureSaveState("idle");
+
+    try {
+      await actions.updateRecurringTaskTemplate(recurringTemplate.id, {
+        title: title.trim(),
+        notes,
+        projectId: projectId === "none" ? null : projectId,
+        workingFolder: workingFolder.trim() || null,
+        dueTime: dueTime || null,
+        priority,
+        reminderOffset: useReminder ? reminderOffset : null,
+        frequency: recurrenceFrequency,
+        endDate: recurrenceEndDate || null,
+      });
+      setFutureSaveState("saved");
+    } catch {
+      setFutureSaveState("error");
+    } finally {
+      setIsSavingFuture(false);
+    }
+  };
+
+  const disableFutureRepeats = async () => {
+    if (!recurringTemplate) {
+      return;
+    }
+
+    setIsSavingFuture(true);
+    setFutureSaveState("idle");
+
+    try {
+      await actions.disableRecurringTaskTemplate(recurringTemplate.id);
+      setFutureSaveState("disabled");
+    } catch {
+      setFutureSaveState("error");
+    } finally {
+      setIsSavingFuture(false);
     }
   };
 
@@ -220,9 +303,101 @@ export function TaskDetailPane({ task, projects, reminders, settings, actions, o
               onChange={(event) => setNotes(event.target.value)}
             />
 
-            <div className="mt-4 rounded-md border border-border bg-background/45 px-3 py-2 text-xs text-muted-foreground">
-              {reminder ? `${t("reminder")} · ${new Date(reminder.remindAt).toLocaleString()}` : t("none")}
+            <div className="mt-4 grid gap-2 rounded-md border border-border bg-background/45 p-3 text-xs text-muted-foreground">
+              <div className="flex items-center justify-between gap-2">
+                <span>{t("reminder")}</span>
+                <Button
+                  aria-pressed={useReminder}
+                  disabled={isSaving}
+                  size="sm"
+                  type="button"
+                  variant={useReminder ? "secondary" : "ghost"}
+                  onClick={() => setUseReminder((value) => !value)}
+                >
+                  {useReminder ? t("enabled") : t("disabled")}
+                </Button>
+              </div>
+              <label className="grid gap-1" htmlFor="detail-reminder-offset">
+                <span>{t("reminderOffset")}</span>
+                <select
+                  id="detail-reminder-offset"
+                  className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none transition-colors focus:border-ring disabled:opacity-55"
+                  disabled={!useReminder || isSaving}
+                  value={reminderOffset}
+                  onChange={(event) => setReminderOffset(Number(event.target.value))}
+                >
+                  {reminderOffsetOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {t(`reminderOffset${option}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span>{reminder ? `${t("reminderTime")}: ${formatReminderDateTime(reminder.remindAt, i18n.language)}` : t("none")}</span>
             </div>
+            {recurringTemplate && (
+              <div className="mt-4 grid gap-3 rounded-md border border-border bg-background/45 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                    <Repeat2 className="size-4 text-primary" />
+                    <span>{t("recurringTask")}</span>
+                  </div>
+                  <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                    {recurringTemplate.enabled ? t("enabled") : t("disabled")}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-xs text-muted-foreground" htmlFor="detail-repeat">
+                    {t("repeat")}
+                    <select
+                      id="detail-repeat"
+                      className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none transition-colors focus:border-ring"
+                      value={recurrenceFrequency}
+                      onChange={(event) => setRecurrenceFrequency(event.target.value as RecurrenceFrequency)}
+                    >
+                      {recurrenceOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {t(recurrenceLabelKeys[option])}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-xs text-muted-foreground" htmlFor="detail-repeat-end">
+                    {t("repeatUntil")}
+                    <input
+                      id="detail-repeat-end"
+                      className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
+                      min={dueDate}
+                      type="date"
+                      value={recurrenceEndDate}
+                      onChange={(event) => setRecurrenceEndDate(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {recurringTemplate.reminderOffset === null
+                    ? t("repeatReminderNotInherited")
+                    : t("repeatReminderInherited")}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button disabled={isSavingFuture} size="sm" type="button" variant="secondary" onClick={() => void updateFutureRepeats()}>
+                    {isSavingFuture ? t("saving") : t("updateFutureRepeats")}
+                  </Button>
+                  <Button disabled={isSavingFuture || !recurringTemplate.enabled} size="sm" type="button" variant="ghost" onClick={() => void disableFutureRepeats()}>
+                    {t("disableRepeat")}
+                  </Button>
+                </div>
+                {futureSaveState !== "idle" && (
+                  <p className={cn("motion-status text-xs", futureSaveState === "error" ? "text-destructive" : "text-emerald-600")}>
+                    {futureSaveState === "saved"
+                      ? t("futureRepeatsUpdated")
+                      : futureSaveState === "disabled"
+                        ? t("repeatDisabled")
+                        : t("operationFailed")}
+                  </p>
+                )}
+              </div>
+            )}
             {saveState !== "idle" && (
               <p className={cn("motion-status mt-3 text-xs", saveState === "saved" ? "text-emerald-600" : "text-destructive")}>
                 {saveState === "saved" ? t("saved") : t("operationFailed")}
@@ -243,18 +418,18 @@ export function TaskDetailPane({ task, projects, reminders, settings, actions, o
               type="button"
               variant="destructive"
               onClick={() => {
-                if (!window.confirm(t("confirmDeleteTask"))) {
-                  return;
-                }
-
-                void actions.deleteTask(task.id);
-                onClose();
+                setDeleteState("idle");
+                void actions
+                  .deleteTask(task.id)
+                  .then(() => onClose())
+                  .catch(() => setDeleteState("error"));
               }}
             >
               <Trash2 />
               {t("delete")}
             </Button>
           </div>
+          {deleteState === "error" && <p className="motion-status border-t border-border px-3 pb-3 text-xs text-destructive">{t("operationFailed")}</p>}
         </div>
       )}
     </aside>

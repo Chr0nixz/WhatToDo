@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { sortTasks } from "@/data/date";
+import { formatTaskDate } from "@/data/dateFormat";
 import type { Task, Workspace } from "@/data/types";
 
 type WorkspaceTaskPickerDialogProps = {
@@ -15,9 +16,9 @@ type WorkspaceTaskPickerDialogProps = {
 };
 
 export function WorkspaceTaskPickerDialog({ tasks, workspaces, onAddTask }: WorkspaceTaskPickerDialogProps) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const sortedTasks = useMemo(() => sortTasks(tasks), [tasks]);
+  const sortedTasks = useMemo(() => (open ? sortTasks(tasks) : []), [open, tasks]);
 
   const addTask = async (taskId: string) => {
     await onAddTask(taskId);
@@ -76,7 +77,7 @@ export function WorkspaceTaskPickerDialog({ tasks, workspaces, onAddTask }: Work
                         <span>{sourceWorkspace?.name ?? t("workspaces")}</span>
                         <span className="inline-flex items-center gap-1">
                           <CalendarClock className="size-3" />
-                          {task.dueDate}
+                          {formatTaskDate(task.dueDate, i18n.language)}
                         </span>
                         {task.dueTime && (
                           <span className="inline-flex items-center gap-1">

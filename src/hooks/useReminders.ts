@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   isPermissionGranted,
   requestPermission,
@@ -9,9 +9,11 @@ import type { AppData } from "@/data/types";
 
 const isTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-export const dueRemindersForData = (data: AppData, now = Date.now()) =>
-  data.reminders.filter((reminder) => {
-    const task = data.tasks.find((item) => item.id === reminder.taskId);
+export const dueRemindersForData = (data: AppData, now = Date.now()) => {
+  const tasksById = new Map(data.tasks.map((task) => [task.id, task]));
+
+  return data.reminders.filter((reminder) => {
+    const task = tasksById.get(reminder.taskId);
 
     return (
       reminder.enabled &&
@@ -22,6 +24,7 @@ export const dueRemindersForData = (data: AppData, now = Date.now()) =>
       new Date(reminder.snoozedUntil ?? reminder.remindAt).getTime() <= now
     );
   });
+};
 
 export const useReminders = (
   data: AppData | null,
@@ -30,20 +33,30 @@ export const useReminders = (
   onOpenTask: (taskId: string) => void,
   onPermissionDenied?: () => Promise<void> | void,
 ) => {
+  const latestStateRef = useRef({ data, markReminderFired, markReminderFailed, onOpenTask, onPermissionDenied });
+  const isTickingRef = useRef(false);
+  const permissionDeniedRef = useRef(false);
+  const activeReminderIdsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    latestStateRef.current = { data, markReminderFired, markReminderFailed, onOpenTask, onPermissionDenied };
+  }, [data, markReminderFailed, markReminderFired, onOpenTask, onPermissionDenied]);
+
   useEffect(() => {
     if (!data?.settings.notificationsEnabled || !isTauriRuntime()) {
       return;
     }
 
-    let isTicking = false;
-    let permissionDenied = false;
+    let cancelled = false;
+    permissionDeniedRef.current = false;
 
     const tick = async () => {
-      if (isTicking || permissionDenied) {
+      const current = latestStateRef.current;
+      if (!current.data || isTickingRef.current || permissionDeniedRef.current) {
         return;
       }
 
-      isTicking = true;
+      isTickingRef.current = true;
 
       try {
         let permissionGranted = await isPermissionGranted();
@@ -53,38 +66,51 @@ export const useReminders = (
         }
 
         if (!permissionGranted) {
-          permissionDenied = true;
-          await onPermissionDenied?.();
+          permissionDeniedRef.current = true;
+          await latestStateRef.current.onPermissionDenied?.();
           return;
         }
 
-        const dueReminders = dueRemindersForData(data);
+        const latest = latestStateRef.current;
+        if (!latest.data || cancelled) {
+          return;
+        }
+
+        const tasksById = new Map(latest.data.tasks.map((task) => [task.id, task]));
+        const dueReminders = dueRemindersForData(latest.data);
         if (dueReminders.length === 0) {
           return;
         }
 
         for (const reminder of dueReminders) {
-          const task = data.tasks.find((item) => item.id === reminder.taskId);
+          if (cancelled || activeReminderIdsRef.current.has(reminder.id)) {
+            continue;
+          }
+
+          const task = tasksById.get(reminder.taskId);
           if (!task) {
             continue;
           }
 
+          activeReminderIdsRef.current.add(reminder.id);
           try {
             await sendNotification({
               title: "WhatToDo",
               body: task.dueTime ? `${task.title} · ${task.dueTime}` : task.title,
             });
-            onOpenTask(task.id);
-            await markReminderFired(reminder.id);
+            latestStateRef.current.onOpenTask(task.id);
+            await latestStateRef.current.markReminderFired(reminder.id);
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            await markReminderFailed(reminder.id, message);
+            await latestStateRef.current.markReminderFailed(reminder.id, message);
+          } finally {
+            activeReminderIdsRef.current.delete(reminder.id);
           }
         }
       } catch {
         return;
       } finally {
-        isTicking = false;
+        isTickingRef.current = false;
       }
     };
 
@@ -93,6 +119,9 @@ export const useReminders = (
       void tick();
     }, 30_000);
 
-    return () => window.clearInterval(timer);
-  }, [data, markReminderFailed, markReminderFired, onOpenTask, onPermissionDenied]);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [data?.settings.notificationsEnabled]);
 };

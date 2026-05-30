@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { formatTaskDate } from "@/data/dateFormat";
 import { NO_PROJECT_ID, getProjectProgress, tasksForProject, visibleProjects } from "@/data/project";
 import type { AppData } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
@@ -36,7 +37,7 @@ export function ProjectsView({
   selectedTaskId,
   setSelectedTaskId,
 }: ProjectsViewProps) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const projects = useMemo(() => visibleProjects(data.projects), [data.projects]);
   const [selectedProjectId, setSelectedProjectId] = useState(projects[0]?.id ?? NO_PROJECT_ID);
   const [name, setName] = useState("");
@@ -48,6 +49,7 @@ export function ProjectsView({
   const [isSavingFolder, setIsSavingFolder] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [folderSaveState, setFolderSaveState] = useState<"idle" | "saved" | "error">("idle");
+  const [projectActionError, setProjectActionError] = useState<string | null>(null);
 
   const selectedProject =
     selectedProjectId === NO_PROJECT_ID ? null : projects.find((project) => project.id === selectedProjectId) ?? null;
@@ -134,7 +136,12 @@ export function ProjectsView({
     const path = selectedProject?.workingFolder?.trim();
 
     if (path) {
-      await openPath(path);
+      try {
+        await openPath(path);
+        setProjectActionError(null);
+      } catch {
+        setProjectActionError(t("openFolderFailed"));
+      }
     }
   };
 
@@ -245,7 +252,7 @@ export function ProjectsView({
                 <div className="min-w-0">
                   <h2 className="truncate text-xl font-semibold">{selectedProject?.name ?? t("noProject")}</h2>
                   <p className="text-sm text-muted-foreground">
-                    {selectedProject?.dueDate ? `${t("projectDue")} ${selectedProject.dueDate}` : t("loose")}
+                    {selectedProject?.dueDate ? `${t("projectDue")} ${formatTaskDate(selectedProject.dueDate, i18n.language)}` : t("loose")}
                   </p>
                 </div>
               </div>
@@ -257,11 +264,8 @@ export function ProjectsView({
                   type="button"
                   variant="ghost"
                   onClick={() => {
-                    if (!window.confirm(t("confirmArchiveProject"))) {
-                      return;
-                    }
-
-                    void actions.archiveProject(selectedProject.id);
+                    setProjectActionError(null);
+                    void actions.archiveProject(selectedProject.id).catch(() => setProjectActionError(t("operationFailed")));
                   }}
                 >
                   <Archive />
@@ -277,6 +281,7 @@ export function ProjectsView({
               />
             </div>
           </div>
+          {projectActionError && <p className="motion-status mt-2 text-xs text-destructive">{projectActionError}</p>}
           <div className="mt-4 grid grid-cols-3 gap-2">
             <Metric label={t("progress")} value={`${progress.percent}%`} />
             <Metric label={t("completed")} value={`${progress.completed}/${progress.total}`} />

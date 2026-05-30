@@ -34,6 +34,13 @@ describe("parseQuickAdd", () => {
       priority: "high",
       reminderOffset: 30,
     });
+    expect(result.matches).toEqual([
+      { kind: "project", value: "工作", projectId: "project-work" },
+      { kind: "priority", value: "high" },
+      { kind: "reminder", value: 30 },
+      { kind: "date", value: "2026-06-02" },
+      { kind: "time", value: "15:00" },
+    ]);
   });
 
   it("keeps unmatched project tokens in the title", () => {

@@ -34,6 +34,7 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
   const openTaskCount = useMemo(() => openTasks(tasks).length, [tasks]);
   const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(true);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const expandedSizeRef = useRef<{ width: number; height: number } | null>(null);
   const currentWindow = useMemo(() => getCurrentWindow(), []);
 
@@ -123,6 +124,15 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
     setHiddenTaskIds((current) => new Set(current).add(taskId));
   };
 
+  const openFolder = async (path: string) => {
+    setError(null);
+    try {
+      await openPath(path);
+    } catch {
+      setError(t("openFolderFailed"));
+    }
+  };
+
   return (
     <main
       className={cn(
@@ -177,12 +187,13 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
       {!isCollapsed && (
         <div className="motion-pane-content flex min-h-0 flex-1 flex-col">
           <section className="shrink-0 border-b border-border/75 bg-background/35 px-3 py-2">
+            {error && <p className="motion-status mb-2 text-xs text-destructive">{error}</p>}
             {data.workspaceFolders.length === 0 ? (
               <p className="motion-status py-2 text-sm text-muted-foreground">{t("emptyFolders")}</p>
             ) : (
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {data.workspaceFolders.map((folder) => (
-                  <Button key={folder.id} className="max-w-48 justify-start" size="sm" type="button" variant="secondary" onClick={() => void openPath(folder.path)}>
+                  <Button key={folder.id} className="max-w-48 justify-start" size="sm" type="button" variant="secondary" onClick={() => void openFolder(folder.path)}>
                     <FolderOpen />
                     <span className="truncate">{folder.name}</span>
                   </Button>

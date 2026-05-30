@@ -33,6 +33,8 @@ const makeTask = (patch: Partial<Task>): Task => ({
   createdAt: "2026-05-28T00:00:00.000Z",
   updatedAt: "2026-05-28T00:00:00.000Z",
   deletedAt: patch.deletedAt ?? null,
+  recurrenceTemplateId: patch.recurrenceTemplateId ?? null,
+  recurrenceInstanceDate: patch.recurrenceInstanceDate ?? null,
 });
 
 describe("project helpers", () => {

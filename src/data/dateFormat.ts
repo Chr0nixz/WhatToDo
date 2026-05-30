@@ -21,6 +21,25 @@ export const formatWeekday = (date: Date, language: string) =>
 export const formatWeekDate = (date: Date, language: string) =>
   format(date, language.startsWith("zh") ? "M月d日" : "MMM d", { locale: dateLocaleForLanguage(language) });
 
+export const formatTaskDate = (dateKey: string, language: string) =>
+  format(parseDateKey(dateKey), language.startsWith("zh") ? "M月d日" : "MMM d", {
+    locale: dateLocaleForLanguage(language),
+  });
+
+export const formatTaskDateTime = (dateKey: string, dueTime: string | null, language: string) => {
+  if (!dueTime) {
+    return formatTaskDate(dateKey, language);
+  }
+
+  return language.startsWith("zh") ? `${formatTaskDate(dateKey, language)} ${dueTime}` : `${formatTaskDate(dateKey, language)}, ${dueTime}`;
+};
+
+export const formatReminderDateTime = (value: string, language: string) =>
+  new Intl.DateTimeFormat(language.startsWith("zh") ? "zh-CN" : "en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+
 export const selectedDateTaskLabel = (
   dateKey: string,
   language: string,

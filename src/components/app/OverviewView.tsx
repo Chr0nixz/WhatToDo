@@ -1,6 +1,6 @@
 import { ListChecks, Save, Search, Trash2, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { overdueTasks } from "@/data/date";
@@ -60,8 +60,14 @@ export function OverviewView({ data, actions, selectedTaskId, setSelectedTaskId 
   const { t } = useTranslation();
   const [filters, setFilters] = useState<TaskViewFilters>(() => defaultTaskViewFilters());
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [viewName, setViewName] = useState("");
   const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearchQuery(searchQuery), 180);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
 
   const visibleTasks = useMemo(() => data.tasks.filter((task) => task.deletedAt === null), [data.tasks]);
   const counts = useMemo(
@@ -75,7 +81,7 @@ export function OverviewView({ data, actions, selectedTaskId, setSelectedTaskId 
   );
 
   const tasks = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
+    const query = debouncedSearchQuery.trim().toLowerCase();
 
     return sortOverviewTasks(
       visibleTasks.filter((task) => {
@@ -93,7 +99,7 @@ export function OverviewView({ data, actions, selectedTaskId, setSelectedTaskId 
         );
       }),
     );
-  }, [data, filters, searchQuery, visibleTasks]);
+  }, [data, debouncedSearchQuery, filters, visibleTasks]);
 
   const scopes: { id: TaskViewFilters["scope"]; label: string; count: number }[] = [
     { id: "open", label: t("openTasks"), count: counts.open },

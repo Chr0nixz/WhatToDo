@@ -12,6 +12,7 @@ type QuickAddOptions = {
 export type QuickAddResult = {
   input: string;
   draft: CreateTaskInput;
+  matches: QuickAddMatch[];
   matched: {
     date: boolean;
     time: boolean;
@@ -20,6 +21,13 @@ export type QuickAddResult = {
     reminder: boolean;
   };
 };
+
+export type QuickAddMatch =
+  | { kind: "date"; value: string }
+  | { kind: "time"; value: string }
+  | { kind: "project"; value: string; projectId: string }
+  | { kind: "priority"; value: TaskPriority }
+  | { kind: "reminder"; value: number | null };
 
 const priorityAliases: Record<string, TaskPriority> = {
   高: "high",
@@ -103,6 +111,7 @@ export const parseQuickAdd = ({
   let priority: TaskPriority = "medium";
   let reminderOffset: number | null = defaultReminderOffset;
   const matched = { date: false, time: false, project: false, priority: false, reminder: false };
+  const matches: QuickAddMatch[] = [];
 
   const remove = (pattern: RegExp, handler: (match: RegExpMatchArray) => void) => {
     const match = title.match(pattern);
@@ -120,6 +129,7 @@ export const parseQuickAdd = ({
     if (project) {
       projectId = project.id;
       matched.project = true;
+      matches.push({ kind: "project", value: project.name, projectId: project.id });
       title = title.replace(projectMatch[0], " ").replace(/\s+/g, " ").trim();
     }
   }
@@ -129,32 +139,38 @@ export const parseQuickAdd = ({
     if (nextPriority) {
       priority = nextPriority;
       matched.priority = true;
+      matches.push({ kind: "priority", value: nextPriority });
     }
   });
 
   remove(/(?:提前|remind\s*)(\d+)\s*(?:分钟|分|m|min|minutes?)/i, (match) => {
     reminderOffset = Number(match[1]);
     matched.reminder = true;
+    matches.push({ kind: "reminder", value: reminderOffset });
   });
 
   remove(/(?:不提醒|no reminder|without reminder)/i, () => {
     reminderOffset = null;
     matched.reminder = true;
+    matches.push({ kind: "reminder", value: null });
   });
 
   remove(/(今天|today)/i, () => {
     dueDate = toDateKey(referenceDate);
     matched.date = true;
+    matches.push({ kind: "date", value: dueDate });
   });
 
   remove(/(明天|tomorrow)/i, () => {
     dueDate = toDateKey(addDays(referenceDate, 1));
     matched.date = true;
+    matches.push({ kind: "date", value: dueDate });
   });
 
   remove(/(后天)/, () => {
     dueDate = toDateKey(addDays(referenceDate, 2));
     matched.date = true;
+    matches.push({ kind: "date", value: dueDate });
   });
 
   remove(/\b(\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}[-/.月]\d{1,2}日?)\b/, (match) => {
@@ -162,6 +178,7 @@ export const parseQuickAdd = ({
     if (parsed) {
       dueDate = toDateKey(parsed);
       matched.date = true;
+      matches.push({ kind: "date", value: dueDate });
     }
   });
 
@@ -170,6 +187,7 @@ export const parseQuickAdd = ({
     if (parsed) {
       dueTime = parsed;
       matched.time = true;
+      matches.push({ kind: "time", value: parsed });
     }
   });
 
@@ -183,6 +201,7 @@ export const parseQuickAdd = ({
       priority,
       reminderOffset,
     },
+    matches,
     matched,
   };
 };

@@ -5,6 +5,7 @@ import { createRepository } from "@/data/repository";
 import type {
   AppData,
   BackupPayload,
+  CreateRecurringTaskInput,
   CreateSavedTaskViewInput,
   CreateProjectInput,
   CreateTaskInput,
@@ -13,6 +14,7 @@ import type {
   Project,
   Settings,
   Task,
+  UpdateRecurringTaskTemplateInput,
   UpdateWorkspaceInput,
 } from "@/data/types";
 import { getInitialWorkspaceId } from "@/lib/windowContext";
@@ -35,10 +37,14 @@ export type TodoActions = {
   archiveProject: (id: string) => Promise<AppData>;
   unarchiveProject: (id: string) => Promise<AppData>;
   createTask: (input: CreateTaskInput) => Promise<AppData>;
+  createRecurringTask: (input: CreateRecurringTaskInput) => Promise<AppData>;
+  updateRecurringTaskTemplate: (id: string, patch: UpdateRecurringTaskTemplateInput) => Promise<AppData>;
+  disableRecurringTaskTemplate: (id: string) => Promise<AppData>;
   updateTask: (
     id: string,
     patch: Partial<Pick<Task, "title" | "notes" | "dueDate" | "dueTime" | "priority" | "projectId" | "workingFolder">>,
   ) => Promise<AppData>;
+  updateTaskReminder: (taskId: string, offsetMinutes: number | null) => Promise<AppData>;
   toggleTask: (id: string) => Promise<AppData>;
   deleteTask: (id: string) => Promise<AppData>;
   restoreTask: (id: string) => Promise<AppData>;
@@ -141,10 +147,16 @@ export const useTodos = () => {
       archiveProject: (id: string) => run(() => repository.archiveProject(id)),
       unarchiveProject: (id: string) => run(() => repository.unarchiveProject(id)),
       createTask: (input: CreateTaskInput) => run(() => repository.createTask(input)),
+      createRecurringTask: (input: CreateRecurringTaskInput) => run(() => repository.createRecurringTask(input)),
+      updateRecurringTaskTemplate: (id: string, patch: UpdateRecurringTaskTemplateInput) =>
+        run(() => repository.updateRecurringTaskTemplate(id, patch)),
+      disableRecurringTaskTemplate: (id: string) => run(() => repository.disableRecurringTaskTemplate(id)),
       updateTask: (
         id: string,
         patch: Partial<Pick<Task, "title" | "notes" | "dueDate" | "dueTime" | "priority" | "projectId" | "workingFolder">>,
       ) => run(() => repository.updateTask(id, patch)),
+      updateTaskReminder: (taskId: string, offsetMinutes: number | null) =>
+        run(() => repository.updateTaskReminder(taskId, offsetMinutes)),
       toggleTask: (id: string) => run(() => repository.toggleTask(id)),
       deleteTask: (id: string) => run(() => repository.deleteTask(id)),
       restoreTask: (id: string) => run(() => repository.restoreTask(id)),

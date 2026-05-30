@@ -211,8 +211,8 @@ function App() {
         )}
       >
         <div className={cn("mb-5 flex items-center gap-3", isRailExpanded ? "px-2" : "justify-center px-0")}>
-          <div className="flex size-9 items-center justify-center overflow-hidden rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-            <img alt="" className="size-9" src="/app-icon.svg" />
+          <div className="flex size-9 items-center justify-center rounded-lg border border-sidebar-border bg-background/45 text-sidebar-foreground">
+            <CalendarDays className="size-4" aria-hidden="true" />
           </div>
           <div className={cn("min-w-0", !isRailExpanded && "hidden")}>
             <h1 className="truncate text-sm font-semibold">{t("appName")}</h1>
@@ -374,6 +374,7 @@ function App() {
         onClose={() => setSelectedTaskId(null)}
         projects={data.projects}
         reminders={data.reminders}
+        recurringTaskTemplates={data.recurringTaskTemplates}
         settings={data.settings}
         task={view === "settings" ? null : selectedTask}
       />

@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { formatReminderDateTime } from "@/data/dateFormat";
 import {
   getSnoozeUntil,
   groupReminderCenterItems,
@@ -44,12 +45,6 @@ export function ReminderCenterView({ actions, data, onOpenTask }: ReminderCenter
   const [error, setError] = useState<string | null>(null);
   const groups = useMemo(() => groupReminderCenterItems(data), [data]);
   const total = groupOrder.reduce((sum, group) => sum + groups[group].length, 0);
-
-  const formatDateTime = (value: string) =>
-    new Intl.DateTimeFormat(i18n.language === "zh" ? "zh-CN" : "en-US", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(value));
 
   const runReminderAction = async (reminderId: string, operation: () => Promise<unknown>, successMessage: string) => {
     setPendingId(reminderId);
@@ -163,7 +158,7 @@ export function ReminderCenterView({ actions, data, onOpenTask }: ReminderCenter
                             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                               <span className="inline-flex items-center gap-1">
                                 <Clock3 className="size-3" />
-                                {formatDateTime(item.effectiveAt)}
+                                {formatReminderDateTime(item.effectiveAt, i18n.language)}
                               </span>
                               {item.reminder.snoozedUntil && <span>{t("snoozed")}</span>}
                               {item.reminder.firedAt && <span>{t("fired")}</span>}

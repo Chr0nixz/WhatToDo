@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { formatHeaderDate, formatMonthTitle, formatWeekDate, formatWeekday, selectedDateTaskLabel } from "./dateFormat";
+import {
+  formatHeaderDate,
+  formatMonthTitle,
+  formatReminderDateTime,
+  formatTaskDate,
+  formatTaskDateTime,
+  formatWeekDate,
+  formatWeekday,
+  selectedDateTaskLabel,
+} from "./dateFormat";
 
 describe("date formatting helpers", () => {
   it("formats header and calendar labels by language", () => {
@@ -40,5 +49,12 @@ describe("date formatting helpers", () => {
     ).toBe("2026年6月3日 的任务");
 
     vi.useRealTimers();
+  });
+
+  it("formats task and reminder date labels", () => {
+    expect(formatTaskDate("2026-06-01", "en")).toBe("Jun 1");
+    expect(formatTaskDateTime("2026-06-01", null, "en")).toBe("Jun 1");
+    expect(formatTaskDateTime("2026-06-01", "11:30", "en")).toBe("Jun 1, 11:30");
+    expect(formatReminderDateTime("2026-06-01T11:30:00.000Z", "en")).toContain("2026");
   });
 });

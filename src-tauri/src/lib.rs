@@ -141,6 +141,37 @@ CREATE TABLE IF NOT EXISTS saved_views (
 CREATE INDEX IF NOT EXISTS idx_saved_views_workspace_id ON saved_views(workspace_id);
 "#;
 
+const ADD_RECURRING_TASKS_SQL: &str = r#"
+ALTER TABLE tasks ADD COLUMN recurrence_template_id TEXT;
+ALTER TABLE tasks ADD COLUMN recurrence_instance_date TEXT;
+
+CREATE TABLE IF NOT EXISTS recurring_task_templates (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    notes TEXT NOT NULL DEFAULT '',
+    project_id TEXT,
+    working_folder TEXT,
+    due_time TEXT,
+    timezone TEXT NOT NULL,
+    priority TEXT NOT NULL,
+    reminder_offset INTEGER,
+    frequency TEXT NOT NULL,
+    interval INTEGER NOT NULL DEFAULT 1,
+    anchor_date TEXT NOT NULL,
+    end_date TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT,
+    FOREIGN KEY(workspace_id) REFERENCES workspaces(id),
+    FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_recurrence_template_id ON tasks(recurrence_template_id);
+CREATE INDEX IF NOT EXISTS idx_recurring_templates_workspace_id ON recurring_task_templates(workspace_id);
+"#;
+
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -170,6 +201,58 @@ fn append_floating_log(path: &Path, message: impl AsRef<str>) {
     }
 }
 
+fn validate_text_file_path(path: &str, allowed_extensions: &[&str]) -> Result<PathBuf, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Path is required.".to_string());
+    }
+
+    let path = PathBuf::from(trimmed);
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .ok_or_else(|| "File extension is required.".to_string())?;
+
+    if !allowed_extensions.contains(&extension.as_str()) {
+        return Err("Unsupported file extension.".to_string());
+    }
+
+    Ok(path)
+}
+
+fn validate_workspace_id(workspace_id: &str) -> Result<String, String> {
+    if workspace_id.is_empty() || workspace_id.len() > 128 {
+        return Err("Invalid workspace id.".to_string());
+    }
+
+    if !workspace_id
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        return Err("Invalid workspace id.".to_string());
+    }
+
+    Ok(workspace_id.to_string())
+}
+
+fn sanitize_window_title(title: &str) -> String {
+    let title = title
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .collect::<String>()
+        .trim()
+        .chars()
+        .take(80)
+        .collect::<String>();
+
+    if title.is_empty() {
+        "Workspace".to_string()
+    } else {
+        title
+    }
+}
+
 struct CloseToTray(Arc<AtomicBool>);
 
 #[tauri::command]
@@ -179,16 +262,24 @@ fn set_close_to_tray(state: tauri::State<CloseToTray>, value: bool) {
 
 #[tauri::command]
 fn read_text_file(path: String) -> Result<String, String> {
+    let path = validate_text_file_path(&path, &["json"])?;
+    if !path.is_file() {
+        return Err("File does not exist.".to_string());
+    }
+
     fs::read_to_string(path).map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    let path = validate_text_file_path(&path, &["json", "csv", "ics", "txt"])?;
     fs::write(path, contents).map_err(|err| err.to_string())
 }
 
 #[tauri::command]
 async fn open_workspace_window(app: tauri::AppHandle, workspace_id: String, title: String) -> Result<(), String> {
+    let workspace_id = validate_workspace_id(&workspace_id)?;
+    let title = sanitize_window_title(&title);
     let log_path = floating_log_path(&app);
     let legacy_label = format!("workspace-{}", workspace_id);
     let label_prefix = format!("workspace-{}--", workspace_id);
@@ -386,6 +477,12 @@ pub fn run() {
             version: 7,
             description: "add_reminder_failure_and_saved_views",
             sql: ADD_REMINDER_FAILURE_AND_SAVED_VIEWS_SQL,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 8,
+            description: "add_recurring_tasks",
+            sql: ADD_RECURRING_TASKS_SQL,
             kind: MigrationKind::Up,
         },
     ];

@@ -4,8 +4,10 @@ import { Bell, ChevronDown, FolderOpen, Plus, Wand2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { formatTaskDate } from "@/data/dateFormat";
 import { parseQuickAdd } from "@/data/quickAdd";
-import type { Project, Settings, TaskPriority } from "@/data/types";
+import type { QuickAddMatch } from "@/data/quickAdd";
+import type { Project, RecurrenceFrequency, Settings, TaskPriority } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +22,13 @@ type TaskComposerProps = {
 };
 
 const priorityOptions: TaskPriority[] = ["low", "medium", "high"];
+const recurrenceOptions: RecurrenceFrequency[] = ["daily", "weekly", "monthly"];
+const reminderOffsetOptions = [10, 30, 60, 1440];
+const recurrenceLabelKeys: Record<RecurrenceFrequency, string> = {
+  daily: "repeatDaily",
+  weekly: "repeatWeekly",
+  monthly: "repeatMonthly",
+};
 
 export function TaskComposer({
   projects,
@@ -30,7 +39,7 @@ export function TaskComposer({
   onCreated,
   variant = "inline",
 }: TaskComposerProps) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [title, setTitle] = useState("");
   const [dueDate, setDueDate] = useState(defaultDate);
   const [dueTime, setDueTime] = useState("");
@@ -39,9 +48,12 @@ export function TaskComposer({
   const [workingFolder, setWorkingFolder] = useState("");
   const [useReminder, setUseReminder] = useState(true);
   const [reminderOffset, setReminderOffset] = useState(settings.defaultReminderOffset);
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency | "none">("none");
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [parseFeedback, setParseFeedback] = useState<string | null>(null);
+  const [quickAddMatches, setQuickAddMatches] = useState<QuickAddMatch[]>([]);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
@@ -76,7 +88,25 @@ export function TaskComposer({
     setProjectId(result.draft.projectId ?? "none");
     setUseReminder(result.draft.reminderOffset !== null);
     setReminderOffset(result.draft.reminderOffset ?? settings.defaultReminderOffset);
+    setQuickAddMatches(result.matches);
     setParseFeedback(t("quickAddApplied"));
+  };
+
+  const quickAddMatchLabel = (match: QuickAddMatch) => {
+    if (match.kind === "date") {
+      return `${t("quickAddMatchDate")}: ${formatTaskDate(match.value, i18n.language)}`;
+    }
+    if (match.kind === "time") {
+      return `${t("quickAddMatchTime")}: ${match.value}`;
+    }
+    if (match.kind === "project") {
+      return `${t("quickAddMatchProject")}: ${match.value}`;
+    }
+    if (match.kind === "priority") {
+      return `${t("quickAddMatchPriority")}: ${t(match.value)}`;
+    }
+
+    return `${t("quickAddMatchReminder")}: ${match.value === null ? t("none") : t("reminderOffsetMinutes", { minutes: match.value })}`;
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -92,7 +122,7 @@ export function TaskComposer({
     setSubmitError(null);
 
     try {
-      await actions.createTask({
+      const input = {
         title: nextTitle,
         dueDate,
         dueTime: dueTime || null,
@@ -100,7 +130,17 @@ export function TaskComposer({
         projectId: projectId === "none" ? null : projectId,
         workingFolder: workingFolder.trim() || null,
         reminderOffset: useReminder ? reminderOffset : null,
-      });
+      };
+
+      if (recurrenceFrequency === "none") {
+        await actions.createTask(input);
+      } else {
+        await actions.createRecurringTask({
+          ...input,
+          frequency: recurrenceFrequency,
+          endDate: recurrenceEndDate || null,
+        });
+      }
 
       setTitle("");
       setDueDate(defaultDate);
@@ -109,6 +149,9 @@ export function TaskComposer({
       setProjectId(defaultProjectId ?? "none");
       setWorkingFolder("");
       setReminderOffset(settings.defaultReminderOffset);
+      setRecurrenceFrequency("none");
+      setRecurrenceEndDate("");
+      setQuickAddMatches([]);
       setDetailsOpen(false);
       onCreated?.();
     } catch {
@@ -196,10 +239,7 @@ export function TaskComposer({
           <Button
             aria-label={t("reminder")}
             aria-pressed={useReminder}
-            className={cn(
-              "h-9 gap-2 px-3",
-              useReminder && "border-amber-500/30 bg-amber-500/12 text-amber-700 hover:bg-amber-500/18 dark:text-amber-300",
-            )}
+            className={cn("h-9 gap-2 px-3", useReminder && "border-amber-500/30 bg-amber-500/12 text-amber-700 hover:bg-amber-500/18 dark:text-amber-300")}
             disabled={isSubmitting}
             size="sm"
             title={t("reminder")}
@@ -214,6 +254,22 @@ export function TaskComposer({
 
         {detailsOpen && (
           <div className="motion-status grid grid-cols-2 gap-3 border-t border-border pt-3 max-sm:grid-cols-1">
+            <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="task-reminder-offset">
+              <span>{t("reminderOffset")}</span>
+              <select
+                id="task-reminder-offset"
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none transition-colors focus:border-ring disabled:opacity-55"
+                disabled={!useReminder || isSubmitting}
+                value={reminderOffset}
+                onChange={(event) => setReminderOffset(Number(event.target.value))}
+              >
+                {reminderOffsetOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {t(`reminderOffset${option}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="task-project">
               <span>{t("projects")}</span>
               <select
@@ -245,6 +301,34 @@ export function TaskComposer({
                 </Button>
               </div>
             </div>
+            <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="task-repeat">
+              <span>{t("repeat")}</span>
+              <select
+                id="task-repeat"
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none transition-colors focus:border-ring"
+                value={recurrenceFrequency}
+                onChange={(event) => setRecurrenceFrequency(event.target.value as RecurrenceFrequency | "none")}
+              >
+                <option value="none">{t("repeatNone")}</option>
+                {recurrenceOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {t(recurrenceLabelKeys[option])}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="task-repeat-end">
+              <span>{t("repeatUntil")}</span>
+              <input
+                id="task-repeat-end"
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring disabled:opacity-55"
+                disabled={recurrenceFrequency === "none"}
+                min={dueDate}
+                type="date"
+                value={recurrenceEndDate}
+                onChange={(event) => setRecurrenceEndDate(event.target.value)}
+              />
+            </label>
           </div>
         )}
 
@@ -252,6 +336,19 @@ export function TaskComposer({
           <p className={cn("motion-status text-xs", submitError ? "text-destructive" : "text-muted-foreground")}>
             {submitError ?? parseFeedback}
           </p>
+        )}
+        {quickAddMatches.length > 0 && (
+          <div className="motion-status flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">{t("quickAddPreview")}</span>
+            {quickAddMatches.map((match, index) => (
+              <span key={`${match.kind}-${index}`} className="rounded-full border border-border bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
+                {quickAddMatchLabel(match)}
+              </span>
+            ))}
+            <button className="h-6 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" type="button" onClick={() => setQuickAddMatches([])}>
+              {t("clearParsedPreview")}
+            </button>
+          </div>
         )}
 
         <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
@@ -282,7 +379,7 @@ export function TaskComposer({
 
   return (
     <form
-      className="grid grid-cols-[minmax(150px,1fr)_36px_128px_96px_82px_112px_36px_36px] gap-1.5 rounded-lg border border-border bg-card/75 p-2 shadow-sm max-xl:grid-cols-[minmax(150px,1fr)_36px_128px_92px_82px_36px_36px] max-lg:grid-cols-2 max-sm:grid-cols-1"
+      className="grid grid-cols-[minmax(150px,1fr)_36px_128px_96px_82px_112px_112px_36px] gap-1.5 rounded-lg border border-border bg-card/75 p-2 shadow-sm max-xl:grid-cols-[minmax(150px,1fr)_36px_128px_92px_82px_112px_36px] max-lg:grid-cols-2 max-sm:grid-cols-1"
       onSubmit={handleSubmit}
     >
       <label className="sr-only" htmlFor="task-title">
@@ -359,17 +456,31 @@ export function TaskComposer({
           </option>
         ))}
       </select>
-      <Button
-        aria-pressed={useReminder}
-        size="icon-lg"
-        type="button"
+      <label className="sr-only" htmlFor="task-reminder">
+        {t("reminder")}
+      </label>
+      <select
+        id="task-reminder"
+        className="h-9 rounded-md border border-input bg-background px-2 text-sm outline-none transition-colors focus:border-ring"
         disabled={isSubmitting}
-        variant={useReminder ? "secondary" : "ghost"}
-        title={t("reminder")}
-        onClick={() => setUseReminder((value) => !value)}
+        value={useReminder ? String(reminderOffset) : "none"}
+        onChange={(event) => {
+          if (event.target.value === "none") {
+            setUseReminder(false);
+            return;
+          }
+
+          setUseReminder(true);
+          setReminderOffset(Number(event.target.value));
+        }}
       >
-        <Bell className={cn("transition-[color,transform] duration-150 ease-[var(--ease-out-quart)]", useReminder ? "scale-105 text-amber-500" : "text-muted-foreground")} />
-      </Button>
+        <option value="none">{t("none")}</option>
+        {reminderOffsetOptions.map((option) => (
+          <option key={option} value={option}>
+            {t(`reminderOffset${option}`)}
+          </option>
+        ))}
+      </select>
       <Button
         className="relative"
         size="icon-lg"
@@ -386,6 +497,19 @@ export function TaskComposer({
         <p className="motion-status col-span-full text-xs text-muted-foreground">
           {parseFeedback}
         </p>
+      )}
+      {quickAddMatches.length > 0 && (
+        <div className="motion-status col-span-full flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-muted-foreground">{t("quickAddPreview")}</span>
+          {quickAddMatches.map((match, index) => (
+            <span key={`${match.kind}-${index}`} className="rounded-full border border-border bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">
+              {quickAddMatchLabel(match)}
+            </span>
+          ))}
+          <button className="h-6 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground" type="button" onClick={() => setQuickAddMatches([])}>
+            {t("clearParsedPreview")}
+          </button>
+        </div>
       )}
     </form>
   );

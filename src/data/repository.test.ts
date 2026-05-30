@@ -116,6 +116,107 @@ describe("LocalRepository", () => {
     expect(restored.savedViews[0].filters.priority).toBe("high");
     expect(restored.workspaceId).toBe(data.workspaceId);
   });
+
+  it("creates recurring tasks with a template and first instance", async () => {
+    const repository = new LocalRepository();
+    let data = await repository.load();
+
+    data = await repository.createRecurringTask({
+      title: "Daily review",
+      dueDate: "2026-06-01",
+      dueTime: "09:00",
+      frequency: "daily",
+      endDate: "2026-06-05",
+      reminderOffset: 15,
+    });
+
+    expect(data.recurringTaskTemplates).toHaveLength(1);
+    expect(data.recurringTaskTemplates[0]).toMatchObject({
+      title: "Daily review",
+      frequency: "daily",
+      anchorDate: "2026-06-01",
+      endDate: "2026-06-05",
+      reminderOffset: 15,
+    });
+    expect(data.tasks[0]).toMatchObject({
+      title: "Daily review",
+      dueDate: "2026-06-01",
+      recurrenceTemplateId: data.recurringTaskTemplates[0].id,
+      recurrenceInstanceDate: "2026-06-01",
+    });
+    expect(data.reminders[0].taskId).toBe(data.tasks[0].id);
+    expect(data.reminders[0].offsetMinutes).toBe(15);
+  });
+
+  it("generates the next recurring instance once when completing a task", async () => {
+    const repository = new LocalRepository();
+    let data = await repository.load();
+    data = await repository.createRecurringTask({
+      title: "Weekly sync",
+      dueDate: "2026-06-01",
+      frequency: "weekly",
+      reminderOffset: 30,
+    });
+    const firstTaskId = data.tasks[0].id;
+
+    data = await repository.toggleTask(firstTaskId);
+    expect(data.tasks.map((task) => task.dueDate).sort()).toEqual(["2026-06-01", "2026-06-08"]);
+    expect(data.reminders).toHaveLength(2);
+
+    data = await repository.toggleTask(firstTaskId);
+    data = await repository.toggleTask(firstTaskId);
+    expect(data.tasks.filter((task) => task.dueDate === "2026-06-08")).toHaveLength(1);
+  });
+
+  it("does not generate future instances after a template is disabled or past end date", async () => {
+    const repository = new LocalRepository();
+    let data = await repository.load();
+    data = await repository.createRecurringTask({
+      title: "Ends tomorrow",
+      dueDate: "2026-06-01",
+      frequency: "daily",
+      endDate: "2026-06-01",
+    });
+    data = await repository.toggleTask(data.tasks[0].id);
+    expect(data.tasks).toHaveLength(1);
+
+    data = await repository.createRecurringTask({
+      title: "Disabled",
+      dueDate: "2026-06-02",
+      frequency: "daily",
+    });
+    const disabledTaskId = data.tasks[0].id;
+    data = await repository.disableRecurringTaskTemplate(data.recurringTaskTemplates[0].id);
+    data = await repository.toggleTask(disabledTaskId);
+    expect(data.tasks.filter((task) => task.title === "Disabled")).toHaveLength(1);
+  });
+
+  it("exports version 2 backups and imports version 1 backups without recurring templates", async () => {
+    const repository = new LocalRepository();
+    let data = await repository.load();
+    data = await repository.createRecurringTask({ title: "Monthly close", dueDate: "2026-01-31", frequency: "monthly" });
+
+    const backup = await repository.exportBackup();
+    expect(backup.whattodoBackupVersion).toBe(2);
+    expect(backup.recurringTaskTemplates).toHaveLength(1);
+
+    const legacyRepository = new LocalRepository();
+    const legacy = await legacyRepository.importBackup({
+      whattodoBackupVersion: 1,
+      exportedAt: "2026-06-01T00:00:00.000Z",
+      workspaceId: data.workspaceId,
+      workspaces: data.workspaces,
+      workspaceFolders: data.workspaceFolders,
+      projects: data.projects,
+      tasks: data.tasks.map((task) => ({ ...task, recurrenceTemplateId: null, recurrenceInstanceDate: null })),
+      reminders: data.reminders,
+      settingsByWorkspace: { [data.workspaceId]: data.settings },
+      savedViews: data.savedViews,
+    });
+
+    expect(legacy.recurringTaskTemplates).toEqual([]);
+    expect(legacy.tasks[0].recurrenceTemplateId).toBeNull();
+  });
 });
 
 describe("SqlRepository", () => {

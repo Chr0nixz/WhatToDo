@@ -1,9 +1,11 @@
 import Database from "@tauri-apps/plugin-sql";
 
 import { buildReminderDate } from "./date";
+import { buildTaskFromRecurringTemplate, getNextRecurrenceDate } from "./recurrence";
 import type {
   AppData,
   BackupPayload,
+  CreateRecurringTaskInput,
   CreateSavedTaskViewInput,
   CreateWorkspaceFolderInput,
   CreateWorkspaceInput,
@@ -11,11 +13,13 @@ import type {
   CreateTaskInput,
   Project,
   ProjectStatus,
+  RecurringTaskTemplate,
   Reminder,
   SavedTaskView,
   Settings,
   Task,
   TaskStatus,
+  UpdateRecurringTaskTemplateInput,
   UpdateWorkspaceInput,
   Workspace,
   WorkspaceFolder,
@@ -52,6 +56,18 @@ const createId = (prefix: string) => `${prefix}_${crypto.randomUUID()}`;
 
 const nowIso = () => new Date().toISOString();
 
+const withTransaction = async <T>(db: DatabaseHandle, operation: () => Promise<T>) => {
+  await db.execute("BEGIN TRANSACTION");
+  try {
+    const result = await operation();
+    await db.execute("COMMIT");
+    return result;
+  } catch (err) {
+    await db.execute("ROLLBACK");
+    throw err;
+  }
+};
+
 const isTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 const normalizeData = (data: Partial<AppData> | null): AppData => ({
@@ -85,11 +101,15 @@ const normalizeData = (data: Partial<AppData> | null): AppData => ({
     ...task,
     workspaceId: task.workspaceId ?? data?.workspaceId ?? DEFAULT_WORKSPACE_ID,
     workingFolder: task.workingFolder ?? null,
+    recurrenceTemplateId: task.recurrenceTemplateId ?? null,
+    recurrenceInstanceDate: task.recurrenceInstanceDate ?? null,
   })),
   deletedTasks: (data?.deletedTasks ?? []).map((task) => ({
     ...task,
     workspaceId: task.workspaceId ?? data?.workspaceId ?? DEFAULT_WORKSPACE_ID,
     workingFolder: task.workingFolder ?? null,
+    recurrenceTemplateId: task.recurrenceTemplateId ?? null,
+    recurrenceInstanceDate: task.recurrenceInstanceDate ?? null,
   })),
   deletedWorkspaceFolders: (data?.deletedWorkspaceFolders ?? []).map((folder) => ({
     ...folder,
@@ -100,6 +120,8 @@ const normalizeData = (data: Partial<AppData> | null): AppData => ({
     ...task,
     workspaceId: task.workspaceId ?? data?.workspaceId ?? DEFAULT_WORKSPACE_ID,
     workingFolder: task.workingFolder ?? null,
+    recurrenceTemplateId: task.recurrenceTemplateId ?? null,
+    recurrenceInstanceDate: task.recurrenceInstanceDate ?? null,
   })),
   reminders: (data?.reminders ?? []).map((reminder) => ({
     ...reminder,
@@ -111,6 +133,19 @@ const normalizeData = (data: Partial<AppData> | null): AppData => ({
     ...view,
     workspaceId: view.workspaceId ?? data?.workspaceId ?? DEFAULT_WORKSPACE_ID,
     filters: { ...DEFAULT_TASK_VIEW_FILTERS, ...view.filters },
+  })),
+  recurringTaskTemplates: (data?.recurringTaskTemplates ?? []).map((template) => ({
+    ...template,
+    workspaceId: template.workspaceId ?? data?.workspaceId ?? DEFAULT_WORKSPACE_ID,
+    notes: template.notes ?? "",
+    projectId: template.projectId ?? null,
+    workingFolder: template.workingFolder ?? null,
+    dueTime: template.dueTime ?? null,
+    reminderOffset: template.reminderOffset ?? null,
+    interval: template.interval ?? 1,
+    endDate: template.endDate ?? null,
+    enabled: template.enabled ?? true,
+    deletedAt: template.deletedAt ?? null,
   })),
   settings: { ...DEFAULT_SETTINGS, ...data?.settings },
 });
@@ -146,6 +181,29 @@ const rowToTask = (row: Record<string, unknown>): Task => ({
   priority: row.priority as Task["priority"],
   status: row.status as TaskStatus,
   completedAt: row.completed_at ? String(row.completed_at) : null,
+  createdAt: String(row.created_at),
+  updatedAt: String(row.updated_at),
+  deletedAt: row.deleted_at ? String(row.deleted_at) : null,
+  recurrenceTemplateId: row.recurrence_template_id ? String(row.recurrence_template_id) : null,
+  recurrenceInstanceDate: row.recurrence_instance_date ? String(row.recurrence_instance_date) : null,
+});
+
+const rowToRecurringTaskTemplate = (row: Record<string, unknown>): RecurringTaskTemplate => ({
+  id: String(row.id),
+  workspaceId: String(row.workspace_id),
+  title: String(row.title),
+  notes: String(row.notes ?? ""),
+  projectId: row.project_id ? String(row.project_id) : null,
+  workingFolder: row.working_folder ? String(row.working_folder) : null,
+  dueTime: row.due_time ? String(row.due_time) : null,
+  timezone: String(row.timezone),
+  priority: row.priority as RecurringTaskTemplate["priority"],
+  reminderOffset: row.reminder_offset === null ? null : Number(row.reminder_offset),
+  frequency: row.frequency as RecurringTaskTemplate["frequency"],
+  interval: Number(row.interval ?? 1),
+  anchorDate: String(row.anchor_date),
+  endDate: row.end_date ? String(row.end_date) : null,
+  enabled: intToBool(row.enabled),
   createdAt: String(row.created_at),
   updatedAt: String(row.updated_at),
   deletedAt: row.deleted_at ? String(row.deleted_at) : null,
@@ -223,11 +281,15 @@ export interface TodoRepository {
   archiveProject(id: string): Promise<AppData>;
   unarchiveProject(id: string): Promise<AppData>;
   createTask(input: CreateTaskInput): Promise<AppData>;
+  createRecurringTask(input: CreateRecurringTaskInput): Promise<AppData>;
+  updateRecurringTaskTemplate(id: string, patch: UpdateRecurringTaskTemplateInput): Promise<AppData>;
+  disableRecurringTaskTemplate(id: string): Promise<AppData>;
   moveTaskToWorkspace(taskId: string, workspaceId: string): Promise<AppData>;
   updateTask(
     id: string,
     patch: Partial<Pick<Task, "title" | "notes" | "dueDate" | "dueTime" | "priority" | "projectId" | "workingFolder">>,
   ): Promise<AppData>;
+  updateTaskReminder(taskId: string, offsetMinutes: number | null): Promise<AppData>;
   toggleTask(id: string): Promise<AppData>;
   deleteTask(id: string): Promise<AppData>;
   restoreTask(id: string): Promise<AppData>;
@@ -401,6 +463,8 @@ class LocalRepository implements TodoRepository {
       createdAt: timestamp,
       updatedAt: timestamp,
       deletedAt: null,
+      recurrenceTemplateId: null,
+      recurrenceInstanceDate: null,
     };
     const reminder = createReminder(task, input.reminderOffset ?? null);
 
@@ -408,6 +472,41 @@ class LocalRepository implements TodoRepository {
       ...this.data,
       tasks: [task, ...this.data.tasks],
       reminders: reminder ? [reminder, ...this.data.reminders] : this.data.reminders,
+    };
+    return this.persist();
+  }
+
+  async createRecurringTask(input: CreateRecurringTaskInput) {
+    const timestamp = nowIso();
+    const template = createRecurringTemplate(input, this.workspaceId, timestamp);
+    const task = buildTaskFromRecurringTemplate(template, input.dueDate, timestamp, () => createId("task"));
+    const reminder = createReminder(task, template.reminderOffset);
+
+    this.data = {
+      ...this.data,
+      recurringTaskTemplates: [template, ...this.data.recurringTaskTemplates],
+      tasks: [task, ...this.data.tasks],
+      reminders: reminder ? [reminder, ...this.data.reminders] : this.data.reminders,
+    };
+    return this.persist();
+  }
+
+  async updateRecurringTaskTemplate(id: string, patch: UpdateRecurringTaskTemplateInput) {
+    this.data = {
+      ...this.data,
+      recurringTaskTemplates: this.data.recurringTaskTemplates.map((template) =>
+        template.id === id ? { ...template, ...patch, updatedAt: nowIso() } : template,
+      ),
+    };
+    return this.persist();
+  }
+
+  async disableRecurringTaskTemplate(id: string) {
+    this.data = {
+      ...this.data,
+      recurringTaskTemplates: this.data.recurringTaskTemplates.map((template) =>
+        template.id === id ? { ...template, enabled: false, updatedAt: nowIso() } : template,
+      ),
     };
     return this.persist();
   }
@@ -453,6 +552,7 @@ class LocalRepository implements TodoRepository {
                 firedAt: null,
                 failedAt: null,
                 lastError: null,
+                lastAttemptedAt: null,
               }
             : reminder,
         ),
@@ -462,21 +562,79 @@ class LocalRepository implements TodoRepository {
     return this.persist();
   }
 
-  async toggleTask(id: string) {
-    const timestamp = nowIso();
+  async updateTaskReminder(taskId: string, offsetMinutes: number | null) {
+    const task = this.data.tasks.find((item) => item.id === taskId && item.deletedAt === null);
+    if (!task) {
+      return this.snapshot();
+    }
+
+    if (offsetMinutes === null) {
+      this.data = {
+        ...this.data,
+        reminders: this.data.reminders.map((reminder) =>
+          reminder.taskId === taskId ? { ...reminder, enabled: false } : reminder,
+        ),
+      };
+      return this.persist();
+    }
+
+    const existing = this.data.reminders.find((reminder) => reminder.taskId === taskId);
+    if (!existing) {
+      const reminder = createReminder(task, offsetMinutes);
+      this.data = {
+        ...this.data,
+        reminders: reminder ? [reminder, ...this.data.reminders] : this.data.reminders,
+      };
+      return this.persist();
+    }
+
     this.data = {
       ...this.data,
-      tasks: this.data.tasks.map((task) =>
-        task.id === id
+      reminders: this.data.reminders.map((reminder) =>
+        reminder.id === existing.id
           ? {
-              ...task,
-              status: task.status === "completed" ? "todo" : "completed",
-              completedAt: task.status === "completed" ? null : timestamp,
-              updatedAt: timestamp,
+              ...reminder,
+              remindAt: buildReminderDate(task, offsetMinutes),
+              offsetMinutes,
+              snoozedUntil: null,
+              firedAt: null,
+              failedAt: null,
+              lastError: null,
+              lastAttemptedAt: null,
+              enabled: true,
             }
-          : task,
+          : reminder,
       ),
     };
+    return this.persist();
+  }
+
+  async toggleTask(id: string) {
+    const timestamp = nowIso();
+    let completedTask: Task | null = null;
+    this.data = {
+      ...this.data,
+      tasks: this.data.tasks.map((task) => {
+        if (task.id !== id) {
+          return task;
+        }
+
+        const nextStatus: TaskStatus = task.status === "completed" ? "todo" : "completed";
+        const nextTask: Task = {
+          ...task,
+          status: nextStatus,
+          completedAt: nextStatus === "todo" ? null : timestamp,
+          updatedAt: timestamp,
+        };
+        if (task.status !== "completed") {
+          completedTask = nextTask;
+        }
+        return nextTask;
+      }),
+    };
+    if (completedTask) {
+      this.generateNextRecurringInstance(completedTask, timestamp);
+    }
     return this.persist();
   }
 
@@ -626,6 +784,45 @@ class LocalRepository implements TodoRepository {
       ),
       reminders: this.data.reminders.filter((reminder) => taskIds.has(reminder.taskId)),
       savedViews: this.data.savedViews.filter((view) => view.workspaceId === this.workspaceId),
+      recurringTaskTemplates: this.data.recurringTaskTemplates.filter(
+        (template) => template.workspaceId === this.workspaceId && template.deletedAt === null,
+      ),
+    };
+  }
+
+  private generateNextRecurringInstance(task: Task, timestamp: string) {
+    if (!task.recurrenceTemplateId || !task.recurrenceInstanceDate) {
+      return;
+    }
+
+    const template = this.data.recurringTaskTemplates.find(
+      (item) => item.id === task.recurrenceTemplateId && item.enabled && item.deletedAt === null,
+    );
+    if (!template) {
+      return;
+    }
+
+    const nextDate = getNextRecurrenceDate(template, task.recurrenceInstanceDate);
+    if (!nextDate) {
+      return;
+    }
+
+    const exists = this.data.tasks.some(
+      (item) =>
+        item.recurrenceTemplateId === template.id &&
+        item.recurrenceInstanceDate === nextDate &&
+        item.deletedAt === null,
+    );
+    if (exists) {
+      return;
+    }
+
+    const nextTask = buildTaskFromRecurringTemplate(template, nextDate, timestamp, () => createId("task"));
+    const reminder = createReminder(nextTask, template.reminderOffset);
+    this.data = {
+      ...this.data,
+      tasks: [nextTask, ...this.data.tasks],
+      reminders: reminder ? [reminder, ...this.data.reminders] : this.data.reminders,
     };
   }
 }
@@ -815,36 +1012,72 @@ class SqlRepository implements TodoRepository {
       createdAt: timestamp,
       updatedAt: timestamp,
       deletedAt: null,
+      recurrenceTemplateId: null,
+      recurrenceInstanceDate: null,
     };
 
-    await db.execute(
-      `INSERT INTO tasks
-       (id, workspace_id, project_id, working_folder, title, notes, due_date, due_time, timezone, priority, status, completed_at, created_at, updated_at, deleted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        task.id,
-        task.workspaceId,
-        task.projectId,
-        task.workingFolder,
-        task.title,
-        task.notes,
-        task.dueDate,
-        task.dueTime,
-        task.timezone,
-        task.priority,
-        task.status,
-        task.completedAt,
-        task.createdAt,
-        task.updatedAt,
-        task.deletedAt,
-      ],
-    );
-
     const reminder = createReminder(task, input.reminderOffset ?? null);
-    if (reminder) {
-      await insertReminder(db, reminder);
+    await withTransaction(db, async () => {
+      await insertTask(db, task);
+      if (reminder) {
+        await insertReminder(db, reminder);
+      }
+    });
+
+    return this.readAll();
+  }
+
+  async createRecurringTask(input: CreateRecurringTaskInput) {
+    const db = await this.connect();
+    const timestamp = nowIso();
+    const template = createRecurringTemplate(input, this.workspaceId, timestamp);
+    const task = buildTaskFromRecurringTemplate(template, input.dueDate, timestamp, () => createId("task"));
+
+    const reminder = createReminder(task, template.reminderOffset);
+    await withTransaction(db, async () => {
+      await insertRecurringTaskTemplate(db, template);
+      await insertTask(db, task);
+      if (reminder) {
+        await insertReminder(db, reminder);
+      }
+    });
+
+    return this.readAll();
+  }
+
+  async updateRecurringTaskTemplate(id: string, patch: UpdateRecurringTaskTemplateInput) {
+    const data = await this.readAll();
+    const current = data.recurringTaskTemplates.find((template) => template.id === id);
+    if (!current) {
+      return data;
     }
 
+    const next = { ...current, ...patch, updatedAt: nowIso() };
+    const db = await this.connect();
+    await db.execute(
+      `UPDATE recurring_task_templates
+       SET title = ?, notes = ?, project_id = ?, working_folder = ?, due_time = ?, priority = ?, reminder_offset = ?, frequency = ?, end_date = ?, updated_at = ?
+       WHERE id = ?`,
+      [
+        next.title,
+        next.notes,
+        next.projectId,
+        next.workingFolder,
+        next.dueTime,
+        next.priority,
+        next.reminderOffset,
+        next.frequency,
+        next.endDate,
+        next.updatedAt,
+        id,
+      ],
+    );
+    return this.readAll();
+  }
+
+  async disableRecurringTaskTemplate(id: string) {
+    const db = await this.connect();
+    await db.execute("UPDATE recurring_task_templates SET enabled = ?, updated_at = ? WHERE id = ?", [0, nowIso(), id]);
     return this.readAll();
   }
 
@@ -870,22 +1103,59 @@ class SqlRepository implements TodoRepository {
 
     const next = { ...current, ...patch, updatedAt: nowIso() };
     const db = await this.connect();
-    await db.execute(
-      `UPDATE tasks
-       SET project_id = ?, working_folder = ?, title = ?, notes = ?, due_date = ?, due_time = ?, priority = ?, updated_at = ?
-       WHERE id = ?`,
-      [next.projectId, next.workingFolder, next.title, next.notes, next.dueDate, next.dueTime, next.priority, next.updatedAt, id],
-    );
     const taskReminders = data.reminders.filter((reminder) => reminder.taskId === id && reminder.offsetMinutes !== null);
-    await Promise.all(
-      taskReminders.map((reminder) =>
-        db.execute(
+    await withTransaction(db, async () => {
+      await db.execute(
+        `UPDATE tasks
+         SET project_id = ?, working_folder = ?, title = ?, notes = ?, due_date = ?, due_time = ?, priority = ?, updated_at = ?
+         WHERE id = ?`,
+        [next.projectId, next.workingFolder, next.title, next.notes, next.dueDate, next.dueTime, next.priority, next.updatedAt, id],
+      );
+      for (const reminder of taskReminders) {
+        await db.execute(
           `UPDATE reminders
-           SET remind_at = ?, fired_at = NULL, failed_at = NULL, last_error = NULL
+           SET remind_at = ?, snoozed_until = NULL, fired_at = NULL, failed_at = NULL, last_error = NULL, last_attempted_at = NULL
            WHERE id = ?`,
           [buildReminderDate(next, reminder.offsetMinutes as number), reminder.id],
-        ),
-      ),
+        );
+      }
+    });
+    return this.readAll();
+  }
+
+  async updateTaskReminder(taskId: string, offsetMinutes: number | null) {
+    const data = await this.readAll();
+    const task = data.tasks.find((item) => item.id === taskId);
+    if (!task) {
+      return data;
+    }
+
+    const db = await this.connect();
+    if (offsetMinutes === null) {
+      await db.execute("UPDATE reminders SET enabled = ? WHERE task_id = ?", [0, taskId]);
+      return this.readAll();
+    }
+
+    const existingRows = (await db.select(
+      "SELECT * FROM reminders WHERE task_id = ? ORDER BY remind_at ASC LIMIT 1",
+      [taskId],
+    )) as Record<string, unknown>[];
+    const existing = existingRows[0] ? rowToReminder(existingRows[0]) : null;
+    const remindAt = buildReminderDate(task, offsetMinutes);
+
+    if (!existing) {
+      const reminder = createReminder(task, offsetMinutes);
+      if (reminder) {
+        await insertReminder(db, reminder);
+      }
+      return this.readAll();
+    }
+
+    await db.execute(
+      `UPDATE reminders
+       SET remind_at = ?, offset_minutes = ?, snoozed_until = NULL, fired_at = NULL, failed_at = NULL, last_error = NULL, last_attempted_at = NULL, enabled = ?
+       WHERE id = ?`,
+      [remindAt, offsetMinutes, 1, existing.id],
     );
     return this.readAll();
   }
@@ -900,12 +1170,17 @@ class SqlRepository implements TodoRepository {
     const timestamp = nowIso();
     const nextStatus: TaskStatus = current.status === "completed" ? "todo" : "completed";
     const db = await this.connect();
-    await db.execute("UPDATE tasks SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?", [
-      nextStatus,
-      nextStatus === "completed" ? timestamp : null,
-      timestamp,
-      id,
-    ]);
+    await withTransaction(db, async () => {
+      await db.execute("UPDATE tasks SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?", [
+        nextStatus,
+        nextStatus === "completed" ? timestamp : null,
+        timestamp,
+        id,
+      ]);
+      if (nextStatus === "completed") {
+        await this.insertNextRecurringInstance(current, timestamp, db);
+      }
+    });
     return this.readAll();
   }
 
@@ -1001,6 +1276,9 @@ class SqlRepository implements TodoRepository {
     const reminders = ((await db.select("SELECT * FROM reminders ORDER BY remind_at ASC")) as Record<string, unknown>[]).map(
       rowToReminder,
     );
+    const recurringTaskTemplates = (
+      (await db.select("SELECT * FROM recurring_task_templates ORDER BY created_at DESC")) as Record<string, unknown>[]
+    ).map(rowToRecurringTaskTemplate);
     const savedViews = ((await db.select("SELECT * FROM saved_views ORDER BY created_at DESC")) as Record<string, unknown>[]).map(
       rowToSavedTaskView,
     );
@@ -1010,7 +1288,7 @@ class SqlRepository implements TodoRepository {
     );
 
     return buildBackupPayload(
-      { workspaceId: this.workspaceId, workspaces, workspaceFolders, projects, tasks, reminders, savedViews },
+      { workspaceId: this.workspaceId, workspaces, workspaceFolders, projects, tasks, reminders, savedViews, recurringTaskTemplates },
       this.workspaceId,
       settingsByWorkspace,
     );
@@ -1025,6 +1303,7 @@ class SqlRepository implements TodoRepository {
       await db.execute("DELETE FROM reminders");
       await db.execute("DELETE FROM saved_views");
       await db.execute("DELETE FROM tasks");
+      await db.execute("DELETE FROM recurring_task_templates");
       await db.execute("DELETE FROM workspace_folders");
       await db.execute("DELETE FROM projects");
       await db.execute("DELETE FROM settings");
@@ -1067,28 +1346,10 @@ class SqlRepository implements TodoRepository {
         );
       }
       for (const task of backup.tasks) {
-        await db.execute(
-          `INSERT INTO tasks
-           (id, workspace_id, project_id, working_folder, title, notes, due_date, due_time, timezone, priority, status, completed_at, created_at, updated_at, deleted_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            task.id,
-            task.workspaceId,
-            task.projectId,
-            task.workingFolder,
-            task.title,
-            task.notes,
-            task.dueDate,
-            task.dueTime,
-            task.timezone,
-            task.priority,
-            task.status,
-            task.completedAt,
-            task.createdAt,
-            task.updatedAt,
-            task.deletedAt,
-          ],
-        );
+        await insertTask(db, task);
+      }
+      for (const template of backup.recurringTaskTemplates) {
+        await insertRecurringTaskTemplate(db, template);
       }
       for (const reminder of backup.reminders) {
         await insertReminder(db, reminder);
@@ -1173,6 +1434,10 @@ class SqlRepository implements TodoRepository {
       "SELECT * FROM saved_views WHERE workspace_id = ? ORDER BY created_at DESC",
       [this.workspaceId],
     )) as Record<string, unknown>[];
+    const recurringTaskTemplates = (await db.select(
+      "SELECT * FROM recurring_task_templates WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY created_at DESC",
+      [this.workspaceId],
+    )) as Record<string, unknown>[];
 
     return {
       workspaceId: this.workspaceId,
@@ -1185,8 +1450,45 @@ class SqlRepository implements TodoRepository {
       availableTasks: availableTasks.map(rowToTask),
       reminders: reminders.map(rowToReminder),
       savedViews: savedViews.map(rowToSavedTaskView),
+      recurringTaskTemplates: recurringTaskTemplates.map(rowToRecurringTaskTemplate),
       settings: settingsRow ? rowToSettings(settingsRow) : DEFAULT_SETTINGS,
     };
+  }
+
+  private async insertNextRecurringInstance(task: Task, timestamp: string, existingDb?: DatabaseHandle) {
+    if (!task.recurrenceTemplateId || !task.recurrenceInstanceDate) {
+      return;
+    }
+
+    const db = existingDb ?? await this.connect();
+    const templates = (await db.select(
+      "SELECT * FROM recurring_task_templates WHERE id = ? AND enabled = 1 AND deleted_at IS NULL",
+      [task.recurrenceTemplateId],
+    )) as Record<string, unknown>[];
+    const template = templates[0] ? rowToRecurringTaskTemplate(templates[0]) : null;
+    if (!template) {
+      return;
+    }
+
+    const nextDate = getNextRecurrenceDate(template, task.recurrenceInstanceDate);
+    if (!nextDate) {
+      return;
+    }
+
+    const existing = (await db.select(
+      "SELECT id FROM tasks WHERE recurrence_template_id = ? AND recurrence_instance_date = ? AND deleted_at IS NULL LIMIT 1",
+      [template.id, nextDate],
+    )) as Record<string, unknown>[];
+    if (existing.length > 0) {
+      return;
+    }
+
+    const nextTask = buildTaskFromRecurringTemplate(template, nextDate, timestamp, () => createId("task"));
+    await insertTask(db, nextTask);
+    const reminder = createReminder(nextTask, template.reminderOffset);
+    if (reminder) {
+      await insertReminder(db, reminder);
+    }
   }
 
   private resolveImportedWorkspaceId(data: AppData, workspaceId: string) {
@@ -1214,6 +1516,84 @@ const createReminder = (task: Task, offsetMinutes: number | null) => {
     enabled: true,
   } satisfies Reminder;
 };
+
+const createRecurringTemplate = (
+  input: CreateRecurringTaskInput,
+  workspaceId: string,
+  timestamp: string,
+): RecurringTaskTemplate => ({
+  id: createId("recur"),
+  workspaceId,
+  title: input.title,
+  notes: input.notes ?? "",
+  projectId: input.projectId ?? null,
+  workingFolder: input.workingFolder ?? null,
+  dueTime: input.dueTime ?? null,
+  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  priority: input.priority ?? "medium",
+  reminderOffset: input.reminderOffset ?? null,
+  frequency: input.frequency,
+  interval: 1,
+  anchorDate: input.dueDate,
+  endDate: input.endDate ?? null,
+  enabled: true,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+  deletedAt: null,
+});
+
+const insertTask = (db: DatabaseHandle, task: Task) =>
+  db.execute(
+    `INSERT INTO tasks
+     (id, workspace_id, project_id, working_folder, title, notes, due_date, due_time, timezone, priority, status, completed_at, created_at, updated_at, deleted_at, recurrence_template_id, recurrence_instance_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      task.id,
+      task.workspaceId,
+      task.projectId,
+      task.workingFolder,
+      task.title,
+      task.notes,
+      task.dueDate,
+      task.dueTime,
+      task.timezone,
+      task.priority,
+      task.status,
+      task.completedAt,
+      task.createdAt,
+      task.updatedAt,
+      task.deletedAt,
+      task.recurrenceTemplateId,
+      task.recurrenceInstanceDate,
+    ],
+  );
+
+const insertRecurringTaskTemplate = (db: DatabaseHandle, template: RecurringTaskTemplate) =>
+  db.execute(
+    `INSERT INTO recurring_task_templates
+     (id, workspace_id, title, notes, project_id, working_folder, due_time, timezone, priority, reminder_offset, frequency, interval, anchor_date, end_date, enabled, created_at, updated_at, deleted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      template.id,
+      template.workspaceId,
+      template.title,
+      template.notes,
+      template.projectId,
+      template.workingFolder,
+      template.dueTime,
+      template.timezone,
+      template.priority,
+      template.reminderOffset,
+      template.frequency,
+      template.interval,
+      template.anchorDate,
+      template.endDate,
+      boolToInt(template.enabled),
+      template.createdAt,
+      template.updatedAt,
+      template.deletedAt,
+    ],
+  );
 
 const insertSettings = (db: DatabaseHandle, workspaceId: string, settings: Settings) =>
   db.execute(
@@ -1252,11 +1632,21 @@ const insertReminder = (db: DatabaseHandle, reminder: Reminder) =>
   );
 
 const buildBackupPayload = (
-  data: Pick<AppData, "workspaceId" | "workspaces" | "workspaceFolders" | "projects" | "tasks" | "reminders" | "savedViews">,
+  data: Pick<
+    AppData,
+    | "workspaceId"
+    | "workspaces"
+    | "workspaceFolders"
+    | "projects"
+    | "tasks"
+    | "reminders"
+    | "savedViews"
+    | "recurringTaskTemplates"
+  >,
   workspaceId: string,
   settingsByWorkspace: Record<string, Settings>,
 ): BackupPayload => ({
-  whattodoBackupVersion: 1,
+  whattodoBackupVersion: 2,
   exportedAt: nowIso(),
   workspaceId,
   workspaces: data.workspaces,
@@ -1266,10 +1656,11 @@ const buildBackupPayload = (
   reminders: data.reminders,
   settingsByWorkspace,
   savedViews: data.savedViews,
+  recurringTaskTemplates: data.recurringTaskTemplates,
 });
 
 const normalizeBackupPayload = (payload: BackupPayload): AppData => {
-  if (payload.whattodoBackupVersion !== 1) {
+  if (payload.whattodoBackupVersion !== 1 && payload.whattodoBackupVersion !== 2) {
     throw new Error("Unsupported backup version.");
   }
 
@@ -1286,6 +1677,7 @@ const normalizeBackupPayload = (payload: BackupPayload): AppData => {
     tasks: payload.tasks,
     reminders: payload.reminders,
     savedViews: payload.savedViews,
+    recurringTaskTemplates: payload.recurringTaskTemplates ?? [],
     settings: payload.settingsByWorkspace[workspaceId] ?? DEFAULT_SETTINGS,
   });
 };

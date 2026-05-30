@@ -1,8 +1,10 @@
-import { CalendarClock, Check, Clock, EyeOff, Trash2 } from "lucide-react";
+import { CalendarClock, Check, Clock, EyeOff, Repeat2, Trash2 } from "lucide-react";
 import type { CSSProperties } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { formatTaskDate } from "@/data/dateFormat";
 import { cn } from "@/lib/utils";
 import { projectById } from "@/data/project";
 import type { Project, Reminder, Task } from "@/data/types";
@@ -37,7 +39,8 @@ export function TaskList({
   onDeleteTask,
   deleteMode = "delete",
 }: TaskListProps) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
+  const [actionError, setActionError] = useState<string | null>(null);
   const DeleteIcon = deleteMode === "hide" ? EyeOff : Trash2;
 
   if (tasks.length === 0) {
@@ -104,7 +107,7 @@ export function TaskList({
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1">
                   <CalendarClock className="size-3" />
-                  {task.dueDate}
+                  {formatTaskDate(task.dueDate, i18n.language)}
                 </span>
                 {task.dueTime && (
                   <span className="inline-flex items-center gap-1">
@@ -124,6 +127,12 @@ export function TaskList({
                   <span className="rounded-full border border-border px-2 py-0.5">{t("loose")}</span>
                 )}
                 {reminder && <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-amber-600">{t("reminder")}</span>}
+                {task.recurrenceTemplateId && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-primary">
+                    <Repeat2 className="size-3" />
+                    {t("repeat")}
+                  </span>
+                )}
               </div>
             </button>
             <Button
@@ -134,16 +143,13 @@ export function TaskList({
               variant="ghost"
               title={deleteMode === "hide" ? t("hideFromFloatingWindow") : t("delete")}
               onClick={() => {
+                setActionError(null);
                 if (onDeleteTask) {
                   onDeleteTask(task.id);
                   return;
                 }
 
-                if (!window.confirm(t("confirmDeleteTask"))) {
-                  return;
-                }
-
-                void actions.deleteTask(task.id);
+                void actions.deleteTask(task.id).catch(() => setActionError(t("operationFailed")));
               }}
             >
               <DeleteIcon />
@@ -151,6 +157,7 @@ export function TaskList({
           </article>
         );
       })}
+      {actionError && <p className="motion-status text-xs text-destructive">{actionError}</p>}
     </div>
   );
 }

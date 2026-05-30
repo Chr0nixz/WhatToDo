@@ -44,6 +44,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
+  const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
 
   const currentWorkspace = useMemo(
     () => data.workspaces.find((workspace) => workspace.id === data.workspaceId) ?? data.workspaces[0] ?? null,
@@ -126,10 +127,15 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
       return;
     }
 
-    await invoke("open_workspace_window", {
-      workspaceId: currentWorkspace.id,
-      title: currentWorkspace.name,
-    });
+    setWorkspaceActionError(null);
+    try {
+      await invoke("open_workspace_window", {
+        workspaceId: currentWorkspace.id,
+        title: currentWorkspace.name,
+      });
+    } catch {
+      setWorkspaceActionError(t("openFloatingWindowFailed"));
+    }
   };
 
   const addExistingTaskToWorkspace = async (taskId: string) => {
@@ -139,6 +145,15 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
 
     await actions.moveTaskToWorkspace(taskId, currentWorkspace.id);
     setSelectedTaskId(null);
+  };
+
+  const openWorkspaceFolder = async (path: string) => {
+    setWorkspaceActionError(null);
+    try {
+      await openPath(path);
+    } catch {
+      setWorkspaceActionError(t("openFolderFailed"));
+    }
   };
 
   return (
@@ -242,6 +257,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
               </Button>
             </div>
           </div>
+          {workspaceActionError && <p className="motion-status mt-2 text-xs text-destructive">{workspaceActionError}</p>}
 
           <form className="mt-4 grid grid-cols-[minmax(120px,180px)_minmax(0,1fr)_40px_auto] gap-2 max-xl:grid-cols-2 max-sm:grid-cols-1" onSubmit={createFolder}>
             <input
@@ -285,11 +301,11 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
                     className="motion-surface grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-border bg-card/70 px-3 py-2"
                     style={{ "--motion-index": index } as CSSProperties}
                   >
-                    <button className="min-w-0 text-left" type="button" onClick={() => void openPath(folder.path)}>
+                    <button className="min-w-0 text-left" type="button" onClick={() => void openWorkspaceFolder(folder.path)}>
                       <p className="truncate text-sm font-medium">{folder.name}</p>
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">{folder.path}</p>
                     </button>
-                    <Button size="icon-sm" type="button" variant="ghost" title={t("openFolder")} onClick={() => void openPath(folder.path)}>
+                    <Button size="icon-sm" type="button" variant="ghost" title={t("openFolder")} onClick={() => void openWorkspaceFolder(folder.path)}>
                       <FolderOpen />
                     </Button>
                     <Button
@@ -298,11 +314,8 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
                       variant="ghost"
                       title={t("delete")}
                       onClick={() => {
-                        if (!window.confirm(t("confirmDeleteFolder"))) {
-                          return;
-                        }
-
-                        void actions.deleteWorkspaceFolder(folder.id);
+                        setWorkspaceActionError(null);
+                        void actions.deleteWorkspaceFolder(folder.id).catch(() => setWorkspaceActionError(t("operationFailed")));
                       }}
                     >
                       <Trash2 />

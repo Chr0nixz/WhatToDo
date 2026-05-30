@@ -12,6 +12,8 @@ export type TaskStatus = "todo" | "completed";
 
 export type TaskPriority = "low" | "medium" | "high";
 
+export type RecurrenceFrequency = "daily" | "weekly" | "monthly";
+
 export type DateRangeFilter = "all" | "today" | "week" | "overdue";
 
 export type PresenceFilter = "all" | "with" | "without";
@@ -62,6 +64,29 @@ export type Task = {
   priority: TaskPriority;
   status: TaskStatus;
   completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  recurrenceTemplateId: string | null;
+  recurrenceInstanceDate: string | null;
+};
+
+export type RecurringTaskTemplate = {
+  id: string;
+  workspaceId: string;
+  title: string;
+  notes: string;
+  projectId: string | null;
+  workingFolder: string | null;
+  dueTime: string | null;
+  timezone: string;
+  priority: TaskPriority;
+  reminderOffset: number | null;
+  frequency: RecurrenceFrequency;
+  interval: number;
+  anchorDate: string;
+  endDate: string | null;
+  enabled: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -119,6 +144,7 @@ export type AppData = {
   availableTasks: Task[];
   reminders: Reminder[];
   savedViews: SavedTaskView[];
+  recurringTaskTemplates: RecurringTaskTemplate[];
   settings: Settings;
 };
 
@@ -145,6 +171,27 @@ export type CreateTaskInput = {
   reminderOffset?: number | null;
 };
 
+export type CreateRecurringTaskInput = CreateTaskInput & {
+  frequency: RecurrenceFrequency;
+  endDate?: string | null;
+  reminderOffset?: number | null;
+};
+
+export type UpdateRecurringTaskTemplateInput = Partial<
+  Pick<
+    RecurringTaskTemplate,
+    | "title"
+    | "notes"
+    | "projectId"
+    | "workingFolder"
+    | "dueTime"
+    | "priority"
+    | "reminderOffset"
+    | "frequency"
+    | "endDate"
+  >
+>;
+
 export type CreateProjectInput = {
   name: string;
   color: string;
@@ -168,4 +215,17 @@ export type BackupPayload = {
   reminders: Reminder[];
   settingsByWorkspace: Record<string, Settings>;
   savedViews: SavedTaskView[];
+  recurringTaskTemplates?: RecurringTaskTemplate[];
+} | {
+  whattodoBackupVersion: 2;
+  exportedAt: string;
+  workspaceId: string;
+  workspaces: Workspace[];
+  workspaceFolders: WorkspaceFolder[];
+  projects: Project[];
+  tasks: Task[];
+  reminders: Reminder[];
+  settingsByWorkspace: Record<string, Settings>;
+  savedViews: SavedTaskView[];
+  recurringTaskTemplates: RecurringTaskTemplate[];
 };

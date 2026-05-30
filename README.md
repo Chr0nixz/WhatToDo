@@ -11,8 +11,13 @@ It is designed as a compact desktop command center for DDL work: daily tasks, pr
 - Project and workspace management.
 - Working-folder shortcuts for projects and tasks.
 - System notifications through Tauri.
-- Reminder center with missed, upcoming, and fired reminder groups.
-- Reminder actions: open task, complete task, snooze, and disable reminder.
+- Reminder center with failed, missed, upcoming, and fired reminder groups.
+- Reminder actions: open task, complete task, retry failed notification, snooze, and disable reminder.
+- Undo and recovery flows for deleted tasks, deleted folders, and archived projects.
+- Saved task views for reusable overview filters.
+- Recurring tasks with daily, weekly, and monthly templates.
+- Quick add parsing for date, time, project, priority, and reminder tokens.
+- JSON backup import/export, plus current-workspace CSV and ICS export.
 - Chinese and English UI with localized date formatting.
 - Light, dark, and system theme modes.
 - Local SQLite storage in Tauri, with a localStorage fallback for browser development and tests.
@@ -65,17 +70,20 @@ cargo check
 
 Current automated baseline:
 
-- `pnpm test`: 11 test files, 32 tests.
+- `pnpm test`: 12 test files, 43 tests.
 - `pnpm build`: frontend type-check and production build.
 - `cargo check`: Tauri backend compile check.
+- `pnpm build` currently emits a Vite chunk-size warning for a main JS chunk of about 531 kB; this is a known performance follow-up.
 
 Recommended browser smoke checks:
 
 - Chinese and English UI switching.
 - Home date formatting and selected-date task heading.
-- Reminder center entry, empty state, missed/upcoming/fired groups.
-- Reminder actions: snooze, disable, open task, complete task.
+- Reminder center entry, empty state, failed/missed/upcoming/fired groups.
+- Reminder actions: retry, snooze, disable, open task, complete task.
 - Settings save states and inline errors.
+- Undo toast and recovery center flows.
+- Quick add parsing and recurring-task creation.
 
 Recommended Tauri desktop checks:
 
@@ -107,15 +115,16 @@ Reminder model:
 - `remindAt` stores the base reminder time.
 - `snoozedUntil` overrides the effective reminder time when present.
 - `firedAt` marks a reminder as fired.
+- `failedAt`, `lastError`, and `lastAttemptedAt` record the latest notification failure.
 - `enabled=false` disables a reminder.
 
-Reminder center groups reminders by `effectiveAt = snoozedUntil ?? remindAt` into missed, upcoming, and fired groups.
+Reminder center groups reminders by `effectiveAt = snoozedUntil ?? remindAt` into failed, missed, upcoming, and fired groups.
 
 ## Release And Updates
 
 Pull requests and pushes to `main` are verified by `.github/workflows/ci.yml`. The CI job installs dependencies, runs Vitest, builds the frontend, and runs `cargo check`.
 
-Releases are published by `.github/workflows/release.yml`. Push a tag like `app-v0.1.3`, or run the workflow manually, to run verification checks, build the signed Windows NSIS installer, generate `latest.json`, and upload installer, signature, and updater metadata to GitHub Releases.
+Releases are published by `.github/workflows/release.yml`. Push a tag like `app-v0.1.4`, or run the workflow manually, to run verification checks, build the signed Windows NSIS installer, generate `latest.json`, and upload installer, signature, and updater metadata to GitHub Releases.
 
 The app uses the Tauri v2 updater plugin and checks:
 
@@ -129,7 +138,8 @@ Before publishing a release:
 2. Add release notes to `CHANGELOG.md`.
 3. Commit the version and changelog changes.
 4. Ensure GitHub Secrets contains `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-5. Push `app-v<version>` and verify the release assets.
+5. Run `pnpm tauri dev` and complete `DESKTOP_VALIDATION.md`.
+6. Push `app-v<version>` and verify the release assets.
 
 The generated updater private key and password are intentionally local-only in `.tauri-updater-private-key.local` and `.tauri-updater-private-key-password.local`. The public key is committed in `src-tauri/tauri.conf.json`; the private key and password must stay in GitHub Secrets or another secure secret store.
 
@@ -137,6 +147,7 @@ The generated updater private key and password are intentionally local-only in `
 
 See `PROJECT_ANALYSIS.md` for the detailed project analysis and roadmap. The current short-term priorities are:
 
-1. Complete Tauri desktop runtime verification.
-2. Add visible reminder failure state.
-3. Add undo flows for task deletion, folder deletion, and project archive.
+1. Fix the potential duplicate-trigger race in `useReminders`.
+2. Add SQLite transactions around multi-step writes.
+3. Tighten Tauri CSP, capability scope, and file command validation.
+4. Complete Tauri desktop runtime verification.

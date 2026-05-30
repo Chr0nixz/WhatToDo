@@ -9,6 +9,7 @@ import type { AccentColor, AppData, Language, Settings, ThemeMode } from "@/data
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 import { UpdateSettingsPanel } from "./UpdateSettingsPanel";
+import { formatTaskDate } from "@/data/dateFormat";
 
 type SettingsViewProps = {
   data: AppData;
@@ -44,6 +45,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
   const [dataState, setDataState] = useState<"idle" | "saved" | "error">("idle");
+  const [dataError, setDataError] = useState<string | null>(null);
 
   useEffect(() => {
     setDefaultWorkingFolder(settings.defaultWorkingFolder ?? "");
@@ -89,7 +91,12 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
     const folder = settings.defaultWorkingFolder?.trim();
 
     if (folder) {
-      await openPath(folder);
+      try {
+        await openPath(folder);
+        setSaveState("idle");
+      } catch {
+        setSaveState("error");
+      }
     }
   };
 
@@ -111,22 +118,26 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
 
   const exportBackup = async () => {
     setDataState("idle");
+    setDataError(null);
     try {
       const payload = await actions.exportBackup();
       await writeText(`whattodo-backup-${timestampForFile()}.json`, JSON.stringify(payload, null, 2), "application/json");
       setDataState("saved");
     } catch {
       setDataState("error");
+      setDataError(t("exportFailed"));
     }
   };
 
   const importBackup = async () => {
     if (!isTauriRuntime()) {
       setDataState("error");
+      setDataError(t("importFailed"));
       return;
     }
 
     setDataState("idle");
+    setDataError(null);
     try {
       const selected = await openDialog({
         multiple: false,
@@ -142,33 +153,42 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
       const separator = selected.includes("\\") ? "\\" : "/";
       const parent = selected.split(/[\\/]/).slice(0, -1).join(separator);
       const preImportPath = `${parent}${parent ? separator : ""}whattodo-pre-import-${timestampForFile()}.json`;
-      await invoke("write_text_file", { path: preImportPath, contents: JSON.stringify(currentBackup, null, 2) });
+      try {
+        await invoke("write_text_file", { path: preImportPath, contents: JSON.stringify(currentBackup, null, 2) });
+      } catch {
+        throw new Error(t("preImportBackupFailed"));
+      }
 
       const contents = await invoke<string>("read_text_file", { path: selected });
       await actions.importBackup(JSON.parse(contents));
       setDataState("saved");
-    } catch {
+    } catch (err) {
       setDataState("error");
+      setDataError(err instanceof Error ? err.message : t("importFailed"));
     }
   };
 
   const exportCsv = async () => {
     setDataState("idle");
+    setDataError(null);
     try {
       await writeText(`whattodo-tasks-${timestampForFile()}.csv`, await actions.exportCurrentWorkspaceCsv(), "text/csv");
       setDataState("saved");
     } catch {
       setDataState("error");
+      setDataError(t("exportFailed"));
     }
   };
 
   const exportIcs = async () => {
     setDataState("idle");
+    setDataError(null);
     try {
       await writeText(`whattodo-tasks-${timestampForFile()}.ics`, await actions.exportCurrentWorkspaceIcs(), "text/calendar");
       setDataState("saved");
     } catch {
       setDataState("error");
+      setDataError(t("exportFailed"));
     }
   };
 
@@ -358,7 +378,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
         <div className="grid gap-3">
           <RecoveryGroup
             emptyLabel={t("emptyDeletedTasks")}
-            items={data.deletedTasks.map((task) => ({ id: task.id, title: task.title, meta: task.dueDate }))}
+            items={data.deletedTasks.map((task) => ({ id: task.id, title: task.title, meta: formatTaskDate(task.dueDate, i18n.language) }))}
             title={t("deletedTasks")}
             onRestore={(id) => actions.restoreTask(id)}
           />
@@ -372,7 +392,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             emptyLabel={t("emptyArchivedProjects")}
             items={data.projects
               .filter((project) => project.status === "archived" && project.deletedAt === null)
-              .map((project) => ({ id: project.id, title: project.name, meta: project.dueDate ?? t("none") }))}
+              .map((project) => ({ id: project.id, title: project.name, meta: project.dueDate ? formatTaskDate(project.dueDate, i18n.language) : t("none") }))}
             title={t("archivedProjects")}
             onRestore={(id) => actions.unarchiveProject(id)}
           />
@@ -409,7 +429,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
         </div>
         {dataState !== "idle" && (
           <p className={cn("motion-status mt-3 text-xs", dataState === "saved" ? "text-emerald-600" : "text-destructive")}>
-            {dataState === "saved" ? t("dataOperationDone") : t("operationFailed")}
+            {dataState === "saved" ? t("dataOperationDone") : dataError ?? t("operationFailed")}
           </p>
         )}
       </section>
