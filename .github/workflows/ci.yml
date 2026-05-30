@@ -29,7 +29,7 @@ jobs:
           - label: Windows
             os: windows-latest
           - label: macOS ARM64
-            os: macos-14
+            os: macos-latest
           - label: Linux
             os: ubuntu-22.04
 
