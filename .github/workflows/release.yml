@@ -19,12 +19,114 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release-windows:
-    name: Release Windows NSIS
+  prepare:
+    name: Prepare release
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 15
 
     env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      title: ${{ steps.metadata.outputs.title }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.7.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve release metadata
+        id: metadata
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $tagInput = '${{ inputs.tag }}'
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $tag = "${{ github.ref_name }}"
+          } elseif ($tagInput) {
+            $tag = $tagInput
+          } else {
+            $tag = "app-v$version"
+          }
+
+          if ($tag -ne "app-v$version") {
+            throw "Release tag '$tag' does not match package version '$version'. Expected app-v$version."
+          }
+
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "title=WhatToDo v$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Verify release inputs
+        shell: pwsh
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+            throw "TAURI_SIGNING_PRIVATE_KEY secret is required."
+          }
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
+            throw "TAURI_SIGNING_PRIVATE_KEY_PASSWORD secret is required."
+          }
+          pnpm release:check
+
+  build:
+    name: Build ${{ matrix.label }}
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows x64
+            os: windows-latest
+            platform: windows-x86_64
+            build_args: --bundles nsis
+            release_paths: |
+              src-tauri/target/release/bundle/nsis/*.exe
+              src-tauri/target/release/bundle/nsis/*.sig
+            updater_glob: src-tauri/target/release/bundle/nsis/*-setup.exe
+          - label: macOS x64
+            os: macos-13
+            platform: darwin-x86_64
+            build_args: --bundles dmg
+            release_paths: |
+              src-tauri/target/release/bundle/dmg/*.dmg
+              src-tauri/target/release/bundle/macos/*.tar.gz
+              src-tauri/target/release/bundle/macos/*.sig
+            updater_glob: src-tauri/target/release/bundle/macos/*.app.tar.gz
+          - label: Linux x64
+            os: ubuntu-22.04
+            platform: linux-x86_64
+            build_args: --bundles appimage,deb
+            release_paths: |
+              src-tauri/target/release/bundle/appimage/*.AppImage
+              src-tauri/target/release/bundle/appimage/*.tar.gz
+              src-tauri/target/release/bundle/appimage/*.sig
+              src-tauri/target/release/bundle/deb/*.deb
+            updater_glob: src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz
+
+    env:
+      APP_VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
       CARGO_TERM_COLOR: always
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -49,40 +151,18 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Resolve release metadata
-        shell: pwsh
-        run: |
-          $version = node -p "require('./package.json').version"
-          $tagInput = '${{ inputs.tag }}'
-          if ("${{ github.ref_type }}" -eq "tag") {
-            $tag = "${{ github.ref_name }}"
-          } elseif ($tagInput) {
-            $tag = $tagInput
-          } else {
-            $tag = "app-v$version"
-          }
-
-          if ($tag -ne "app-v$version") {
-            throw "Release tag '$tag' does not match package version '$version'. Expected app-v$version."
-          }
-
-          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "RELEASE_TITLE=WhatToDo v$version" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Verify release inputs
-        shell: pwsh
-        run: |
-          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
-            throw "TAURI_SIGNING_PRIVATE_KEY secret is required."
-          }
-          if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
-            throw "TAURI_SIGNING_PRIVATE_KEY_PASSWORD secret is required."
-          }
-          pnpm release:check
 
       - name: Test and build
         run: |
@@ -90,26 +170,82 @@ jobs:
           pnpm build
           cargo check --manifest-path src-tauri/Cargo.toml
 
-      - name: Build signed Windows installer
-        run: pnpm tauri build --bundles nsis
+      - name: Build signed installer
+        run: pnpm tauri build ${{ matrix.build_args }}
 
-      - name: Generate updater metadata
+      - name: Generate platform updater metadata
         shell: pwsh
         run: |
-          $bundleDir = "src-tauri/target/release/bundle/nsis"
-          $installer = Get-ChildItem $bundleDir -Filter "WhatToDo_${env:APP_VERSION}_x64-setup.exe" | Select-Object -First 1
-          $signatureFile = Get-ChildItem $bundleDir -Filter "WhatToDo_${env:APP_VERSION}_x64-setup.exe.sig" | Select-Object -First 1
+          $matches = @(Get-ChildItem -Path "${{ matrix.updater_glob }}" -File -ErrorAction SilentlyContinue)
 
-          if (-not $installer) {
-            throw "NSIS installer was not found in $bundleDir."
+          if (-not $matches) {
+            Write-Host "Available release bundle files:"
+            Get-ChildItem src-tauri/target/release/bundle -Recurse -File | ForEach-Object { Write-Host $_.FullName }
+            throw "Updater artifact matching '${{ matrix.updater_glob }}' was not found."
           }
-          if (-not $signatureFile) {
-            throw "Updater signature was not found in $bundleDir."
+
+          $updater = $matches | Select-Object -First 1
+          $signaturePath = "$($updater.FullName).sig"
+          if (-not (Test-Path $signaturePath)) {
+            throw "Updater signature was not found for $($updater.Name). Expected $signaturePath."
           }
+          $signatureFile = Get-Item $signaturePath
 
           $signature = (Get-Content -Raw $signatureFile.FullName).Trim()
-          $installerName = $installer.Name
-          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/$env:RELEASE_TAG/$installerName"
+          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/$env:RELEASE_TAG/$($updater.Name)"
+
+          $metadata = [ordered]@{
+            platform = "${{ matrix.platform }}"
+            url = $downloadUrl
+            signature = $signature
+          }
+
+          $metadataPath = "platform-${{ matrix.platform }}.json"
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) $metadataPath),
+            ($metadata | ConvertTo-Json -Depth 4),
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
+      - name: Upload platform artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          if-no-files-found: error
+          path: |
+            ${{ matrix.release_paths }}
+            platform-${{ matrix.platform }}.json
+
+  publish:
+    name: Publish release
+    needs:
+      - prepare
+      - build
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    env:
+      APP_VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_TITLE: ${{ needs.prepare.outputs.title }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Generate release notes and latest.json
+        shell: pwsh
+        run: |
           $changelog = Get-Content -Raw CHANGELOG.md
           $versionPattern = [regex]::Escape($env:APP_VERSION)
           $match = [regex]::Match($changelog, "(?ms)^##\s+\[?$versionPattern\]?\s*\r?\n(?<body>.*?)(?=^##\s+|\z)")
@@ -117,54 +253,48 @@ jobs:
             $notes = $match.Groups["body"].Value.Trim()
           } else {
             $notes = "See CHANGELOG.md for release notes."
+          }
+
+          [System.IO.File]::WriteAllText(
+            (Join-Path (Get-Location) "release-notes.md"),
+            "## $env:APP_VERSION`n`n$notes`n",
+            [System.Text.UTF8Encoding]::new($false)
+          )
+
+          $platforms = [ordered]@{}
+          Get-ChildItem release-artifacts -Filter "platform-*.json" | ForEach-Object {
+            $metadata = Get-Content -Raw $_.FullName | ConvertFrom-Json
+            $platforms[$metadata.platform] = [ordered]@{
+              signature = $metadata.signature
+              url = $metadata.url
+            }
+          }
+
+          foreach ($required in @("windows-x86_64", "darwin-x86_64", "linux-x86_64")) {
+            if (-not $platforms.Contains($required)) {
+              throw "latest.json is missing $required metadata."
+            }
           }
 
           $latest = [ordered]@{
             version = $env:APP_VERSION
             notes = $notes
             pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-            platforms = [ordered]@{
-              "windows-x86_64" = [ordered]@{
-                signature = $signature
-                url = $downloadUrl
-              }
-            }
+            platforms = $platforms
           }
 
-          $latestPath = Join-Path $bundleDir "latest.json"
           [System.IO.File]::WriteAllText(
-            (Resolve-Path $bundleDir).Path + [System.IO.Path]::DirectorySeparatorChar + "latest.json",
+            (Join-Path (Get-Location) "release-artifacts/latest.json"),
             ($latest | ConvertTo-Json -Depth 8),
-            [System.Text.UTF8Encoding]::new($false)
-          )
-
-          "INSTALLER_PATH=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "SIGNATURE_PATH=$($signatureFile.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "LATEST_JSON_PATH=$latestPath" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Write release notes
-        shell: pwsh
-        run: |
-          $changelog = Get-Content -Raw CHANGELOG.md
-          $versionPattern = [regex]::Escape($env:APP_VERSION)
-          $match = [regex]::Match($changelog, "(?ms)^##\s+\[?$versionPattern\]?\s*\r?\n(?<body>.*?)(?=^##\s+|\z)")
-          if ($match.Success) {
-            $notes = $match.Groups["body"].Value.Trim()
-          } else {
-            $notes = "See CHANGELOG.md for release notes."
-          }
-          [System.IO.File]::WriteAllText(
-            (Resolve-Path .).Path + [System.IO.Path]::DirectorySeparatorChar + "release-notes.md",
-            "## $env:APP_VERSION`n`n$notes`n",
             [System.Text.UTF8Encoding]::new($false)
           )
 
       - name: Publish GitHub Release
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $assets = @($env:INSTALLER_PATH, $env:SIGNATURE_PATH, $env:LATEST_JSON_PATH)
+          $assetPaths = Get-ChildItem release-artifacts -File |
+            Where-Object { $_.Name -notlike "platform-*.json" } |
+            ForEach-Object { $_.FullName }
 
           gh release view $env:RELEASE_TAG --repo ${{ github.repository }} *> $null
           if ($LASTEXITCODE -eq 0) {
@@ -173,11 +303,11 @@ jobs:
               --title "$env:RELEASE_TITLE" `
               --notes-file release-notes.md `
               --latest
-            gh release upload $env:RELEASE_TAG $assets `
+            gh release upload $env:RELEASE_TAG $assetPaths `
               --repo ${{ github.repository }} `
               --clobber
           } else {
-            gh release create $env:RELEASE_TAG $assets `
+            gh release create $env:RELEASE_TAG $assetPaths `
               --repo ${{ github.repository }} `
               --target ${{ github.sha }} `
               --title "$env:RELEASE_TITLE" `
@@ -192,6 +322,8 @@ jobs:
           if ($metadata.version -ne $env:APP_VERSION) {
             throw "latest.json version '$($metadata.version)' does not match '$env:APP_VERSION'."
           }
-          if (-not $metadata.platforms.'windows-x86_64'.signature) {
-            throw "latest.json is missing the Windows updater signature."
+          foreach ($required in @("windows-x86_64", "darwin-x86_64", "linux-x86_64")) {
+            if (-not $metadata.platforms.$required.signature) {
+              throw "latest.json is missing the $required updater signature."
+            }
           }

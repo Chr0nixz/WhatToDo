@@ -18,9 +18,20 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify Windows app
-    runs-on: windows-latest
-    timeout-minutes: 45
+    name: Verify ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows
+            os: windows-latest
+          - label: macOS
+            os: macos-13
+          - label: Linux
+            os: ubuntu-22.04
 
     steps:
       - name: Checkout
@@ -39,6 +50,16 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
