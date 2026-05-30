@@ -1,10 +1,10 @@
 import { Search, X } from "lucide-react";
-import { format } from "date-fns";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { overdueTasks, tasksForDate, todayKey } from "@/data/date";
+import { formatHeaderDate, selectedDateTaskLabel } from "@/data/dateFormat";
 import type { AppData } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 
@@ -33,7 +33,7 @@ export function HomeView({
   searchQuery,
   setSearchQuery,
 }: HomeViewProps) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const selectedTasks = useMemo(() => {
     const tasks = tasksForDate(data.tasks, selectedDate);
@@ -57,7 +57,7 @@ export function HomeView({
             <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t("allDeadlines")}</p>
               <h1 className="truncate text-2xl font-semibold">
-                {format(new Date(`${selectedDate}T00:00:00`), "MMM d, yyyy")}
+                {formatHeaderDate(selectedDate, i18n.language)}
               </h1>
             </div>
             <div className="flex items-center gap-2">
@@ -102,7 +102,13 @@ export function HomeView({
 
         <div className="min-h-0 flex-1 overflow-auto p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold">{t("today")}</h2>
+            <h2 className="text-sm font-semibold">
+              {selectedDateTaskLabel(selectedDate, i18n.language, {
+                today: t("today"),
+                tomorrow: t("tomorrow"),
+                selectedDateTasks: t("selectedDateTasks"),
+              })}
+            </h2>
             {overdue.length > 0 && (
               <span className="rounded-full bg-red-500/12 px-2 py-1 text-xs font-medium text-red-500">
                 {t("overdue")} {overdue.length}

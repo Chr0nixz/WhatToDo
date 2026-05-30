@@ -1,0 +1,147 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import "@/i18n";
+import i18n from "@/i18n";
+import type { AppData, Reminder, Task } from "@/data/types";
+import type { TodoActions } from "@/hooks/useTodos";
+
+import { ReminderCenterView } from "./ReminderCenterView";
+
+const makeTask = (patch: Partial<Task>): Task => ({
+  id: patch.id ?? "task",
+  workspaceId: "workspace",
+  projectId: null,
+  workingFolder: null,
+  title: patch.title ?? "Task",
+  notes: "",
+  dueDate: "2026-06-01",
+  dueTime: null,
+  timezone: "Asia/Shanghai",
+  priority: "medium",
+  status: patch.status ?? "todo",
+  completedAt: patch.completedAt ?? null,
+  createdAt: "2026-06-01T00:00:00.000Z",
+  updatedAt: "2026-06-01T00:00:00.000Z",
+  deletedAt: patch.deletedAt ?? null,
+});
+
+const makeReminder = (patch: Partial<Reminder>): Reminder => ({
+  id: patch.id ?? "reminder",
+  taskId: patch.taskId ?? "task",
+  remindAt: patch.remindAt ?? "2026-06-01T00:00:00.000Z",
+  offsetMinutes: 30,
+  snoozedUntil: patch.snoozedUntil ?? null,
+  firedAt: patch.firedAt ?? null,
+  enabled: patch.enabled ?? true,
+});
+
+const makeData = (tasks: Task[], reminders: Reminder[]): AppData => ({
+  workspaceId: "workspace",
+  workspaces: [],
+  workspaceFolders: [],
+  projects: [],
+  tasks,
+  availableTasks: [],
+  reminders,
+  settings: {
+    theme: "system",
+    accentColor: "blue",
+    language: "en",
+    defaultReminderOffset: 30,
+    defaultWorkingFolder: null,
+    notificationsEnabled: true,
+    closeToTray: true,
+  },
+});
+
+const makeActions = (patch: Partial<TodoActions> = {}): TodoActions =>
+  ({
+    snoozeReminder: vi.fn().mockResolvedValue({} as AppData),
+    disableReminder: vi.fn().mockResolvedValue({} as AppData),
+    toggleTask: vi.fn().mockResolvedValue({} as AppData),
+    ...patch,
+  }) as TodoActions;
+
+describe("ReminderCenterView", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  it("renders missed, upcoming, and fired reminder groups", () => {
+    render(
+      <ReminderCenterView
+        actions={makeActions()}
+        data={makeData(
+          [
+            makeTask({ id: "missed", title: "Missed task" }),
+            makeTask({ id: "upcoming", title: "Upcoming task" }),
+            makeTask({ id: "fired", title: "Fired task" }),
+          ],
+          [
+            makeReminder({ id: "r-missed", taskId: "missed", remindAt: "2000-06-01T00:00:00.000Z" }),
+            makeReminder({ id: "r-upcoming", taskId: "upcoming", remindAt: "2999-06-01T00:10:00.000Z" }),
+            makeReminder({
+              id: "r-fired",
+              taskId: "fired",
+              remindAt: "2000-06-01T00:00:00.000Z",
+              firedAt: "2000-06-01T00:01:00.000Z",
+            }),
+          ],
+        )}
+        onOpenTask={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Missed")).toBeInTheDocument();
+    expect(screen.getByText("Upcoming")).toBeInTheDocument();
+    expect(screen.getAllByText("Fired").length).toBeGreaterThan(0);
+    expect(screen.getByText("Missed task")).toBeInTheDocument();
+    expect(screen.getByText("Upcoming task")).toBeInTheDocument();
+    expect(screen.getByText("Fired task")).toBeInTheDocument();
+  });
+
+  it("snoozes and disables reminders", async () => {
+    const actions = makeActions();
+    render(
+      <ReminderCenterView
+        actions={actions}
+        data={makeData(
+          [makeTask({ id: "missed", title: "Missed task" })],
+          [makeReminder({ id: "r-missed", taskId: "missed", remindAt: "2000-06-01T00:00:00.000Z" })],
+        )}
+        onOpenTask={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /10 min/i }));
+
+    expect(actions.snoozeReminder).toHaveBeenCalledWith("r-missed", expect.any(String));
+    await waitFor(() => expect(screen.getByText("Reminder snoozed.")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /turn off reminder/i }));
+
+    await waitFor(() => expect(actions.disableReminder).toHaveBeenCalledWith("r-missed"));
+  });
+
+  it("opens and completes tasks from a reminder row", async () => {
+    const onOpenTask = vi.fn();
+    const actions = makeActions();
+    render(
+      <ReminderCenterView
+        actions={actions}
+        data={makeData(
+          [makeTask({ id: "missed", title: "Missed task" })],
+          [makeReminder({ id: "r-missed", taskId: "missed", remindAt: "2000-06-01T00:00:00.000Z" })],
+        )}
+        onOpenTask={onOpenTask}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /open task/i }));
+    fireEvent.click(screen.getByRole("button", { name: /complete/i }));
+
+    expect(onOpenTask).toHaveBeenCalledWith("missed");
+    await waitFor(() => expect(actions.toggleTask).toHaveBeenCalledWith("missed"));
+  });
+});

@@ -129,6 +129,10 @@ export function TaskList({
                   return;
                 }
 
+                if (!window.confirm(t("confirmDeleteTask"))) {
+                  return;
+                }
+
                 void actions.deleteTask(task.id);
               }}
             >

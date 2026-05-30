@@ -38,6 +38,10 @@ export function ProjectsView({
   const [workingFolder, setWorkingFolder] = useState("");
   const [selectedWorkingFolder, setSelectedWorkingFolder] = useState("");
   const [color, setColor] = useState(projectColors[0]);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isSavingFolder, setIsSavingFolder] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [folderSaveState, setFolderSaveState] = useState<"idle" | "saved" | "error">("idle");
 
   const selectedProject =
     selectedProjectId === NO_PROJECT_ID ? null : projects.find((project) => project.id === selectedProjectId) ?? null;
@@ -58,31 +62,41 @@ export function ProjectsView({
     const nextName = name.trim();
 
     if (!nextName) {
+      setFormError(t("nameRequired"));
       return;
     }
 
-    const nextData = await actions.createProject({
-      name: nextName,
-      color,
-      dueDate: dueDate || null,
-      workingFolder: workingFolder.trim() || null,
-    });
-    const created = nextData.projects.find((project) => project.name === nextName && project.color === color);
-    if (created) {
-      setSelectedProjectId(created.id);
-    }
+    setIsCreating(true);
+    setFormError(null);
 
-    setName("");
-    setDueDate("");
-    setWorkingFolder("");
-    setColor(projectColors[0]);
+    try {
+      const nextData = await actions.createProject({
+        name: nextName,
+        color,
+        dueDate: dueDate || null,
+        workingFolder: workingFolder.trim() || null,
+      });
+      const created = nextData.projects.find((project) => project.name === nextName && project.color === color);
+      if (created) {
+        setSelectedProjectId(created.id);
+      }
+
+      setName("");
+      setDueDate("");
+      setWorkingFolder("");
+      setColor(projectColors[0]);
+    } catch {
+      setFormError(t("operationFailed"));
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   const chooseFolder = async (onChoose: (path: string) => void) => {
     const selected = await openDialog({
       directory: true,
       multiple: false,
-      title: "Select project folder",
+      title: t("selectProjectFolder"),
     });
 
     if (typeof selected === "string") {
@@ -95,9 +109,19 @@ export function ProjectsView({
       return;
     }
 
-    await actions.updateProject(selectedProject.id, {
-      workingFolder: selectedWorkingFolder.trim() || null,
-    });
+    setIsSavingFolder(true);
+    setFolderSaveState("idle");
+
+    try {
+      await actions.updateProject(selectedProject.id, {
+        workingFolder: selectedWorkingFolder.trim() || null,
+      });
+      setFolderSaveState("saved");
+    } catch {
+      setFolderSaveState("error");
+    } finally {
+      setIsSavingFolder(false);
+    }
   };
 
   const openSelectedWorkingFolder = async () => {
@@ -189,10 +213,11 @@ export function ProjectsView({
               />
             ))}
           </div>
-          <Button className="mt-4 w-full" type="submit">
+          <Button className="mt-4 w-full" disabled={isCreating} type="submit">
             <Plus />
-            {t("createProject")}
+            {isCreating ? t("creating") : t("createProject")}
           </Button>
+          {formError && <p className="mt-2 text-xs text-destructive">{formError}</p>}
         </form>
       </aside>
 
@@ -217,7 +242,18 @@ export function ProjectsView({
             </div>
             <div className="flex items-center gap-2">
               {selectedProject && (
-                <Button size="sm" type="button" variant="ghost" onClick={() => void actions.archiveProject(selectedProject.id)}>
+                <Button
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    if (!window.confirm(t("confirmArchiveProject"))) {
+                      return;
+                    }
+
+                    void actions.archiveProject(selectedProject.id);
+                  }}
+                >
                   <Archive />
                   {t("archive")}
                 </Button>
@@ -253,13 +289,14 @@ export function ProjectsView({
                   size="sm"
                   type="button"
                   variant="secondary"
+                  disabled={isSavingFolder}
                   onClick={() => void chooseFolder(setSelectedWorkingFolder)}
                 >
                   <FolderOpen />
                   {t("chooseFolder")}
                 </Button>
-                <Button size="sm" type="button" variant="secondary" onClick={() => void saveSelectedWorkingFolder()}>
-                  {t("save")}
+                <Button disabled={isSavingFolder} size="sm" type="button" variant="secondary" onClick={() => void saveSelectedWorkingFolder()}>
+                  {isSavingFolder ? t("saving") : t("save")}
                 </Button>
                 <Button
                   disabled={!selectedProject.workingFolder}
@@ -270,6 +307,11 @@ export function ProjectsView({
                   {t("openFolder")}
                 </Button>
               </div>
+              {folderSaveState !== "idle" && (
+                <p className={cn("mt-2 text-xs", folderSaveState === "saved" ? "text-emerald-600" : "text-destructive")}>
+                  {folderSaveState === "saved" ? t("saved") : t("operationFailed")}
+                </p>
+              )}
             </div>
           )}
         </div>

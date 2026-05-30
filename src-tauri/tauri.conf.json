@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "WhatToDo",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "identifier": "com.chronix.whattodo",
   "build": {
-    "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "node scripts/tauri-before-dev.mjs",
+    "devUrl": "http://127.0.0.1:5173",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
@@ -25,6 +25,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -33,5 +34,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRCRDZGMTFERUM4RjlERTUKUldUbG5ZL3NIZkhXUzljUURnSzhpUWg4bnlSOFBBSXBUL0RiY2thTmk1ZWJGQytJQjY2VnUzQm0K",
+      "endpoints": [
+        "https://github.com/Chr0nixz/WhatToDo/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

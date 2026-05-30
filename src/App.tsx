@@ -1,5 +1,6 @@
 import {
   CalendarDays,
+  Bell,
   BriefcaseBusiness,
   FolderKanban,
   ListChecks,
@@ -23,6 +24,7 @@ import { isWorkspaceFloatingWindow } from "@/lib/windowContext";
 import { HomeView } from "./components/app/HomeView";
 import { OverviewView } from "./components/app/OverviewView";
 import { ProjectsView } from "./components/app/ProjectsView";
+import { ReminderCenterView } from "./components/app/ReminderCenterView";
 import { SettingsView } from "./components/app/SettingsView";
 import { TaskDetailPane } from "./components/app/TaskDetailPane";
 import { WorkspacesView } from "./components/app/WorkspacesView";
@@ -33,6 +35,7 @@ const navItems = [
   { id: "overview", icon: ListChecks, labelKey: "overview" },
   { id: "projects", icon: FolderKanban, labelKey: "projects" },
   { id: "workspaces", icon: BriefcaseBusiness, labelKey: "workspaces" },
+  { id: "reminders", icon: Bell, labelKey: "reminders" },
 ] satisfies { id: Exclude<AppView, "settings">; icon: typeof CalendarDays; labelKey: string }[];
 
 const RAIL_STORAGE_KEY = "whattodo:rail";
@@ -92,7 +95,15 @@ function App() {
     [data],
   );
 
-  useReminders(data, actions.markReminderFired, onOpenTask);
+  const disableNotifications = useCallback(async () => {
+    if (!data?.settings.notificationsEnabled) {
+      return;
+    }
+
+    await actions.saveSettings({ ...data.settings, notificationsEnabled: false });
+  }, [actions, data]);
+
+  useReminders(data, actions.markReminderFired, onOpenTask, disableNotifications);
 
   const stats = useMemo(() => {
     if (!data) {
@@ -111,7 +122,7 @@ function App() {
         <div className="max-w-md rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive shadow-sm">
           <div className="mb-1 flex items-center gap-2 font-semibold">
             <TriangleAlert className="size-4" />
-            WhatToDo failed to load
+            {t("loadErrorTitle")}
           </div>
           <p className="break-words text-xs">{error}</p>
         </div>
@@ -124,7 +135,7 @@ function App() {
       <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
         <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm shadow-sm">
           <Loader2 className="size-4 animate-spin text-primary" />
-          Loading WhatToDo
+          {t("loadingApp")}
         </div>
       </div>
     );
@@ -150,7 +161,7 @@ function App() {
           </div>
           <div className={cn("min-w-0", !isRailExpanded && "hidden")}>
             <h1 className="truncate text-sm font-semibold">{t("appName")}</h1>
-            <p className="text-xs text-muted-foreground">Command center</p>
+            <p className="text-xs text-muted-foreground">{t("commandCenter")}</p>
           </div>
         </div>
 
@@ -215,7 +226,7 @@ function App() {
 
           <button
             className="flex h-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            title={isRailExpanded ? "Collapse" : "Expand"}
+            title={isRailExpanded ? t("collapseSidebar") : t("expandSidebar")}
             type="button"
             onClick={() => setIsRailExpanded((value) => !value)}
           >
@@ -237,7 +248,9 @@ function App() {
                     ? t("projects")
                     : view === "workspaces"
                       ? currentWorkspace?.name ?? t("workspaces")
-                      : t("settings")}
+                      : view === "reminders"
+                        ? t("reminderCenter")
+                        : t("settings")}
             </h2>
           </div>
           <div className="flex items-center gap-2">
@@ -288,6 +301,7 @@ function App() {
               setSelectedTaskId={setSelectedTaskId}
             />
           )}
+          {view === "reminders" && <ReminderCenterView actions={actions} data={data} onOpenTask={onOpenTask} />}
           {view === "settings" && (
             <div className="h-full overflow-auto p-4">
               <SettingsView actions={actions} data={data} />

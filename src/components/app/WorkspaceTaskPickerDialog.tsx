@@ -42,7 +42,7 @@ export function WorkspaceTaskPickerDialog({ tasks, workspaces, onAddTask }: Work
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
-              <Button size="icon-sm" type="button" variant="ghost">
+              <Button size="icon-sm" type="button" variant="ghost" title={t("close")}>
                 <X />
               </Button>
             </Dialog.Close>

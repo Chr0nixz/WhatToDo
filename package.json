@@ -1,12 +1,16 @@
 {
   "name": "whattodo",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "tauri:before-dev": "node scripts/tauri-before-dev.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "release:check": "node scripts/release-check.mjs",
+    "release:sync-version": "node scripts/sync-version.mjs",
+    "release:build": "node scripts/release-build.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "tauri": "tauri"
@@ -21,7 +25,9 @@
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-sql": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "@tauri-apps/plugin-window-state": "^2.4.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

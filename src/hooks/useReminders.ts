@@ -9,55 +9,76 @@ import type { AppData } from "@/data/types";
 
 const isTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+export const dueRemindersForData = (data: AppData, now = Date.now()) =>
+  data.reminders.filter((reminder) => {
+    const task = data.tasks.find((item) => item.id === reminder.taskId);
+
+    return (
+      reminder.enabled &&
+      reminder.firedAt === null &&
+      task?.deletedAt === null &&
+      task?.status === "todo" &&
+      new Date(reminder.snoozedUntil ?? reminder.remindAt).getTime() <= now
+    );
+  });
+
 export const useReminders = (
   data: AppData | null,
   markReminderFired: (id: string) => Promise<AppData>,
   onOpenTask: (taskId: string) => void,
+  onPermissionDenied?: () => Promise<void> | void,
 ) => {
   useEffect(() => {
     if (!data?.settings.notificationsEnabled || !isTauriRuntime()) {
       return;
     }
 
+    let isTicking = false;
+    let permissionDenied = false;
+
     const tick = async () => {
-      let permissionGranted = await isPermissionGranted();
-      if (!permissionGranted) {
-        const permission = await requestPermission();
-        permissionGranted = permission === "granted";
-      }
-
-      if (!permissionGranted) {
+      if (isTicking || permissionDenied) {
         return;
       }
 
-      const now = Date.now();
-      const dueReminder = data.reminders.find((reminder) => {
-        const task = data.tasks.find((item) => item.id === reminder.taskId);
+      isTicking = true;
 
-        return (
-          reminder.enabled &&
-          reminder.firedAt === null &&
-          task?.deletedAt === null &&
-          task?.status === "todo" &&
-          new Date(reminder.snoozedUntil ?? reminder.remindAt).getTime() <= now
-        );
-      });
+      try {
+        let permissionGranted = await isPermissionGranted();
+        if (!permissionGranted) {
+          const permission = await requestPermission();
+          permissionGranted = permission === "granted";
+        }
 
-      if (!dueReminder) {
+        if (!permissionGranted) {
+          permissionDenied = true;
+          await onPermissionDenied?.();
+          return;
+        }
+
+        const dueReminders = dueRemindersForData(data);
+        if (dueReminders.length === 0) {
+          return;
+        }
+
+        for (const reminder of dueReminders) {
+          const task = data.tasks.find((item) => item.id === reminder.taskId);
+          if (!task) {
+            continue;
+          }
+
+          sendNotification({
+            title: "WhatToDo",
+            body: task.dueTime ? `${task.title} · ${task.dueTime}` : task.title,
+          });
+          onOpenTask(task.id);
+          await markReminderFired(reminder.id);
+        }
+      } catch {
         return;
+      } finally {
+        isTicking = false;
       }
-
-      const task = data.tasks.find((item) => item.id === dueReminder.taskId);
-      if (!task) {
-        return;
-      }
-
-      sendNotification({
-        title: "WhatToDo",
-        body: task.dueTime ? `${task.title} · ${task.dueTime}` : task.title,
-      });
-      onOpenTask(task.id);
-      await markReminderFired(dueReminder.id);
     };
 
     void tick();
@@ -66,5 +87,5 @@ export const useReminders = (
     }, 30_000);
 
     return () => window.clearInterval(timer);
-  }, [data, markReminderFired, onOpenTask]);
+  }, [data, markReminderFired, onOpenTask, onPermissionDenied]);
 };

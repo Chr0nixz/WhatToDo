@@ -1,4 +1,4 @@
-export type AppView = "home" | "overview" | "projects" | "workspaces" | "settings";
+export type AppView = "home" | "overview" | "projects" | "workspaces" | "reminders" | "settings";
 
 export type Language = "zh" | "en";
 

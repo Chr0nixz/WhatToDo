@@ -1,6 +1,6 @@
 [package]
 name = "whattodo"
-version = "0.1.1"
+version = "0.1.2"
 description = "A desktop task and deadline planner"
 authors = ["chr0nix"]
 edition = "2021"
@@ -26,3 +26,5 @@ tauri-plugin-sql = { version = "2.4.0", features = ["sqlite"] }
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-window-state = "2.4.1"
 tauri-plugin-dialog = "2.7.1"
+tauri-plugin-updater = "2.10.1"
+tauri-plugin-process = "2.3.1"

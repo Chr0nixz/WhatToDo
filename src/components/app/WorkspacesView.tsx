@@ -33,6 +33,10 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
   const [workspaceColor, setWorkspaceColor] = useState(workspaceColors[0]);
   const [folderName, setFolderName] = useState("");
   const [folderPath, setFolderPath] = useState("");
+  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [folderError, setFolderError] = useState<string | null>(null);
 
   const currentWorkspace = useMemo(
     () => data.workspaces.find((workspace) => workspace.id === data.workspaceId) ?? data.workspaces[0] ?? null,
@@ -65,13 +69,23 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
     const name = workspaceName.trim();
 
     if (!name) {
+      setWorkspaceError(t("nameRequired"));
       return;
     }
 
-    await actions.createWorkspace({ name, color: workspaceColor });
-    setWorkspaceName("");
-    setWorkspaceColor(workspaceColors[0]);
-    setSelectedTaskId(null);
+    setIsCreatingWorkspace(true);
+    setWorkspaceError(null);
+
+    try {
+      await actions.createWorkspace({ name, color: workspaceColor });
+      setWorkspaceName("");
+      setWorkspaceColor(workspaceColors[0]);
+      setSelectedTaskId(null);
+    } catch {
+      setWorkspaceError(t("operationFailed"));
+    } finally {
+      setIsCreatingWorkspace(false);
+    }
   };
 
   const createFolder = async (event: FormEvent) => {
@@ -79,15 +93,25 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
     const path = folderPath.trim();
 
     if (!path) {
+      setFolderError(t("pathRequired"));
       return;
     }
 
-    await actions.createWorkspaceFolder({
-      name: folderName.trim() || folderNameFromPath(path),
-      path,
-    });
-    setFolderName("");
-    setFolderPath("");
+    setIsCreatingFolder(true);
+    setFolderError(null);
+
+    try {
+      await actions.createWorkspaceFolder({
+        name: folderName.trim() || folderNameFromPath(path),
+        path,
+      });
+      setFolderName("");
+      setFolderPath("");
+    } catch {
+      setFolderError(t("operationFailed"));
+    } finally {
+      setIsCreatingFolder(false);
+    }
   };
 
   const openFloatingWindow = async () => {
@@ -167,10 +191,11 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
               />
             ))}
           </div>
-          <Button className="mt-4 w-full" type="submit">
+          <Button className="mt-4 w-full" disabled={isCreatingWorkspace} type="submit">
             <Plus />
-            {t("createWorkspace")}
+            {isCreatingWorkspace ? t("creating") : t("createWorkspace")}
           </Button>
+          {workspaceError && <p className="mt-2 text-xs text-destructive">{workspaceError}</p>}
         </form>
       </aside>
 
@@ -219,13 +244,14 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
               value={folderPath}
               onChange={(event) => setFolderPath(event.target.value)}
             />
-            <Button size="icon-lg" type="button" variant="secondary" onClick={() => void chooseFolder()}>
+            <Button disabled={isCreatingFolder} size="icon-lg" type="button" variant="secondary" onClick={() => void chooseFolder()}>
               <FolderOpen />
             </Button>
-            <Button type="submit">
+            <Button disabled={isCreatingFolder} type="submit">
               <Plus />
-              {t("addFolder")}
+              {isCreatingFolder ? t("adding") : t("addFolder")}
             </Button>
+            {folderError && <p className="col-span-full text-xs text-destructive">{folderError}</p>}
           </form>
         </div>
 
@@ -250,7 +276,19 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
                     <Button size="icon-sm" type="button" variant="ghost" title={t("openFolder")} onClick={() => void openPath(folder.path)}>
                       <FolderOpen />
                     </Button>
-                    <Button size="icon-sm" type="button" variant="ghost" title={t("delete")} onClick={() => void actions.deleteWorkspaceFolder(folder.id)}>
+                    <Button
+                      size="icon-sm"
+                      type="button"
+                      variant="ghost"
+                      title={t("delete")}
+                      onClick={() => {
+                        if (!window.confirm(t("confirmDeleteFolder"))) {
+                          return;
+                        }
+
+                        void actions.deleteWorkspaceFolder(folder.id);
+                      }}
+                    >
                       <Trash2 />
                     </Button>
                   </div>

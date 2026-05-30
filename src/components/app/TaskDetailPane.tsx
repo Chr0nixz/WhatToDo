@@ -30,6 +30,8 @@ export function TaskDetailPane({ task, projects, reminders, settings, actions, o
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [projectId, setProjectId] = useState("none");
   const [workingFolder, setWorkingFolder] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
 
   useEffect(() => {
     setTitle(task?.title ?? "");
@@ -39,6 +41,7 @@ export function TaskDetailPane({ task, projects, reminders, settings, actions, o
     setPriority(task?.priority ?? "medium");
     setProjectId(task?.projectId ?? "none");
     setWorkingFolder(task?.workingFolder ?? "");
+    setSaveState("idle");
   }, [task]);
 
   const visibleProjects = projects.filter((project) => project.deletedAt === null && project.status !== "archived");
@@ -52,7 +55,7 @@ export function TaskDetailPane({ task, projects, reminders, settings, actions, o
     const selected = await openDialog({
       directory: true,
       multiple: false,
-      title: "Select task folder",
+      title: t("selectTaskFolder"),
     });
 
     if (typeof selected === "string") {
@@ -68,18 +71,29 @@ export function TaskDetailPane({ task, projects, reminders, settings, actions, o
 
   const save = async () => {
     if (!task || !title.trim()) {
+      setSaveState("error");
       return;
     }
 
-    await actions.updateTask(task.id, {
-      title: title.trim(),
-      notes,
-      dueDate,
-      dueTime: dueTime || null,
-      priority,
-      projectId: projectId === "none" ? null : projectId,
-      workingFolder: workingFolder.trim() || null,
-    });
+    setIsSaving(true);
+    setSaveState("idle");
+
+    try {
+      await actions.updateTask(task.id, {
+        title: title.trim(),
+        notes,
+        dueDate,
+        dueTime: dueTime || null,
+        priority,
+        projectId: projectId === "none" ? null : projectId,
+        workingFolder: workingFolder.trim() || null,
+      });
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -96,7 +110,7 @@ export function TaskDetailPane({ task, projects, reminders, settings, actions, o
               <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t("projectTask")}</p>
               <h2 className="truncate text-sm font-semibold">{project?.name ?? t("loose")}</h2>
             </div>
-            <Button size="icon-sm" type="button" variant="ghost" onClick={onClose}>
+            <Button size="icon-sm" type="button" variant="ghost" title={t("close")} onClick={onClose}>
               <PanelRightClose />
             </Button>
           </div>
@@ -209,20 +223,30 @@ export function TaskDetailPane({ task, projects, reminders, settings, actions, o
             <div className="mt-4 rounded-md border border-border bg-background/45 px-3 py-2 text-xs text-muted-foreground">
               {reminder ? `${t("reminder")} · ${new Date(reminder.remindAt).toLocaleString()}` : t("none")}
             </div>
+            {saveState !== "idle" && (
+              <p className={cn("mt-3 text-xs", saveState === "saved" ? "text-emerald-600" : "text-destructive")}>
+                {saveState === "saved" ? t("saved") : t("operationFailed")}
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-3 gap-2 border-t border-border p-3">
-            <Button type="button" variant="secondary" onClick={() => void actions.toggleTask(task.id)}>
+            <Button disabled={isSaving} type="button" variant="secondary" onClick={() => void actions.toggleTask(task.id)}>
               <Check />
               {task.status === "completed" ? t("openTasks") : t("completed")}
             </Button>
-            <Button type="button" onClick={() => void save()}>
-              {t("save")}
+            <Button disabled={isSaving} type="button" onClick={() => void save()}>
+              {isSaving ? t("saving") : t("save")}
             </Button>
             <Button
+              disabled={isSaving}
               type="button"
               variant="destructive"
               onClick={() => {
+                if (!window.confirm(t("confirmDeleteTask"))) {
+                  return;
+                }
+
                 void actions.deleteTask(task.id);
                 onClose();
               }}

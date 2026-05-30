@@ -12,6 +12,7 @@ import {
   taskCountsByDate,
   toDateKey,
 } from "@/data/date";
+import { formatMonthTitle, formatWeekDate, formatWeekday } from "@/data/dateFormat";
 import type { Task } from "@/data/types";
 import { cn } from "@/lib/utils";
 
@@ -21,10 +22,8 @@ type DatePaneProps = {
   tasks: Task[];
 };
 
-const weekLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
 export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [mode, setMode] = useState<"calendar" | "week">("calendar");
   const [monthCursor, setMonthCursor] = useState(selectedDate);
   const counts = useMemo(() => taskCountsByDate(tasks), [tasks]);
@@ -69,7 +68,7 @@ export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps
           >
             <ChevronLeft />
           </Button>
-          <span className="text-sm font-medium">{format(new Date(`${monthCursor}T00:00:00`), "MMM yyyy")}</span>
+          <span className="text-sm font-medium">{formatMonthTitle(monthCursor, i18n.language)}</span>
           <Button
             size="icon-sm"
             type="button"
@@ -85,8 +84,8 @@ export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps
         {mode === "calendar" ? (
           <>
             <div className="grid grid-cols-7 gap-1 text-center text-[0.68rem] text-muted-foreground">
-              {weekLabels.map((label) => (
-                <span key={label}>{label}</span>
+              {weekDays.map((day) => (
+                <span key={day.toISOString()}>{formatWeekday(day, i18n.language)}</span>
               ))}
             </div>
             <div className="mt-2 grid grid-cols-7 gap-1">
@@ -130,8 +129,8 @@ export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps
                   onClick={() => setSelectedDate(key)}
                 >
                   <span>
-                    <span className="block text-xs text-muted-foreground">{format(day, "EEE")}</span>
-                    <span className="block text-lg font-semibold">{format(day, "MMM d")}</span>
+                    <span className="block text-xs text-muted-foreground">{formatWeekday(day, i18n.language)}</span>
+                    <span className="block text-lg font-semibold">{formatWeekDate(day, i18n.language)}</span>
                   </span>
                   <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{count}</span>
                 </button>

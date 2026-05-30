@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import type { AccentColor, AppData, Language, Settings, ThemeMode } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
+import { UpdateSettingsPanel } from "./UpdateSettingsPanel";
 
 type SettingsViewProps = {
   data: AppData;
@@ -27,6 +28,8 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
   const { i18n, t } = useTranslation();
   const settings = data.settings;
   const [defaultWorkingFolder, setDefaultWorkingFolder] = useState(settings.defaultWorkingFolder ?? "");
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
 
   useEffect(() => {
     setDefaultWorkingFolder(settings.defaultWorkingFolder ?? "");
@@ -34,10 +37,20 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
 
   const saveSettings = async (patch: Partial<Settings>) => {
     const nextSettings = { ...settings, ...patch };
-    await actions.saveSettings(nextSettings);
-    if (patch.language) {
-      localStorage.setItem(LANGUAGE_STORAGE_KEY, patch.language);
-      await i18n.changeLanguage(patch.language);
+    setIsSaving(true);
+    setSaveState("idle");
+
+    try {
+      await actions.saveSettings(nextSettings);
+      if (patch.language) {
+        localStorage.setItem(LANGUAGE_STORAGE_KEY, patch.language);
+        await i18n.changeLanguage(patch.language);
+      }
+      setSaveState("saved");
+    } catch {
+      setSaveState("error");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -45,7 +58,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
     const selected = await openDialog({
       directory: true,
       multiple: false,
-      title: "Select default folder",
+      title: t("selectDefaultFolder"),
     });
 
     if (typeof selected === "string") {
@@ -75,11 +88,12 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
           </span>
           <div>
             <h1 className="text-lg font-semibold">{t("theme")}</h1>
-            <p className="text-sm text-muted-foreground">Dark command center, light fallback, or OS preference.</p>
+            <p className="text-sm text-muted-foreground">{t("themeHint")}</p>
           </div>
         </div>
         <div className="grid gap-4">
           <Segmented
+            disabled={isSaving}
             options={[
               { value: "system", label: t("system") },
               { value: "dark", label: t("dark") },
@@ -102,9 +116,10 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
                     key={option.value}
                     aria-label={t(option.labelKey)}
                     className={cn(
-                      "inline-flex h-9 items-center gap-2 rounded-md border border-border bg-secondary px-2.5 text-sm font-medium transition-colors hover:bg-accent",
+                      "inline-flex h-9 items-center gap-2 rounded-md border border-border bg-secondary px-2.5 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50",
                       isSelected && "border-ring bg-accent text-accent-foreground ring-1 ring-ring",
                     )}
+                    disabled={isSaving}
                     type="button"
                     onClick={() => void saveSettings({ accentColor: option.value })}
                   >
@@ -130,10 +145,11 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
           </span>
           <div>
             <h2 className="text-lg font-semibold">{t("language")}</h2>
-            <p className="text-sm text-muted-foreground">中文与 English can be switched at runtime.</p>
+            <p className="text-sm text-muted-foreground">{t("languageHint")}</p>
           </div>
         </div>
         <Segmented
+          disabled={isSaving}
           options={[
             { value: "zh", label: t("chinese") },
             { value: "en", label: t("english") },
@@ -156,11 +172,13 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
         <div className="grid gap-3">
           <ToggleRow
             checked={settings.notificationsEnabled}
+            disabled={isSaving}
             label={t("notifications")}
             onClick={() => void saveSettings({ notificationsEnabled: !settings.notificationsEnabled })}
           />
           <ToggleRow
             checked={settings.closeToTray}
+            disabled={isSaving}
             label={t("closeToTray")}
             onClick={() => void saveSettings({ closeToTray: !settings.closeToTray })}
           />
@@ -170,7 +188,8 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
               <span className="text-xs text-muted-foreground">{t("minutes")}</span>
             </span>
             <input
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring disabled:opacity-50"
+              disabled={isSaving}
               min={0}
               step={5}
               type="number"
@@ -193,13 +212,15 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
         </div>
         <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2 max-sm:grid-cols-1">
           <input
-            className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
+            className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring disabled:opacity-50"
+            disabled={isSaving}
             placeholder="D:\\Projects\\..."
             value={defaultWorkingFolder}
             onChange={(event) => setDefaultWorkingFolder(event.target.value)}
           />
           <button
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-secondary px-3 text-sm font-medium transition-colors hover:bg-accent"
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-secondary px-3 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50"
+            disabled={isSaving}
             type="button"
             onClick={() => void chooseDefaultWorkingFolder()}
           >
@@ -207,31 +228,41 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             {t("chooseFolder")}
           </button>
           <button
-            className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-secondary px-3 text-sm font-medium transition-colors hover:bg-accent"
+            className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-secondary px-3 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50"
+            disabled={isSaving}
             type="button"
             onClick={() => void saveDefaultWorkingFolder()}
           >
-            {t("save")}
+            {isSaving ? t("saving") : t("save")}
           </button>
           <button
             className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
-            disabled={!settings.defaultWorkingFolder}
+            disabled={!settings.defaultWorkingFolder || isSaving}
             type="button"
             onClick={() => void openDefaultWorkingFolder()}
           >
             {t("openFolder")}
           </button>
         </div>
+        {saveState !== "idle" && (
+          <p className={cn("mt-3 text-xs", saveState === "saved" ? "text-emerald-600" : "text-destructive")}>
+            {saveState === "saved" ? t("saved") : t("operationFailed")}
+          </p>
+        )}
       </section>
+
+      <UpdateSettingsPanel />
     </main>
   );
 }
 
 function Segmented({
+  disabled = false,
   options,
   value,
   onChange,
 }: {
+  disabled?: boolean;
   options: { value: string; label: string }[];
   value: string;
   onChange: (value: string) => void;
@@ -242,9 +273,10 @@ function Segmented({
         <button
           key={option.value}
           className={cn(
-            "h-8 rounded-md px-3 text-sm transition-colors hover:bg-accent",
+            "h-8 rounded-md px-3 text-sm transition-colors hover:bg-accent disabled:opacity-50",
             value === option.value && "bg-primary text-primary-foreground hover:bg-primary",
           )}
+          disabled={disabled}
           type="button"
           onClick={() => onChange(option.value)}
         >
@@ -255,10 +287,21 @@ function Segmented({
   );
 }
 
-function ToggleRow({ checked, label, onClick }: { checked: boolean; label: string; onClick: () => void }) {
+function ToggleRow({
+  checked,
+  disabled = false,
+  label,
+  onClick,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  label: string;
+  onClick: () => void;
+}) {
   return (
     <button
-      className="flex items-center justify-between rounded-md border border-border bg-background/45 px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+      className="flex items-center justify-between rounded-md border border-border bg-background/45 px-3 py-2 text-left text-sm transition-colors hover:bg-accent disabled:opacity-50"
+      disabled={disabled}
       type="button"
       onClick={onClick}
     >

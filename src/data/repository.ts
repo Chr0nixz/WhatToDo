@@ -155,6 +155,7 @@ export interface TodoRepository {
   updateWorkspace(id: string, patch: UpdateWorkspaceInput): Promise<AppData>;
   createWorkspaceFolder(input: CreateWorkspaceFolderInput): Promise<AppData>;
   deleteWorkspaceFolder(id: string): Promise<AppData>;
+  restoreWorkspaceFolder(id: string): Promise<AppData>;
   saveSettings(settings: Settings): Promise<AppData>;
   createProject(input: CreateProjectInput): Promise<AppData>;
   updateProject(
@@ -170,7 +171,10 @@ export interface TodoRepository {
   ): Promise<AppData>;
   toggleTask(id: string): Promise<AppData>;
   deleteTask(id: string): Promise<AppData>;
+  restoreTask(id: string): Promise<AppData>;
   markReminderFired(id: string): Promise<AppData>;
+  snoozeReminder(id: string, untilIso: string): Promise<AppData>;
+  disableReminder(id: string): Promise<AppData>;
 }
 
 class LocalRepository implements TodoRepository {
@@ -236,6 +240,16 @@ class LocalRepository implements TodoRepository {
       ...this.data,
       workspaceFolders: this.data.workspaceFolders.map((folder) =>
         folder.id === id ? { ...folder, deletedAt: nowIso(), updatedAt: nowIso() } : folder,
+      ),
+    };
+    return this.persist();
+  }
+
+  async restoreWorkspaceFolder(id: string) {
+    this.data = {
+      ...this.data,
+      workspaceFolders: this.data.workspaceFolders.map((folder) =>
+        folder.id === id ? { ...folder, deletedAt: null, updatedAt: nowIso() } : folder,
       ),
     };
     return this.persist();
@@ -391,11 +405,41 @@ class LocalRepository implements TodoRepository {
     return this.persist();
   }
 
+  async restoreTask(id: string) {
+    this.data = {
+      ...this.data,
+      tasks: this.data.tasks.map((task) =>
+        task.id === id ? { ...task, deletedAt: null, updatedAt: nowIso() } : task,
+      ),
+    };
+    return this.persist();
+  }
+
   async markReminderFired(id: string) {
     this.data = {
       ...this.data,
       reminders: this.data.reminders.map((reminder) =>
         reminder.id === id ? { ...reminder, firedAt: nowIso() } : reminder,
+      ),
+    };
+    return this.persist();
+  }
+
+  async snoozeReminder(id: string, untilIso: string) {
+    this.data = {
+      ...this.data,
+      reminders: this.data.reminders.map((reminder) =>
+        reminder.id === id ? { ...reminder, snoozedUntil: untilIso, firedAt: null } : reminder,
+      ),
+    };
+    return this.persist();
+  }
+
+  async disableReminder(id: string) {
+    this.data = {
+      ...this.data,
+      reminders: this.data.reminders.map((reminder) =>
+        reminder.id === id ? { ...reminder, enabled: false } : reminder,
       ),
     };
     return this.persist();
@@ -426,8 +470,8 @@ class LocalRepository implements TodoRepository {
       workspaceFolders: this.data.workspaceFolders.filter(
         (folder) => folder.workspaceId === this.workspaceId && folder.deletedAt === null,
       ),
-      projects: this.data.projects.filter((project) => project.workspaceId === this.workspaceId),
-      tasks: this.data.tasks.filter((task) => task.workspaceId === this.workspaceId),
+      projects: this.data.projects.filter((project) => project.workspaceId === this.workspaceId && project.deletedAt === null),
+      tasks: this.data.tasks.filter((task) => task.workspaceId === this.workspaceId && task.deletedAt === null),
       availableTasks: this.data.tasks.filter(
         (task) => task.workspaceId !== this.workspaceId && task.deletedAt === null,
       ),
@@ -499,6 +543,12 @@ class SqlRepository implements TodoRepository {
     const db = await this.connect();
     const timestamp = nowIso();
     await db.execute("UPDATE workspace_folders SET deleted_at = ?, updated_at = ? WHERE id = ?", [timestamp, timestamp, id]);
+    return this.readAll();
+  }
+
+  async restoreWorkspaceFolder(id: string) {
+    const db = await this.connect();
+    await db.execute("UPDATE workspace_folders SET deleted_at = NULL, updated_at = ? WHERE id = ?", [nowIso(), id]);
     return this.readAll();
   }
 
@@ -666,11 +716,16 @@ class SqlRepository implements TodoRepository {
        WHERE id = ?`,
       [next.projectId, next.workingFolder, next.title, next.notes, next.dueDate, next.dueTime, next.priority, next.updatedAt, id],
     );
-    await db.execute(
-      `UPDATE reminders
-       SET remind_at = ?, fired_at = NULL
-       WHERE task_id = ? AND offset_minutes IS NOT NULL`,
-      [buildReminderDate(next, data.settings.defaultReminderOffset), id],
+    const taskReminders = data.reminders.filter((reminder) => reminder.taskId === id && reminder.offsetMinutes !== null);
+    await Promise.all(
+      taskReminders.map((reminder) =>
+        db.execute(
+          `UPDATE reminders
+           SET remind_at = ?, fired_at = NULL
+           WHERE id = ?`,
+          [buildReminderDate(next, reminder.offsetMinutes as number), reminder.id],
+        ),
+      ),
     );
     return this.readAll();
   }
@@ -700,9 +755,27 @@ class SqlRepository implements TodoRepository {
     return this.readAll();
   }
 
+  async restoreTask(id: string) {
+    const db = await this.connect();
+    await db.execute("UPDATE tasks SET deleted_at = NULL, updated_at = ? WHERE id = ?", [nowIso(), id]);
+    return this.readAll();
+  }
+
   async markReminderFired(id: string) {
     const db = await this.connect();
     await db.execute("UPDATE reminders SET fired_at = ? WHERE id = ?", [nowIso(), id]);
+    return this.readAll();
+  }
+
+  async snoozeReminder(id: string, untilIso: string) {
+    const db = await this.connect();
+    await db.execute("UPDATE reminders SET snoozed_until = ?, fired_at = NULL WHERE id = ?", [untilIso, id]);
+    return this.readAll();
+  }
+
+  async disableReminder(id: string) {
+    const db = await this.connect();
+    await db.execute("UPDATE reminders SET enabled = ? WHERE id = ?", [0, id]);
     return this.readAll();
   }
 
@@ -722,10 +795,10 @@ class SqlRepository implements TodoRepository {
       this.workspaceId = workspaceRows[0]?.id ?? DEFAULT_WORKSPACE_ID;
     }
 
-    const projects = (await db.select("SELECT * FROM projects WHERE workspace_id = ? ORDER BY created_at DESC", [
+    const projects = (await db.select("SELECT * FROM projects WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY created_at DESC", [
       this.workspaceId,
     ])) as Record<string, unknown>[];
-    const tasks = (await db.select("SELECT * FROM tasks WHERE workspace_id = ? ORDER BY created_at DESC", [
+    const tasks = (await db.select("SELECT * FROM tasks WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY created_at DESC", [
       this.workspaceId,
     ])) as Record<string, unknown>[];
     const availableTasks = (await db.select(
@@ -740,7 +813,7 @@ class SqlRepository implements TodoRepository {
       `SELECT reminders.*
        FROM reminders
        INNER JOIN tasks ON tasks.id = reminders.task_id
-       WHERE tasks.workspace_id = ?
+       WHERE tasks.workspace_id = ? AND tasks.deleted_at IS NULL
        ORDER BY reminders.remind_at ASC`,
       [this.workspaceId],
     )) as Record<string, unknown>[];
@@ -823,4 +896,4 @@ const insertReminder = (db: DatabaseHandle, reminder: Reminder) =>
 
 export const createRepository = (): TodoRepository => (isTauriRuntime() ? new SqlRepository() : new LocalRepository());
 
-export { DEFAULT_SETTINGS, DEFAULT_WORKSPACE_ID };
+export { DEFAULT_SETTINGS, DEFAULT_WORKSPACE_ID, LocalRepository, SqlRepository };

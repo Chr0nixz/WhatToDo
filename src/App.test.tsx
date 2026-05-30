@@ -27,6 +27,14 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
   openPath: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@tauri-apps/plugin-process", () => ({
+  relaunch: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@tauri-apps/plugin-updater", () => ({
+  check: vi.fn().mockResolvedValue(null),
+}));
+
 describe("App", () => {
   beforeEach(() => {
     localStorage.clear();

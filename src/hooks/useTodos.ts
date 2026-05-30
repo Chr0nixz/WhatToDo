@@ -23,6 +23,7 @@ export type TodoActions = {
   updateWorkspace: (id: string, patch: UpdateWorkspaceInput) => Promise<AppData>;
   createWorkspaceFolder: (input: CreateWorkspaceFolderInput) => Promise<AppData>;
   deleteWorkspaceFolder: (id: string) => Promise<AppData>;
+  restoreWorkspaceFolder: (id: string) => Promise<AppData>;
   createProject: (input: CreateProjectInput) => Promise<AppData>;
   moveTaskToWorkspace: (taskId: string, workspaceId: string) => Promise<AppData>;
   updateProject: (
@@ -37,7 +38,10 @@ export type TodoActions = {
   ) => Promise<AppData>;
   toggleTask: (id: string) => Promise<AppData>;
   deleteTask: (id: string) => Promise<AppData>;
+  restoreTask: (id: string) => Promise<AppData>;
   markReminderFired: (id: string) => Promise<AppData>;
+  snoozeReminder: (id: string, untilIso: string) => Promise<AppData>;
+  disableReminder: (id: string) => Promise<AppData>;
   saveSettings: (settings: Settings) => Promise<AppData>;
 };
 
@@ -115,6 +119,7 @@ export const useTodos = () => {
       updateWorkspace: (id: string, patch: UpdateWorkspaceInput) => run(() => repository.updateWorkspace(id, patch)),
       createWorkspaceFolder: (input: CreateWorkspaceFolderInput) => run(() => repository.createWorkspaceFolder(input)),
       deleteWorkspaceFolder: (id: string) => run(() => repository.deleteWorkspaceFolder(id)),
+      restoreWorkspaceFolder: (id: string) => run(() => repository.restoreWorkspaceFolder(id)),
       createProject: (input: CreateProjectInput) => run(() => repository.createProject(input)),
       moveTaskToWorkspace: (taskId: string, workspaceId: string) =>
         run(() => repository.moveTaskToWorkspace(taskId, workspaceId)),
@@ -130,7 +135,10 @@ export const useTodos = () => {
       ) => run(() => repository.updateTask(id, patch)),
       toggleTask: (id: string) => run(() => repository.toggleTask(id)),
       deleteTask: (id: string) => run(() => repository.deleteTask(id)),
+      restoreTask: (id: string) => run(() => repository.restoreTask(id)),
       markReminderFired: (id: string) => run(() => repository.markReminderFired(id)),
+      snoozeReminder: (id: string, untilIso: string) => run(() => repository.snoozeReminder(id, untilIso)),
+      disableReminder: (id: string) => run(() => repository.disableReminder(id)),
       saveSettings: (settings: Settings) => run(() => repository.saveSettings(settings)),
     }),
     [repository, run],

@@ -37,6 +37,8 @@ export function TaskComposer({
   const [projectId, setProjectId] = useState(defaultProjectId ?? "none");
   const [workingFolder, setWorkingFolder] = useState("");
   const [useReminder, setUseReminder] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     setDueDate(defaultDate);
@@ -47,7 +49,7 @@ export function TaskComposer({
     const selected = await openDialog({
       directory: true,
       multiple: false,
-      title: "Select task folder",
+      title: t("selectTaskFolder"),
     });
 
     if (typeof selected === "string") {
@@ -60,26 +62,36 @@ export function TaskComposer({
     const nextTitle = title.trim();
 
     if (!nextTitle) {
+      setSubmitError(t("titleRequired"));
       return;
     }
 
-    await actions.createTask({
-      title: nextTitle,
-      dueDate,
-      dueTime: dueTime || null,
-      priority,
-      projectId: projectId === "none" ? null : projectId,
-      workingFolder: workingFolder.trim() || null,
-      reminderOffset: useReminder ? settings.defaultReminderOffset : null,
-    });
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-    setTitle("");
-    setDueDate(defaultDate);
-    setDueTime("");
-    setPriority("medium");
-    setProjectId(defaultProjectId ?? "none");
-    setWorkingFolder("");
-    onCreated?.();
+    try {
+      await actions.createTask({
+        title: nextTitle,
+        dueDate,
+        dueTime: dueTime || null,
+        priority,
+        projectId: projectId === "none" ? null : projectId,
+        workingFolder: workingFolder.trim() || null,
+        reminderOffset: useReminder ? settings.defaultReminderOffset : null,
+      });
+
+      setTitle("");
+      setDueDate(defaultDate);
+      setDueTime("");
+      setPriority("medium");
+      setProjectId(defaultProjectId ?? "none");
+      setWorkingFolder("");
+      onCreated?.();
+    } catch {
+      setSubmitError(t("operationFailed"));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -182,6 +194,7 @@ export function TaskComposer({
         className={variant === "dialog" ? "justify-start" : undefined}
         size={variant === "dialog" ? "lg" : "icon-lg"}
         type="button"
+        disabled={isSubmitting}
         variant={useReminder ? "secondary" : "ghost"}
         title={t("reminder")}
         onClick={() => setUseReminder((value) => !value)}
@@ -192,11 +205,15 @@ export function TaskComposer({
         className={cn("relative", variant === "dialog" && "shadow-sm shadow-primary/20")}
         size={variant === "dialog" ? "lg" : "icon-lg"}
         type="submit"
+        disabled={isSubmitting}
         title={t("add")}
       >
         <Plus />
-        {variant === "dialog" && t("add")}
+        {variant === "dialog" && (isSubmitting ? t("adding") : t("add"))}
       </Button>
+      {submitError && (
+        <p className={cn("col-span-full text-xs text-destructive", variant === "dialog" && "col-span-2")}>{submitError}</p>
+      )}
     </form>
   );
 }

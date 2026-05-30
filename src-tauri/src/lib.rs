@@ -116,6 +116,12 @@ const ADD_SETTINGS_ACCENT_COLOR_SQL: &str = r#"
 ALTER TABLE settings ADD COLUMN accent_color TEXT NOT NULL DEFAULT 'blue';
 "#;
 
+const ADD_WORKSPACE_QUERY_INDEXES_SQL: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_tasks_workspace_id ON tasks(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_projects_workspace_id ON projects(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_reminders_task_id ON reminders(task_id);
+"#;
+
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -221,7 +227,7 @@ window.__DDL_TODO_FLOATING_WORKSPACE_ID__ = {};
     WebviewWindowBuilder::new(&app, label, WebviewUrl::App(window_url.into()))
         .title(format!("WhatToDo - {}", title))
         .inner_size(380.0, 560.0)
-        .min_inner_size(320.0, 420.0)
+        .min_inner_size(320.0, 96.0)
         .decorations(false)
         .transparent(true)
         .background_color(Color(0, 0, 0, 0))
@@ -341,6 +347,12 @@ pub fn run() {
             sql: ADD_SETTINGS_ACCENT_COLOR_SQL,
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "add_workspace_query_indexes",
+            sql: ADD_WORKSPACE_QUERY_INDEXES_SQL,
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -348,6 +360,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations(DB_URL, migrations)
