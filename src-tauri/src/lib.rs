@@ -172,6 +172,13 @@ CREATE INDEX IF NOT EXISTS idx_tasks_recurrence_template_id ON tasks(recurrence_
 CREATE INDEX IF NOT EXISTS idx_recurring_templates_workspace_id ON recurring_task_templates(workspace_id);
 "#;
 
+const ADD_PERFORMANCE_INDEXES_SQL: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_tasks_workspace_deleted_due_date ON tasks(workspace_id, deleted_at, due_date);
+CREATE INDEX IF NOT EXISTS idx_tasks_workspace_deleted_status ON tasks(workspace_id, deleted_at, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_project_deleted_due_date ON tasks(project_id, deleted_at, due_date);
+CREATE INDEX IF NOT EXISTS idx_reminders_task_enabled_fired ON reminders(task_id, enabled, fired_at);
+"#;
+
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -483,6 +490,12 @@ pub fn run() {
             version: 8,
             description: "add_recurring_tasks",
             sql: ADD_RECURRING_TASKS_SQL,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 9,
+            description: "add_performance_indexes",
+            sql: ADD_PERFORMANCE_INDEXES_SQL,
             kind: MigrationKind::Up,
         },
     ];

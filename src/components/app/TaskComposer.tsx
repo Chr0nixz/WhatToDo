@@ -296,8 +296,8 @@ export function TaskComposer({
                   value={workingFolder}
                   onChange={(event) => setWorkingFolder(event.target.value)}
                 />
-                <Button size="icon-lg" title={t("chooseFolder")} type="button" variant="secondary" onClick={() => void chooseFolder()}>
-                  <FolderOpen />
+                <Button aria-label={t("chooseFolder")} size="icon-lg" title={t("chooseFolder")} type="button" variant="secondary" onClick={() => void chooseFolder()}>
+                  <FolderOpen aria-hidden="true" />
                 </Button>
               </div>
             </div>
@@ -396,6 +396,7 @@ export function TaskComposer({
         }}
       />
       <Button
+        aria-label={t("parseQuickAdd")}
         disabled={!title.trim() || isSubmitting}
         size="icon-lg"
         title={t("parseQuickAdd")}
@@ -482,6 +483,7 @@ export function TaskComposer({
         ))}
       </select>
       <Button
+        aria-label={t("add")}
         className="relative"
         size="icon-lg"
         type="submit"

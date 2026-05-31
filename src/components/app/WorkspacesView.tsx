@@ -7,7 +7,8 @@ import { FormEvent, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import type { AppData } from "@/data/types";
+import type { AppData, Task } from "@/data/types";
+import { useTaskPage } from "@/hooks/useTaskPage";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
@@ -45,6 +46,9 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
   const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
+  const [availableTasks, setAvailableTasks] = useState<Task[]>([]);
+  const [isLoadingAvailableTasks, setIsLoadingAvailableTasks] = useState(false);
+  const [availableTasksError, setAvailableTasksError] = useState<string | null>(null);
 
   const currentWorkspace = useMemo(
     () => data.workspaces.find((workspace) => workspace.id === data.workspaceId) ?? data.workspaces[0] ?? null,
@@ -54,10 +58,35 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
     () => data.tasks.filter((task) => task.deletedAt === null && task.status === "todo"),
     [data.tasks],
   );
-  const availableTasks = useMemo(
-    () => data.availableTasks.filter((task) => task.deletedAt === null),
-    [data.availableTasks],
+  const taskPageInput = useMemo(
+    () => ({
+      workspaceId: data.workspaceId,
+      scope: "open" as const,
+      sort: "overview" as const,
+    }),
+    [data.workspaceId],
   );
+  const taskPage = useTaskPage({
+    actions,
+    input: taskPageInput,
+    reloadKey: data.tasks,
+  });
+  const loadAvailableTasks = async () => {
+    if (!currentWorkspace) {
+      return;
+    }
+
+    setIsLoadingAvailableTasks(true);
+    setAvailableTasksError(null);
+
+    try {
+      setAvailableTasks((await actions.loadAvailableTasks(currentWorkspace.id)).filter((task) => task.deletedAt === null));
+    } catch {
+      setAvailableTasksError(t("loadAvailableTasksFailed"));
+    } finally {
+      setIsLoadingAvailableTasks(false);
+    }
+  };
 
   const chooseFolder = async () => {
     const selected = await openDialog({
@@ -157,8 +186,11 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
   };
 
   return (
-    <main className="flex h-full min-h-0 max-md:flex-col">
-      <aside className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/45 max-lg:w-[292px] max-md:max-h-[360px] max-md:w-full max-md:border-b max-md:border-r-0">
+    <main className="flex h-full min-h-0 max-md:flex-col max-md:overflow-auto">
+      <aside
+        aria-label={t("workspaces")}
+        className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/45 max-lg:w-[292px] max-md:max-h-[360px] max-md:w-full max-md:border-b max-md:border-r-0"
+      >
         <section className="border-b border-border p-3">
           <div className="mb-3 flex items-center justify-between">
             <h1 className="text-sm font-semibold">{t("workspaces")}</h1>
@@ -250,7 +282,14 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <WorkspaceTaskPickerDialog onAddTask={addExistingTaskToWorkspace} tasks={availableTasks} workspaces={data.workspaces} />
+              <WorkspaceTaskPickerDialog
+                error={availableTasksError}
+                isLoading={isLoadingAvailableTasks}
+                onAddTask={addExistingTaskToWorkspace}
+                onOpen={loadAvailableTasks}
+                tasks={availableTasks}
+                workspaces={data.workspaces}
+              />
               <Button size="sm" type="button" variant="secondary" onClick={() => void openFloatingWindow()}>
                 <MonitorUp />
                 {t("openFloatingWindow")}
@@ -260,20 +299,36 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
           {workspaceActionError && <p className="motion-status mt-2 text-xs text-destructive">{workspaceActionError}</p>}
 
           <form className="mt-4 grid grid-cols-[minmax(120px,180px)_minmax(0,1fr)_40px_auto] gap-2 max-xl:grid-cols-2 max-sm:grid-cols-1" onSubmit={createFolder}>
+            <label className="sr-only" htmlFor="workspace-folder-name">
+              {t("folderName")}
+            </label>
             <input
+              id="workspace-folder-name"
               className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
               placeholder={t("folderName")}
               value={folderName}
               onChange={(event) => setFolderName(event.target.value)}
             />
+            <label className="sr-only" htmlFor="workspace-folder-path">
+              {t("workingFolder")}
+            </label>
             <input
+              id="workspace-folder-path"
               className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
               placeholder="D:\\Projects\\..."
               value={folderPath}
               onChange={(event) => setFolderPath(event.target.value)}
             />
-            <Button disabled={isCreatingFolder} size="icon-lg" type="button" variant="secondary" onClick={() => void chooseFolder()}>
-              <FolderOpen />
+            <Button
+              aria-label={t("chooseFolder")}
+              disabled={isCreatingFolder}
+              size="icon-lg"
+              title={t("chooseFolder")}
+              type="button"
+              variant="secondary"
+              onClick={() => void chooseFolder()}
+            >
+              <FolderOpen aria-hidden="true" />
             </Button>
             <Button disabled={isCreatingFolder} type="submit">
               <Plus />
@@ -305,10 +360,18 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
                       <p className="truncate text-sm font-medium">{folder.name}</p>
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">{folder.path}</p>
                     </button>
-                    <Button size="icon-sm" type="button" variant="ghost" title={t("openFolder")} onClick={() => void openWorkspaceFolder(folder.path)}>
-                      <FolderOpen />
+                    <Button
+                      aria-label={t("openFolder")}
+                      size="icon-sm"
+                      type="button"
+                      variant="ghost"
+                      title={t("openFolder")}
+                      onClick={() => void openWorkspaceFolder(folder.path)}
+                    >
+                      <FolderOpen aria-hidden="true" />
                     </Button>
                     <Button
+                      aria-label={t("delete")}
                       size="icon-sm"
                       type="button"
                       variant="ghost"
@@ -318,7 +381,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
                         void actions.deleteWorkspaceFolder(folder.id).catch(() => setWorkspaceActionError(t("operationFailed")));
                       }}
                     >
-                      <Trash2 />
+                      <Trash2 aria-hidden="true" />
                     </Button>
                   </div>
                 ))}
@@ -331,14 +394,30 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
               <h3 className="text-sm font-semibold">{t("workspaceTasks")}</h3>
               <span className="text-xs text-muted-foreground">{openTasks.length}</span>
             </div>
-            <TaskList
-              actions={actions}
-              onSelectTask={setSelectedTaskId}
-              projects={data.projects}
-              reminders={data.reminders}
-              selectedTaskId={selectedTaskId}
-              tasks={openTasks}
-            />
+            {taskPage.isLoading ? (
+              <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
+                {t("loadingTasks")}
+              </div>
+            ) : taskPage.error && taskPage.tasks.length === 0 ? (
+              <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/10 px-6 text-center text-sm text-destructive">
+                {taskPage.error}
+              </div>
+            ) : (
+              <TaskList
+                actions={actions}
+                emptyLabel={t("emptyTaskList")}
+                onSelectTask={setSelectedTaskId}
+                projects={data.projects}
+                reminders={taskPage.reminders}
+                selectedTaskId={selectedTaskId}
+                tasks={taskPage.tasks}
+                totalCount={taskPage.total}
+                isLoadingMore={taskPage.isLoadingMore}
+                loadError={taskPage.error}
+                onLoadMore={() => void taskPage.loadMore()}
+                windowKey={data.workspaceId}
+              />
+            )}
           </section>
         </div>
       </section>

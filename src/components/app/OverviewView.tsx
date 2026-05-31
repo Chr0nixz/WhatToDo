@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { overdueTasks } from "@/data/date";
-import { projectById } from "@/data/project";
-import { defaultTaskViewFilters, taskMatchesFilters } from "@/data/taskFilters";
-import type { AppData, Task, TaskPriority, TaskStatus, TaskViewFilters } from "@/data/types";
+import { defaultTaskViewFilters } from "@/data/taskFilters";
+import type { AppData, TaskViewFilters } from "@/data/types";
+import { useTaskPage } from "@/hooks/useTaskPage";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
@@ -19,42 +19,6 @@ type OverviewViewProps = {
   selectedTaskId: string | null;
   setSelectedTaskId: (taskId: string | null) => void;
 };
-
-const priorityRank: Record<TaskPriority, number> = {
-  high: 0,
-  medium: 1,
-  low: 2,
-};
-
-const statusRank: Record<TaskStatus, number> = {
-  todo: 0,
-  completed: 1,
-};
-
-const sortOverviewTasks = (tasks: Task[]) =>
-  [...tasks].sort((a, b) => {
-    const status = statusRank[a.status] - statusRank[b.status];
-    if (status !== 0) {
-      return status;
-    }
-
-    const dueDate = a.dueDate.localeCompare(b.dueDate);
-    if (dueDate !== 0) {
-      return dueDate;
-    }
-
-    const dueTime = (a.dueTime ?? "99:99").localeCompare(b.dueTime ?? "99:99");
-    if (dueTime !== 0) {
-      return dueTime;
-    }
-
-    const priority = priorityRank[a.priority] - priorityRank[b.priority];
-    if (priority !== 0) {
-      return priority;
-    }
-
-    return a.createdAt.localeCompare(b.createdAt);
-  });
 
 export function OverviewView({ data, actions, selectedTaskId, setSelectedTaskId }: OverviewViewProps) {
   const { t } = useTranslation();
@@ -79,27 +43,25 @@ export function OverviewView({ data, actions, selectedTaskId, setSelectedTaskId 
     }),
     [data.tasks, visibleTasks],
   );
-
-  const tasks = useMemo(() => {
-    const query = debouncedSearchQuery.trim().toLowerCase();
-
-    return sortOverviewTasks(
-      visibleTasks.filter((task) => {
-        if (!taskMatchesFilters(task, data, filters)) {
-          return false;
-        }
-
-        if (!query) {
-          return true;
-        }
-
-        const project = projectById(data.projects, task.projectId);
-        return [task.title, task.notes, task.dueDate, task.dueTime ?? "", project?.name ?? ""].some((value) =>
-          value.toLowerCase().includes(query),
-        );
-      }),
-    );
-  }, [data, debouncedSearchQuery, filters, visibleTasks]);
+  const taskPageInput = useMemo(
+    () => ({
+      workspaceId: data.workspaceId,
+      scope: filters.scope,
+      priority: filters.priority,
+      projectId: filters.projectId === "all" ? null : filters.projectId,
+      reminder: filters.reminder,
+      folder: filters.folder,
+      dateRange: filters.dateRange,
+      query: debouncedSearchQuery,
+      sort: "overview" as const,
+    }),
+    [data.workspaceId, debouncedSearchQuery, filters],
+  );
+  const taskPage = useTaskPage({
+    actions,
+    input: taskPageInput,
+    reloadKey: data.tasks,
+  });
 
   const scopes: { id: TaskViewFilters["scope"]; label: string; count: number }[] = [
     { id: "open", label: t("openTasks"), count: counts.open },
@@ -154,8 +116,12 @@ export function OverviewView({ data, actions, selectedTaskId, setSelectedTaskId 
 
           <div className="flex flex-wrap items-center justify-end gap-2">
             <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+              <label className="sr-only" htmlFor="overview-search">
+                {t("search")}
+              </label>
+              <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
               <input
+                id="overview-search"
                 className="h-9 w-64 rounded-md border border-input bg-background pl-8 pr-8 text-sm outline-none transition-colors focus:border-ring max-sm:w-44"
                 placeholder={t("search")}
                 value={searchQuery}
@@ -163,12 +129,13 @@ export function OverviewView({ data, actions, selectedTaskId, setSelectedTaskId 
               />
               {searchQuery && (
                 <button
+                  aria-label={t("clearSearch")}
                   className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
                   title={t("clearSearch")}
                   type="button"
                   onClick={() => setSearchQuery("")}
                 >
-                  <X className="size-4" />
+                  <X aria-hidden="true" className="size-4" />
                 </button>
               )}
             </div>
@@ -247,16 +214,21 @@ export function OverviewView({ data, actions, selectedTaskId, setSelectedTaskId 
                 {view.name}
               </button>
               <button
+                aria-label={t("deleteSavedView")}
                 className="flex h-full w-8 items-center justify-center border-l border-border text-muted-foreground hover:text-destructive"
                 title={t("deleteSavedView")}
                 type="button"
                 onClick={() => void actions.deleteSavedView(view.id)}
               >
-                <Trash2 className="size-3.5" />
+                <Trash2 aria-hidden="true" className="size-3.5" />
               </button>
             </span>
           ))}
+          <label className="sr-only" htmlFor="saved-view-name">
+            {t("savedViewName")}
+          </label>
           <input
+            id="saved-view-name"
             className="h-8 w-40 rounded-md border border-input bg-background px-2.5 text-sm outline-none transition-colors focus:border-ring"
             placeholder={t("savedViewName")}
             value={viewName}
@@ -270,7 +242,15 @@ export function OverviewView({ data, actions, selectedTaskId, setSelectedTaskId 
       </section>
 
       <section className="min-h-0 flex-1 overflow-auto p-4">
-        {tasks.length === 0 ? (
+        {taskPage.isLoading ? (
+          <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
+            {t("loadingTasks")}
+          </div>
+        ) : taskPage.error && taskPage.tasks.length === 0 ? (
+          <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/10 px-6 text-center text-sm text-destructive">
+            {taskPage.error}
+          </div>
+        ) : taskPage.tasks.length === 0 ? (
           <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
             {t("noTasks")}
           </div>
@@ -279,9 +259,14 @@ export function OverviewView({ data, actions, selectedTaskId, setSelectedTaskId 
             actions={actions}
             onSelectTask={setSelectedTaskId}
             projects={data.projects}
-            reminders={data.reminders}
             selectedTaskId={selectedTaskId}
-            tasks={tasks}
+            tasks={taskPage.tasks}
+            totalCount={taskPage.total}
+            reminders={taskPage.reminders}
+            isLoadingMore={taskPage.isLoadingMore}
+            loadError={taskPage.error}
+            onLoadMore={() => void taskPage.loadMore()}
+            windowKey={JSON.stringify({ filters, query: debouncedSearchQuery })}
           />
         )}
       </section>

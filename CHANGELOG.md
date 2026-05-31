@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5
+
+- Adds performance baseline scripts and a 20k-task fixture generator for large-data validation.
+- Splits frontend bundles into lazy views and vendor chunks, removing the previous main-chunk size warning.
+- Adds list windowing, load-more flows, app indexes, and on-demand loading for large task sets.
+- Adds repository pagination and SQLite performance indexes for task-heavy views.
+- Moves product, design, desktop, project, and performance documentation into `docs/`.
+
 ## 0.1.4
 
 - Adds recurring task templates with daily, weekly, and monthly generation flows.

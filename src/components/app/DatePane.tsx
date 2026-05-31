@@ -32,7 +32,10 @@ export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps
   const weekDays = getWeekDays(selectedDate);
 
   return (
-    <aside className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/45 max-lg:w-[292px] max-md:max-h-[280px] max-md:w-full max-md:border-b max-md:border-r-0">
+    <aside
+      aria-label={mode === "calendar" ? t("month") : t("week")}
+      className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/45 max-lg:w-[292px] max-md:max-h-[320px] max-md:w-full max-md:border-b max-md:border-r-0 max-sm:max-h-[340px]"
+    >
       <div className="border-b border-border p-3">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold">{mode === "calendar" ? t("month") : t("week")}</h2>
@@ -85,7 +88,7 @@ export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-3">
+      <div className="min-h-0 flex-1 overflow-auto p-3 max-sm:p-2">
         {mode === "calendar" ? (
           <div key="calendar" className="motion-view">
             <div className="grid grid-cols-7 gap-1 text-center text-[0.68rem] text-muted-foreground">
@@ -93,7 +96,7 @@ export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps
                 <span key={day.toISOString()}>{formatWeekday(day, i18n.language)}</span>
               ))}
             </div>
-            <div className="motion-list mt-2 grid grid-cols-7 gap-1 max-md:auto-rows-[36px]">
+            <div className="motion-list mt-2 grid grid-cols-7 gap-1 max-md:auto-rows-[36px] max-sm:auto-rows-[34px]">
               {monthDays.map((day, index) => {
                 const key = toDateKey(day);
                 const count = counts[key] ?? 0;
@@ -104,8 +107,8 @@ export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps
                     aria-pressed={key === selectedDate}
                     key={key}
                     className={cn(
-                      "relative flex aspect-square items-center justify-center rounded-md text-sm transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent active:scale-95 max-md:aspect-auto",
-                      !isSameMonth(day, new Date(`${monthCursor}T00:00:00`)) && "text-muted-foreground/45",
+                      "calendar-day relative flex aspect-square items-center justify-center rounded-md text-sm transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent active:scale-95 max-md:aspect-auto max-sm:text-xs",
+                      !isSameMonth(day, new Date(`${monthCursor}T00:00:00`)) && "text-muted-foreground",
                       key === selectedDate && "bg-primary text-primary-foreground hover:bg-primary",
                       isToday(day) && key !== selectedDate && "text-primary",
                     )}

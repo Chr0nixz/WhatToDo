@@ -1,7 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { CalendarClock, Check, Clock, Plus, X } from "lucide-react";
 import type { CSSProperties } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -12,21 +12,50 @@ import type { Task, Workspace } from "@/data/types";
 type WorkspaceTaskPickerDialogProps = {
   tasks: Task[];
   workspaces: Workspace[];
+  isLoading: boolean;
+  error: string | null;
+  onOpen: () => Promise<void>;
   onAddTask: (taskId: string) => Promise<void>;
 };
 
-export function WorkspaceTaskPickerDialog({ tasks, workspaces, onAddTask }: WorkspaceTaskPickerDialogProps) {
+const WINDOW_SIZE = 150;
+
+export function WorkspaceTaskPickerDialog({
+  tasks,
+  workspaces,
+  isLoading,
+  error,
+  onOpen,
+  onAddTask,
+}: WorkspaceTaskPickerDialogProps) {
   const { i18n, t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(WINDOW_SIZE);
   const sortedTasks = useMemo(() => (open ? sortTasks(tasks) : []), [open, tasks]);
+  const visibleTasks = sortedTasks.slice(0, visibleCount);
+  const workspacesById = useMemo(() => new Map(workspaces.map((workspace) => [workspace.id, workspace])), [workspaces]);
+  const hasMore = visibleCount < sortedTasks.length;
+
+  useEffect(() => {
+    if (open) {
+      setVisibleCount(WINDOW_SIZE);
+    }
+  }, [open, tasks]);
 
   const addTask = async (taskId: string) => {
     await onAddTask(taskId);
     setOpen(false);
   };
 
+  const setDialogOpen = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (nextOpen) {
+      void onOpen();
+    }
+  };
+
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <Dialog.Root open={open} onOpenChange={setDialogOpen}>
       <Dialog.Trigger asChild>
         <Button size="sm" type="button">
           <Plus />
@@ -44,20 +73,28 @@ export function WorkspaceTaskPickerDialog({ tasks, workspaces, onAddTask }: Work
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
-              <Button size="icon-sm" type="button" variant="ghost" title={t("close")}>
-                <X />
+              <Button aria-label={t("close")} size="icon-sm" type="button" variant="ghost" title={t("close")}>
+                <X aria-hidden="true" />
               </Button>
             </Dialog.Close>
           </div>
 
-          {sortedTasks.length === 0 ? (
+          {isLoading ? (
+            <p className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-background/45 px-4 text-center text-sm text-muted-foreground">
+              {t("loadingTasks")}
+            </p>
+          ) : error ? (
+            <p className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/10 px-4 text-center text-sm text-destructive">
+              {error}
+            </p>
+          ) : sortedTasks.length === 0 ? (
             <p className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-background/45 px-4 text-center text-sm text-muted-foreground">
               {t("noAvailableTasks")}
             </p>
           ) : (
             <div className="motion-list min-h-0 flex-1 space-y-2 overflow-auto pr-1">
-              {sortedTasks.map((task, index) => {
-                const sourceWorkspace = workspaces.find((workspace) => workspace.id === task.workspaceId);
+              {visibleTasks.map((task, index) => {
+                const sourceWorkspace = workspacesById.get(task.workspaceId);
 
                 return (
                   <article
@@ -94,6 +131,16 @@ export function WorkspaceTaskPickerDialog({ tasks, workspaces, onAddTask }: Work
                   </article>
                 );
               })}
+              {hasMore && (
+                <Button
+                  className="w-full"
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setVisibleCount((count) => Math.min(count + WINDOW_SIZE, sortedTasks.length))}
+                >
+                  {t("loadMoreTasks", { shown: visibleTasks.length, total: sortedTasks.length })}
+                </Button>
+              )}
             </div>
           )}
         </Dialog.Content>

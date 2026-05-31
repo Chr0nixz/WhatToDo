@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AppData, Reminder, Task } from "./types";
+import { buildAppIndexes } from "./appIndexes";
 import { defaultTaskViewFilters, taskMatchesFilters } from "./taskFilters";
 
 const makeTask = (patch: Partial<Task>): Task => ({
@@ -92,5 +93,14 @@ describe("taskMatchesFilters", () => {
     expect(taskMatchesFilters(task, makeData([task]), { ...defaultTaskViewFilters(), dateRange: "overdue" }, "2026-06-01")).toBe(
       true,
     );
+  });
+
+  it("uses precomputed reminder task ids for reminder filters", () => {
+    const task = makeTask({ id: "target" });
+    const data = makeData([task], [makeReminder("target")]);
+    const context = buildAppIndexes(data);
+
+    expect(taskMatchesFilters(task, context, { ...defaultTaskViewFilters(), reminder: "with" })).toBe(true);
+    expect(taskMatchesFilters(task, context, { ...defaultTaskViewFilters(), reminder: "without" })).toBe(false);
   });
 });

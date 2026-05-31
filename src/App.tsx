@@ -11,10 +11,11 @@ import {
   RotateCcw,
   TriangleAlert,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { openTasks, overdueTasks, todayKey } from "@/data/date";
+import { buildAppIndexes } from "@/data/appIndexes";
 import type { AppView } from "@/data/types";
 import { useReminders } from "@/hooks/useReminders";
 import { useTheme } from "@/hooks/useTheme";
@@ -24,13 +25,18 @@ import { cn } from "@/lib/utils";
 import { isWorkspaceFloatingWindow } from "@/lib/windowContext";
 
 import { HomeView } from "./components/app/HomeView";
-import { OverviewView } from "./components/app/OverviewView";
-import { ProjectsView } from "./components/app/ProjectsView";
-import { ReminderCenterView } from "./components/app/ReminderCenterView";
-import { SettingsView } from "./components/app/SettingsView";
-import { TaskDetailPane } from "./components/app/TaskDetailPane";
-import { WorkspacesView } from "./components/app/WorkspacesView";
-import { WorkspaceFloatingWindow } from "./components/app/WorkspaceFloatingWindow";
+
+const OverviewView = lazy(() => import("./components/app/OverviewView").then((module) => ({ default: module.OverviewView })));
+const ProjectsView = lazy(() => import("./components/app/ProjectsView").then((module) => ({ default: module.ProjectsView })));
+const ReminderCenterView = lazy(() =>
+  import("./components/app/ReminderCenterView").then((module) => ({ default: module.ReminderCenterView })),
+);
+const SettingsView = lazy(() => import("./components/app/SettingsView").then((module) => ({ default: module.SettingsView })));
+const TaskDetailPane = lazy(() => import("./components/app/TaskDetailPane").then((module) => ({ default: module.TaskDetailPane })));
+const WorkspacesView = lazy(() => import("./components/app/WorkspacesView").then((module) => ({ default: module.WorkspacesView })));
+const WorkspaceFloatingWindow = lazy(() =>
+  import("./components/app/WorkspaceFloatingWindow").then((module) => ({ default: module.WorkspaceFloatingWindow })),
+);
 
 const navItems = [
   { id: "home", icon: CalendarDays, labelKey: "home" },
@@ -123,14 +129,16 @@ function App() {
     }),
     [actions, showUndo, t],
   );
+  const appIndexes = useMemo(() => (data ? buildAppIndexes(data) : null), [data]);
 
   const selectedTask = useMemo(() => {
     if (!data || !selectedTaskId) {
       return null;
     }
 
-    return data.tasks.find((task) => task.id === selectedTaskId && task.deletedAt === null) ?? null;
-  }, [data, selectedTaskId]);
+    const task = appIndexes?.tasksById.get(selectedTaskId) ?? null;
+    return task?.deletedAt === null ? task : null;
+  }, [appIndexes, data, selectedTaskId]);
 
   useEffect(() => {
     if (selectedTaskId && !selectedTask) {
@@ -140,14 +148,14 @@ function App() {
 
   const onOpenTask = useCallback(
     (taskId: string) => {
-      const task = data?.tasks.find((item) => item.id === taskId);
+      const task = appIndexes?.tasksById.get(taskId);
       if (task) {
         setSelectedDate(task.dueDate);
         setSelectedTaskId(task.id);
         setView("home");
       }
     },
-    [data],
+    [appIndexes],
   );
 
   const disableNotifications = useCallback(async () => {
@@ -197,20 +205,25 @@ function App() {
   }
 
   if (isFloatingWindow) {
-    return <WorkspaceFloatingWindow actions={appActions} data={data} />;
+    return (
+      <Suspense fallback={<ViewLoading label={t("loadingView")} />}>
+        <WorkspaceFloatingWindow actions={appActions} data={data} />
+      </Suspense>
+    );
   }
 
   const currentWorkspace = data.workspaces.find((workspace) => workspace.id === data.workspaceId);
 
   return (
-    <div className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground">
+    <div className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground max-sm:flex-col">
       <aside
+        aria-label={t("appName")}
         className={cn(
-          "flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-2 py-3 text-sidebar-foreground transition-[background-color,border-color,color] duration-150 ease-[var(--ease-out-quart)]",
+          "flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-2 py-3 text-sidebar-foreground transition-[background-color,border-color,color] duration-150 ease-[var(--ease-out-quart)] max-sm:order-last max-sm:z-50 max-sm:h-14 max-sm:w-full max-sm:flex-row max-sm:items-center max-sm:border-r-0 max-sm:border-t max-sm:px-2 max-sm:py-1",
           isRailExpanded ? "w-56" : "w-14",
         )}
       >
-        <div className={cn("mb-5 flex items-center gap-3", isRailExpanded ? "px-2" : "justify-center px-0")}>
+        <div className={cn("mb-5 flex items-center gap-3 max-sm:hidden", isRailExpanded ? "px-2" : "justify-center px-0")}>
           <div className="flex size-9 items-center justify-center rounded-lg border border-sidebar-border bg-background/45 text-sidebar-foreground">
             <CalendarDays className="size-4" aria-hidden="true" />
           </div>
@@ -220,16 +233,18 @@ function App() {
           </div>
         </div>
 
-        <nav className="grid gap-1">
+        <nav aria-label={t("appName")} className="grid gap-1 max-sm:grid-flow-col max-sm:grid-cols-5 max-sm:flex-1">
           {navItems.map((item) => {
             const Icon = item.icon;
 
             return (
               <button
                 aria-current={view === item.id ? "page" : undefined}
+                aria-label={t(item.labelKey)}
                 key={item.id}
                 className={cn(
                   "flex h-10 items-center gap-3 rounded-lg text-sm transition-[background-color,color] duration-150 ease-[var(--ease-out-quart)] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  "max-sm:h-11 max-sm:justify-center max-sm:px-0",
                   isRailExpanded ? "px-2.5" : "justify-center px-0",
                   view === item.id && "bg-sidebar-accent text-sidebar-accent-foreground",
                 )}
@@ -239,17 +254,18 @@ function App() {
                   setView(item.id);
                 }}
               >
-                <Icon className="size-4 shrink-0" />
-                <span className={cn("truncate", !isRailExpanded && "hidden")}>{t(item.labelKey)}</span>
+                <Icon aria-hidden="true" className="size-4 shrink-0" />
+                <span className={cn("truncate max-sm:hidden", !isRailExpanded && "hidden")}>{t(item.labelKey)}</span>
               </button>
             );
           })}
         </nav>
 
-        <div className="mt-auto grid gap-2">
+        <div className="mt-auto grid gap-2 max-sm:mt-0">
           <div
             className={cn(
               "motion-pane-content grid gap-2 rounded-lg border border-sidebar-border bg-background/35 p-2",
+              "max-sm:hidden",
               !isRailExpanded && "hidden",
             )}
           >
@@ -265,8 +281,10 @@ function App() {
 
           <button
             aria-current={view === "settings" ? "page" : undefined}
+            aria-label={t("settings")}
             className={cn(
               "flex h-10 items-center gap-3 rounded-lg text-sm transition-[background-color,color] duration-150 ease-[var(--ease-out-quart)] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+              "max-sm:h-11 max-sm:justify-center max-sm:px-0",
               isRailExpanded ? "px-2.5" : "justify-center px-0",
               view === "settings" && "bg-sidebar-accent text-sidebar-accent-foreground",
             )}
@@ -277,23 +295,28 @@ function App() {
               setSelectedTaskId(null);
             }}
           >
-            <Settings className="size-4 shrink-0" />
-            <span className={cn("truncate", !isRailExpanded && "hidden")}>{t("settings")}</span>
+            <Settings aria-hidden="true" className="size-4 shrink-0" />
+            <span className={cn("truncate max-sm:hidden", !isRailExpanded && "hidden")}>{t("settings")}</span>
           </button>
 
           <button
             aria-expanded={isRailExpanded}
-            className="flex h-9 items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:scale-95"
+            aria-label={isRailExpanded ? t("collapseSidebar") : t("expandSidebar")}
+            className="flex h-9 items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:scale-95 max-sm:hidden"
             title={isRailExpanded ? t("collapseSidebar") : t("expandSidebar")}
             type="button"
             onClick={() => setIsRailExpanded((value) => !value)}
           >
-            {isRailExpanded ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
+            {isRailExpanded ? (
+              <PanelLeftClose aria-hidden="true" className="size-4" />
+            ) : (
+              <PanelLeftOpen aria-hidden="true" className="size-4" />
+            )}
           </button>
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/80 px-4">
           <div className="min-w-0">
             <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t(view)}</p>
@@ -323,61 +346,65 @@ function App() {
 
         <div className="min-h-0 flex-1 overflow-hidden">
           <div key={view} className="motion-view h-full">
-            {view === "home" && (
-              <HomeView
-                actions={appActions}
-                data={data}
-                searchQuery={searchQuery}
-                selectedDate={selectedDate}
-                selectedTaskId={selectedTaskId}
-                setSearchQuery={setSearchQuery}
-                setSelectedDate={setSelectedDate}
-                setSelectedTaskId={setSelectedTaskId}
-              />
-            )}
-            {view === "overview" && (
-              <OverviewView
-                actions={appActions}
-                data={data}
-                selectedTaskId={selectedTaskId}
-                setSelectedTaskId={setSelectedTaskId}
-              />
-            )}
-            {view === "projects" && (
-              <ProjectsView
-                actions={appActions}
-                data={data}
-                selectedDate={selectedDate}
-                selectedTaskId={selectedTaskId}
-                setSelectedTaskId={setSelectedTaskId}
-              />
-            )}
-            {view === "workspaces" && (
-              <WorkspacesView
-                actions={appActions}
-                data={data}
-                selectedTaskId={selectedTaskId}
-                setSelectedTaskId={setSelectedTaskId}
-              />
-            )}
-            {view === "reminders" && <ReminderCenterView actions={appActions} data={data} onOpenTask={onOpenTask} />}
-            {view === "settings" && (
-              <div className="h-full overflow-auto p-4">
-                <SettingsView actions={appActions} data={data} />
-              </div>
-            )}
+            <Suspense fallback={<ViewLoading label={t("loadingView")} />}>
+              {view === "home" && (
+                <HomeView
+                  actions={appActions}
+                  data={data}
+                  searchQuery={searchQuery}
+                  selectedDate={selectedDate}
+                  selectedTaskId={selectedTaskId}
+                  setSearchQuery={setSearchQuery}
+                  setSelectedDate={setSelectedDate}
+                  setSelectedTaskId={setSelectedTaskId}
+                />
+              )}
+              {view === "overview" && (
+                <OverviewView
+                  actions={appActions}
+                  data={data}
+                  selectedTaskId={selectedTaskId}
+                  setSelectedTaskId={setSelectedTaskId}
+                />
+              )}
+              {view === "projects" && (
+                <ProjectsView
+                  actions={appActions}
+                  data={data}
+                  selectedDate={selectedDate}
+                  selectedTaskId={selectedTaskId}
+                  setSelectedTaskId={setSelectedTaskId}
+                />
+              )}
+              {view === "workspaces" && (
+                <WorkspacesView
+                  actions={appActions}
+                  data={data}
+                  selectedTaskId={selectedTaskId}
+                  setSelectedTaskId={setSelectedTaskId}
+                />
+              )}
+              {view === "reminders" && <ReminderCenterView actions={appActions} data={data} onOpenTask={onOpenTask} />}
+              {view === "settings" && (
+                <div className="h-full overflow-auto p-4">
+                  <SettingsView actions={appActions} data={data} />
+                </div>
+              )}
+            </Suspense>
           </div>
         </div>
       </div>
-      <TaskDetailPane
-        actions={appActions}
-        onClose={() => setSelectedTaskId(null)}
-        projects={data.projects}
-        reminders={data.reminders}
-        recurringTaskTemplates={data.recurringTaskTemplates}
-        settings={data.settings}
-        task={view === "settings" ? null : selectedTask}
-      />
+      <Suspense fallback={null}>
+        <TaskDetailPane
+          actions={appActions}
+          onClose={() => setSelectedTaskId(null)}
+          projects={data.projects}
+          reminders={data.reminders}
+          recurringTaskTemplates={data.recurringTaskTemplates}
+          settings={data.settings}
+          task={view === "settings" ? null : selectedTask}
+        />
+      </Suspense>
       {undoToast && (
         <div className="motion-status absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-popover px-3 py-2 text-sm shadow-xl">
           <span>{undoToast.message}</span>
@@ -391,6 +418,17 @@ function App() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function ViewLoading({ label }: { label: string }) {
+  return (
+    <div className="flex h-full items-center justify-center p-4">
+      <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin text-primary" />
+        {label}
+      </div>
     </div>
   );
 }

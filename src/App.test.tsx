@@ -49,15 +49,15 @@ describe("App", () => {
     expect(screen.getAllByText("每日 DDL").length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "项目" }));
-    expect(screen.getAllByText("新建项目").length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getAllByText("新建项目").length).toBeGreaterThan(0));
     expect(screen.getAllByText("无项目").length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "工作区" }));
-    expect(screen.getAllByText("新建工作区").length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getAllByText("新建工作区").length).toBeGreaterThan(0));
     expect(screen.getByText("常用文件夹")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "设置" }));
-    expect(screen.getAllByText("系统通知").length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getAllByText("系统通知").length).toBeGreaterThan(0));
     expect(screen.getByText("关闭到托盘")).toBeInTheDocument();
     expect(screen.getByText("默认文件夹")).toBeInTheDocument();
     expect(screen.getByText("恢复中心")).toBeInTheDocument();

@@ -76,6 +76,7 @@ export const resources = {
       dueSoon: "即将到期",
       completed: "已完成",
       emptyDay: "这一天没有 DDL。",
+      emptyTaskList: "这里没有任务。",
       emptyProjects: "还没有项目。",
       emptyFolders: "还没有常用文件夹。",
       createProject: "新建项目",
@@ -88,6 +89,9 @@ export const resources = {
       addExistingTaskHint: "从已有任务中选择加入当前工作区，未完成任务会优先显示。",
       addToWorkspace: "加入工作区",
       noAvailableTasks: "没有可加入的已有待办。",
+      loadingTasks: "正在加载任务...",
+      loadAvailableTasksFailed: "加载可选任务失败，请重试。",
+      loadMoreTasks: "加载更多（已显示 {{shown}} / {{total}}）",
       openFloatingWindow: "打开悬浮窗",
       floatingWindow: "悬浮窗口",
       collapseFloatingWindow: "折叠窗口",
@@ -172,6 +176,7 @@ export const resources = {
       commandCenter: "指挥中心",
       loadErrorTitle: "WhatToDo 加载失败",
       loadingApp: "正在加载 WhatToDo",
+      loadingView: "正在加载视图",
       collapseSidebar: "收起侧边栏",
       expandSidebar: "展开侧边栏",
       previousMonth: "上个月",
@@ -200,6 +205,8 @@ export const resources = {
       projectArchived: "项目已归档。",
       recoveryCenter: "恢复中心",
       recoveryCenterHint: "恢复当前工作区内已删除或已归档的项目内容。",
+      loadingRecovery: "正在加载恢复数据...",
+      loadRecoveryFailed: "加载恢复数据失败，请重试。",
       deletedTasks: "已删除任务",
       deletedFolders: "已删除文件夹",
       archivedProjects: "已归档项目",
@@ -312,6 +319,7 @@ export const resources = {
       dueSoon: "Due soon",
       completed: "Completed",
       emptyDay: "No DDLs for this day.",
+      emptyTaskList: "No tasks here.",
       emptyProjects: "No projects yet.",
       emptyFolders: "No common folders yet.",
       createProject: "New project",
@@ -324,6 +332,9 @@ export const resources = {
       addExistingTaskHint: "Choose from existing tasks. Open tasks are shown first.",
       addToWorkspace: "Add to workspace",
       noAvailableTasks: "No existing tasks available.",
+      loadingTasks: "Loading tasks...",
+      loadAvailableTasksFailed: "Could not load available tasks. Try again.",
+      loadMoreTasks: "Load more (showing {{shown}} / {{total}})",
       openFloatingWindow: "Open floating window",
       floatingWindow: "Floating window",
       collapseFloatingWindow: "Collapse window",
@@ -408,6 +419,7 @@ export const resources = {
       commandCenter: "Command center",
       loadErrorTitle: "WhatToDo failed to load",
       loadingApp: "Loading WhatToDo",
+      loadingView: "Loading view",
       collapseSidebar: "Collapse sidebar",
       expandSidebar: "Expand sidebar",
       previousMonth: "Previous month",
@@ -436,6 +448,8 @@ export const resources = {
       projectArchived: "Project archived.",
       recoveryCenter: "Recovery Center",
       recoveryCenterHint: "Restore deleted or archived items in the current workspace.",
+      loadingRecovery: "Loading recovery data...",
+      loadRecoveryFailed: "Could not load recovery data. Try again.",
       deletedTasks: "Deleted tasks",
       deletedFolders: "Deleted folders",
       archivedProjects: "Archived projects",
@@ -487,5 +501,21 @@ i18n.use(initReactI18next).init({
     escapeValue: false,
   },
 });
+
+const htmlLangByLanguage: Record<string, string> = {
+  zh: "zh-CN",
+  en: "en",
+};
+
+const syncDocumentLanguage = (language: string) => {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  document.documentElement.lang = htmlLangByLanguage[language] ?? language;
+};
+
+syncDocumentLanguage(i18n.resolvedLanguage ?? i18n.language);
+i18n.on("languageChanged", syncDocumentLanguage);
 
 export default i18n;

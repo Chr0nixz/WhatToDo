@@ -6,8 +6,9 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { formatTaskDate } from "@/data/dateFormat";
-import { NO_PROJECT_ID, getProjectProgress, tasksForProject, visibleProjects } from "@/data/project";
+import { NO_PROJECT_ID, getProjectProgress, visibleProjects } from "@/data/project";
 import type { AppData } from "@/data/types";
+import { useTaskPage } from "@/hooks/useTaskPage";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +40,22 @@ export function ProjectsView({
 }: ProjectsViewProps) {
   const { i18n, t } = useTranslation();
   const projects = useMemo(() => visibleProjects(data.projects), [data.projects]);
+  const tasksByProjectId = useMemo(() => {
+    const grouped = new Map<string, typeof data.tasks>();
+
+    for (const task of data.tasks) {
+      if (task.deletedAt !== null) {
+        continue;
+      }
+
+      const key = task.projectId ?? NO_PROJECT_ID;
+      const tasks = grouped.get(key) ?? [];
+      tasks.push(task);
+      grouped.set(key, tasks);
+    }
+
+    return grouped;
+  }, [data.tasks]);
   const [selectedProjectId, setSelectedProjectId] = useState(projects[0]?.id ?? NO_PROJECT_ID);
   const [name, setName] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -53,8 +70,22 @@ export function ProjectsView({
 
   const selectedProject =
     selectedProjectId === NO_PROJECT_ID ? null : projects.find((project) => project.id === selectedProjectId) ?? null;
-  const selectedTasks = tasksForProject(data.tasks, selectedProject?.id ?? null);
+  const selectedTasks = tasksByProjectId.get(selectedProject?.id ?? NO_PROJECT_ID) ?? [];
   const progress = getProjectProgress(selectedTasks);
+  const taskPageInput = useMemo(
+    () => ({
+      workspaceId: data.workspaceId,
+      scope: "all" as const,
+      projectId: selectedProject?.id ?? "none",
+      sort: "overview" as const,
+    }),
+    [data.workspaceId, selectedProject?.id],
+  );
+  const taskPage = useTaskPage({
+    actions,
+    input: taskPageInput,
+    reloadKey: data.tasks,
+  });
 
   useEffect(() => {
     setSelectedTaskId(null);
@@ -146,8 +177,11 @@ export function ProjectsView({
   };
 
   return (
-    <main className="flex h-full min-h-0 max-md:flex-col">
-      <aside className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/45 max-lg:w-[292px] max-md:max-h-[360px] max-md:w-full max-md:border-b max-md:border-r-0">
+    <main className="flex h-full min-h-0 max-md:flex-col max-md:overflow-auto">
+      <aside
+        aria-label={t("projects")}
+        className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/45 max-lg:w-[292px] max-md:max-h-[360px] max-md:w-full max-md:border-b max-md:border-r-0"
+      >
         <section className="border-b border-border p-3">
           <div className="mb-3 flex items-center justify-between">
             <h1 className="text-sm font-semibold">{t("projects")}</h1>
@@ -157,7 +191,7 @@ export function ProjectsView({
             <ProjectButton
               active={selectedProjectId === NO_PROJECT_ID}
               color="transparent"
-              count={tasksForProject(data.tasks, null).length}
+              count={tasksByProjectId.get(NO_PROJECT_ID)?.length ?? 0}
               label={t("noProject")}
               onClick={() => setSelectedProjectId(NO_PROJECT_ID)}
             />
@@ -166,7 +200,7 @@ export function ProjectsView({
                 key={project.id}
                 active={selectedProjectId === project.id}
                 color={project.color}
-                count={tasksForProject(data.tasks, project.id).filter((task) => task.status === "todo").length}
+                count={(tasksByProjectId.get(project.id) ?? []).filter((task) => task.status === "todo").length}
                 label={project.name}
                 onClick={() => setSelectedProjectId(project.id)}
               />
@@ -206,12 +240,14 @@ export function ProjectsView({
               onChange={(event) => setWorkingFolder(event.target.value)}
             />
             <Button
+              aria-label={t("chooseFolder")}
               size="icon-lg"
+              title={t("chooseFolder")}
               type="button"
               variant="secondary"
               onClick={() => void chooseFolder(setWorkingFolder)}
             >
-              <FolderOpen />
+              <FolderOpen aria-hidden="true" />
             </Button>
           </div>
           <div className="mt-3 flex gap-2">
@@ -332,14 +368,30 @@ export function ProjectsView({
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto p-4">
-          <TaskList
-            actions={actions}
-            onSelectTask={setSelectedTaskId}
-            projects={data.projects}
-            reminders={data.reminders}
-            selectedTaskId={selectedTaskId}
-            tasks={selectedTasks}
-          />
+          {taskPage.isLoading ? (
+            <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
+              {t("loadingTasks")}
+            </div>
+          ) : taskPage.error && taskPage.tasks.length === 0 ? (
+            <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/10 px-6 text-center text-sm text-destructive">
+              {taskPage.error}
+            </div>
+          ) : (
+            <TaskList
+              actions={actions}
+              emptyLabel={t("emptyTaskList")}
+              onSelectTask={setSelectedTaskId}
+              projects={data.projects}
+              reminders={taskPage.reminders}
+              selectedTaskId={selectedTaskId}
+              tasks={taskPage.tasks}
+              totalCount={taskPage.total}
+              isLoadingMore={taskPage.isLoadingMore}
+              loadError={taskPage.error}
+              onLoadMore={() => void taskPage.loadMore()}
+              windowKey={selectedProjectId}
+            />
+          )}
         </div>
       </section>
     </main>

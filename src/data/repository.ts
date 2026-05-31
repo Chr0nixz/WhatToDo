@@ -1,7 +1,10 @@
 import Database from "@tauri-apps/plugin-sql";
 
-import { buildReminderDate } from "./date";
+import { endOfWeek } from "date-fns";
+
+import { buildReminderDate, parseDateKey, todayKey, toDateKey } from "./date";
 import { buildTaskFromRecurringTemplate, getNextRecurrenceDate } from "./recurrence";
+import { taskMatchesFilters } from "./taskFilters";
 import type {
   AppData,
   BackupPayload,
@@ -14,11 +17,15 @@ import type {
   Project,
   ProjectStatus,
   RecurringTaskTemplate,
+  RecoveryItems,
   Reminder,
   SavedTaskView,
   Settings,
   Task,
+  TaskPageInput,
+  TaskPageResult,
   TaskStatus,
+  TaskViewFilters,
   UpdateRecurringTaskTemplateInput,
   UpdateWorkspaceInput,
   Workspace,
@@ -154,6 +161,63 @@ const boolToInt = (value: boolean) => (value ? 1 : 0);
 
 const intToBool = (value: unknown) => value === 1 || value === true;
 
+const normalizeTaskPageInput = (input: TaskPageInput, fallbackWorkspaceId: string) => ({
+  ...input,
+  workspaceId: input.workspaceId ?? fallbackWorkspaceId,
+  limit: Math.max(1, Math.min(Math.trunc(input.limit), 500)),
+  offset: Math.max(0, Math.trunc(input.offset)),
+  query: input.query?.trim().toLowerCase() ?? "",
+  date: input.date || null,
+  projectId: input.projectId ?? null,
+  priority: input.priority ?? DEFAULT_TASK_VIEW_FILTERS.priority,
+  reminder: input.reminder ?? DEFAULT_TASK_VIEW_FILTERS.reminder,
+  folder: input.folder ?? DEFAULT_TASK_VIEW_FILTERS.folder,
+  dateRange: input.dateRange ?? DEFAULT_TASK_VIEW_FILTERS.dateRange,
+  referenceDate: input.referenceDate ?? todayKey(),
+});
+
+const taskPageFiltersFromInput = (input: ReturnType<typeof normalizeTaskPageInput>): TaskViewFilters => ({
+  scope: input.scope,
+  priority: input.priority,
+  projectId: input.projectId ?? DEFAULT_TASK_VIEW_FILTERS.projectId,
+  reminder: input.reminder,
+  folder: input.folder,
+  dateRange: input.dateRange,
+});
+
+const priorityRank: Record<Task["priority"], number> = {
+  high: 0,
+  medium: 1,
+  low: 2,
+};
+
+const taskPageComparator = (sort: TaskPageInput["sort"]) => (a: Task, b: Task) => {
+  if (sort === "createdDesc") {
+    return b.createdAt.localeCompare(a.createdAt);
+  }
+
+  if (sort === "overview" && a.status !== b.status) {
+    return a.status === "todo" ? -1 : 1;
+  }
+
+  const dueDate = a.dueDate.localeCompare(b.dueDate);
+  if (dueDate !== 0) {
+    return dueDate;
+  }
+
+  const dueTime = (a.dueTime ?? "99:99").localeCompare(b.dueTime ?? "99:99");
+  if (dueTime !== 0) {
+    return dueTime;
+  }
+
+  const priority = priorityRank[a.priority] - priorityRank[b.priority];
+  if (priority !== 0) {
+    return priority;
+  }
+
+  return a.createdAt.localeCompare(b.createdAt);
+};
+
 const rowToProject = (row: Record<string, unknown>): Project => ({
   id: String(row.id),
   workspaceId: String(row.workspace_id),
@@ -267,6 +331,9 @@ const rowToSettings = (row: Record<string, unknown>): Settings => ({
 export interface TodoRepository {
   load(workspaceId?: string): Promise<AppData>;
   selectWorkspace(workspaceId: string): Promise<AppData>;
+  loadAvailableTasks(workspaceId?: string): Promise<Task[]>;
+  loadRecoveryItems(): Promise<RecoveryItems>;
+  loadTaskPage(input: TaskPageInput): Promise<TaskPageResult>;
   createWorkspace(input: CreateWorkspaceInput): Promise<AppData>;
   updateWorkspace(id: string, patch: UpdateWorkspaceInput): Promise<AppData>;
   createWorkspaceFolder(input: CreateWorkspaceFolderInput): Promise<AppData>;
@@ -320,6 +387,63 @@ class LocalRepository implements TodoRepository {
   async selectWorkspace(workspaceId: string) {
     this.workspaceId = this.resolveWorkspaceId(workspaceId);
     return this.persist();
+  }
+
+  async loadAvailableTasks(workspaceId = this.workspaceId) {
+    return this.data.tasks.filter((task) => task.workspaceId !== workspaceId && task.deletedAt === null);
+  }
+
+  async loadRecoveryItems() {
+    return {
+      deletedTasks: this.data.tasks.filter((task) => task.workspaceId === this.workspaceId && task.deletedAt !== null),
+      deletedWorkspaceFolders: this.data.workspaceFolders.filter(
+        (folder) => folder.workspaceId === this.workspaceId && folder.deletedAt !== null,
+      ),
+      archivedProjects: this.data.projects.filter(
+        (project) => project.workspaceId === this.workspaceId && project.status === "archived" && project.deletedAt === null,
+      ),
+    };
+  }
+
+  async loadTaskPage(input: TaskPageInput) {
+    const normalized = normalizeTaskPageInput(input, this.workspaceId);
+    const filters = taskPageFiltersFromInput(normalized);
+    const reminderTaskIds = new Set(
+      this.data.reminders.filter((reminder) => reminder.enabled).map((reminder) => reminder.taskId),
+    );
+    const projectsById = new Map(this.data.projects.map((project) => [project.id, project]));
+    const filtered = this.data.tasks.filter((task) => {
+      if (task.workspaceId !== normalized.workspaceId || task.deletedAt !== null) {
+        return false;
+      }
+
+      if (normalized.date && task.dueDate !== normalized.date) {
+        return false;
+      }
+
+      if (!taskMatchesFilters(task, { reminderTaskIds }, filters, normalized.referenceDate)) {
+        return false;
+      }
+
+      if (normalized.query) {
+        const projectName = task.projectId ? projectsById.get(task.projectId)?.name ?? "" : "";
+        const haystack = [task.title, task.notes, task.dueDate, task.dueTime ?? "", projectName].join(" ").toLowerCase();
+        if (!haystack.includes(normalized.query)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+    const sorted = [...filtered].sort(taskPageComparator(normalized.sort));
+    const tasks = sorted.slice(normalized.offset, normalized.offset + normalized.limit);
+    const taskIds = new Set(tasks.map((task) => task.id));
+
+    return {
+      tasks,
+      total: sorted.length,
+      reminders: this.data.reminders.filter((reminder) => taskIds.has(reminder.taskId)),
+    };
   }
 
   async createWorkspace(input: CreateWorkspaceInput) {
@@ -773,15 +897,14 @@ class LocalRepository implements TodoRepository {
       workspaceFolders: this.data.workspaceFolders.filter(
         (folder) => folder.workspaceId === this.workspaceId && folder.deletedAt === null,
       ),
-      projects: this.data.projects.filter((project) => project.workspaceId === this.workspaceId && project.deletedAt === null),
+      projects: this.data.projects.filter(
+        (project) =>
+          project.workspaceId === this.workspaceId && project.deletedAt === null && project.status !== "archived",
+      ),
       tasks: this.data.tasks.filter((task) => task.workspaceId === this.workspaceId && task.deletedAt === null),
-      deletedTasks: this.data.tasks.filter((task) => task.workspaceId === this.workspaceId && task.deletedAt !== null),
-      deletedWorkspaceFolders: this.data.workspaceFolders.filter(
-        (folder) => folder.workspaceId === this.workspaceId && folder.deletedAt !== null,
-      ),
-      availableTasks: this.data.tasks.filter(
-        (task) => task.workspaceId !== this.workspaceId && task.deletedAt === null,
-      ),
+      deletedTasks: [],
+      deletedWorkspaceFolders: [],
+      availableTasks: [],
       reminders: this.data.reminders.filter((reminder) => taskIds.has(reminder.taskId)),
       savedViews: this.data.savedViews.filter((view) => view.workspaceId === this.workspaceId),
       recurringTaskTemplates: this.data.recurringTaskTemplates.filter(
@@ -840,6 +963,143 @@ class SqlRepository implements TodoRepository {
   async selectWorkspace(workspaceId: string) {
     this.workspaceId = workspaceId;
     return this.readAll();
+  }
+
+  async loadAvailableTasks(workspaceId = this.workspaceId) {
+    const db = await this.connect();
+    const tasks = (await db.select(
+      "SELECT * FROM tasks WHERE workspace_id != ? AND deleted_at IS NULL ORDER BY created_at DESC",
+      [workspaceId],
+    )) as Record<string, unknown>[];
+
+    return tasks.map(rowToTask);
+  }
+
+  async loadRecoveryItems() {
+    const db = await this.connect();
+    const deletedTasks = (await db.select(
+      "SELECT * FROM tasks WHERE workspace_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+      [this.workspaceId],
+    )) as Record<string, unknown>[];
+    const deletedWorkspaceFolders = (await db.select(
+      "SELECT * FROM workspace_folders WHERE workspace_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+      [this.workspaceId],
+    )) as Record<string, unknown>[];
+    const archivedProjects = (await db.select(
+      "SELECT * FROM projects WHERE workspace_id = ? AND status = 'archived' AND deleted_at IS NULL ORDER BY updated_at DESC",
+      [this.workspaceId],
+    )) as Record<string, unknown>[];
+
+    return {
+      deletedTasks: deletedTasks.map(rowToTask),
+      deletedWorkspaceFolders: deletedWorkspaceFolders.map(rowToWorkspaceFolder),
+      archivedProjects: archivedProjects.map(rowToProject),
+    };
+  }
+
+  async loadTaskPage(input: TaskPageInput) {
+    const db = await this.connect();
+    const normalized = normalizeTaskPageInput(input, this.workspaceId);
+    const where = ["workspace_id = ?", "deleted_at IS NULL"];
+    const values: unknown[] = [normalized.workspaceId];
+
+    if (normalized.scope === "open") {
+      where.push("status = ?");
+      values.push("todo");
+    } else if (normalized.scope === "completed") {
+      where.push("status = ?");
+      values.push("completed");
+    }
+
+    if (normalized.date) {
+      where.push("due_date = ?");
+      values.push(normalized.date);
+    }
+
+    if (normalized.projectId === "none") {
+      where.push("project_id IS NULL");
+    } else if (normalized.projectId) {
+      where.push("project_id = ?");
+      values.push(normalized.projectId);
+    }
+
+    if (normalized.priority !== "all") {
+      where.push("priority = ?");
+      values.push(normalized.priority);
+    }
+
+    if (normalized.reminder === "with") {
+      where.push("EXISTS (SELECT 1 FROM reminders WHERE reminders.task_id = tasks.id AND reminders.enabled = 1)");
+    } else if (normalized.reminder === "without") {
+      where.push("NOT EXISTS (SELECT 1 FROM reminders WHERE reminders.task_id = tasks.id AND reminders.enabled = 1)");
+    }
+
+    if (normalized.folder === "with") {
+      where.push("working_folder IS NOT NULL AND working_folder <> ''");
+    } else if (normalized.folder === "without") {
+      where.push("(working_folder IS NULL OR working_folder = '')");
+    }
+
+    if (normalized.dateRange === "today") {
+      where.push("due_date = ?");
+      values.push(normalized.referenceDate);
+    } else if (normalized.dateRange === "overdue") {
+      where.push("status = ? AND due_date < ?");
+      values.push("todo", normalized.referenceDate);
+    } else if (normalized.dateRange === "week") {
+      where.push("due_date >= ? AND due_date <= ?");
+      values.push(normalized.referenceDate, toDateKey(endOfWeek(parseDateKey(normalized.referenceDate))));
+    }
+
+    if (normalized.query) {
+      where.push(
+        `(LOWER(title) LIKE ?
+          OR LOWER(notes) LIKE ?
+          OR due_date LIKE ?
+          OR COALESCE(due_time, '') LIKE ?
+          OR EXISTS (SELECT 1 FROM projects WHERE projects.id = tasks.project_id AND LOWER(projects.name) LIKE ?))`,
+      );
+      const query = `%${normalized.query}%`;
+      values.push(query, query, query, query, query);
+    }
+
+    const whereSql = where.join(" AND ");
+    const orderSql =
+      normalized.sort === "createdDesc"
+        ? "created_at DESC"
+        : `${normalized.sort === "overview" ? "CASE status WHEN 'todo' THEN 0 ELSE 1 END ASC, " : ""}due_date ASC,
+           COALESCE(due_time, '99:99') ASC,
+           CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END ASC,
+           created_at ASC`;
+    const countRows = (await db.select(`SELECT COUNT(*) AS total FROM tasks WHERE ${whereSql}`, values)) as Record<
+      string,
+      unknown
+    >[];
+    const taskRows = (await db.select(
+      `SELECT * FROM tasks WHERE ${whereSql} ORDER BY ${orderSql} LIMIT ? OFFSET ?`,
+      [...values, normalized.limit, normalized.offset],
+    )) as Record<string, unknown>[];
+    const tasks = taskRows.map(rowToTask);
+
+    if (tasks.length === 0) {
+      return {
+        tasks,
+        total: Number(countRows[0]?.total ?? 0),
+        reminders: [],
+      };
+    }
+
+    const placeholders = tasks.map(() => "?").join(", ");
+    const reminders = (await db.select(
+      `SELECT * FROM reminders WHERE task_id IN (${placeholders}) ORDER BY remind_at ASC`,
+      tasks.map((task) => task.id),
+    )) as Record<string, unknown>[];
+
+    return {
+      tasks,
+      total: Number(countRows[0]?.total ?? 0),
+      reminders: reminders.map(rowToReminder),
+    };
   }
 
   async createWorkspace(input: CreateWorkspaceInput) {
@@ -1396,26 +1656,15 @@ class SqlRepository implements TodoRepository {
       this.workspaceId = workspaceRows[0]?.id ?? DEFAULT_WORKSPACE_ID;
     }
 
-    const projects = (await db.select("SELECT * FROM projects WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY created_at DESC", [
-      this.workspaceId,
-    ])) as Record<string, unknown>[];
+    const projects = (await db.select(
+      "SELECT * FROM projects WHERE workspace_id = ? AND deleted_at IS NULL AND status != 'archived' ORDER BY created_at DESC",
+      [this.workspaceId],
+    )) as Record<string, unknown>[];
     const tasks = (await db.select("SELECT * FROM tasks WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY created_at DESC", [
       this.workspaceId,
     ])) as Record<string, unknown>[];
-    const availableTasks = (await db.select(
-      "SELECT * FROM tasks WHERE workspace_id != ? AND deleted_at IS NULL ORDER BY created_at DESC",
-      [this.workspaceId],
-    )) as Record<string, unknown>[];
     const workspaceFolders = (await db.select(
       "SELECT * FROM workspace_folders WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY created_at DESC",
-      [this.workspaceId],
-    )) as Record<string, unknown>[];
-    const deletedTasks = (await db.select(
-      "SELECT * FROM tasks WHERE workspace_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
-      [this.workspaceId],
-    )) as Record<string, unknown>[];
-    const deletedWorkspaceFolders = (await db.select(
-      "SELECT * FROM workspace_folders WHERE workspace_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
       [this.workspaceId],
     )) as Record<string, unknown>[];
     const reminders = (await db.select(
@@ -1445,9 +1694,9 @@ class SqlRepository implements TodoRepository {
       workspaceFolders: workspaceFolders.map(rowToWorkspaceFolder),
       projects: projects.map(rowToProject),
       tasks: tasks.map(rowToTask),
-      deletedTasks: deletedTasks.map(rowToTask),
-      deletedWorkspaceFolders: deletedWorkspaceFolders.map(rowToWorkspaceFolder),
-      availableTasks: availableTasks.map(rowToTask),
+      deletedTasks: [],
+      deletedWorkspaceFolders: [],
+      availableTasks: [],
       reminders: reminders.map(rowToReminder),
       savedViews: savedViews.map(rowToSavedTaskView),
       recurringTaskTemplates: recurringTaskTemplates.map(rowToRecurringTaskTemplate),

@@ -1,12 +1,14 @@
 {
   "name": "whattodo",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "tauri:before-dev": "node scripts/tauri-before-dev.mjs",
     "build": "tsc && vite build",
+    "perf:build": "node scripts/perf-baseline.mjs",
+    "perf:fixture": "node scripts/generate-performance-backup.mjs",
     "preview": "vite preview",
     "release:check": "node scripts/release-check.mjs",
     "release:sync-version": "node scripts/sync-version.mjs",

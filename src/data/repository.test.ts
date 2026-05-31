@@ -42,7 +42,7 @@ describe("LocalRepository", () => {
     const taskId = data.tasks[0].id;
     data = await repository.deleteTask(taskId);
     expect(data.tasks.find((task) => task.id === taskId)).toBeUndefined();
-    expect(data.deletedTasks.find((task) => task.id === taskId)?.title).toBe("Delete me");
+    expect((await repository.loadRecoveryItems()).deletedTasks.find((task) => task.id === taskId)?.title).toBe("Delete me");
 
     data = await repository.restoreTask(taskId);
     expect(data.tasks.find((task) => task.id === taskId)?.title).toBe("Delete me");
@@ -51,13 +51,13 @@ describe("LocalRepository", () => {
     const folderId = data.workspaceFolders[0].id;
     data = await repository.deleteWorkspaceFolder(folderId);
     expect(data.workspaceFolders.find((folder) => folder.id === folderId)).toBeUndefined();
-    expect(data.deletedWorkspaceFolders.find((folder) => folder.id === folderId)?.name).toBe("Docs");
+    expect((await repository.loadRecoveryItems()).deletedWorkspaceFolders.find((folder) => folder.id === folderId)?.name).toBe("Docs");
 
     data = await repository.restoreWorkspaceFolder(folderId);
     expect(data.workspaceFolders.find((folder) => folder.id === folderId)?.name).toBe("Docs");
   });
 
-  it("keeps current workspace tasks separate from available tasks", async () => {
+  it("loads cross-workspace available tasks on demand", async () => {
     const repository = new LocalRepository();
     await repository.load();
 
@@ -66,7 +66,81 @@ describe("LocalRepository", () => {
     data = await repository.createWorkspace({ name: "Side workspace", color: "#4fb8d8" });
 
     expect(data.tasks).toEqual([]);
-    expect(data.availableTasks.map((task) => task.id)).toContain(defaultTaskId);
+    expect(data.availableTasks).toEqual([]);
+    expect((await repository.loadAvailableTasks()).map((task) => task.id)).toContain(defaultTaskId);
+  });
+
+  it("loads recovery items on demand", async () => {
+    const repository = new LocalRepository();
+    let data = await repository.load();
+
+    data = await repository.createTask({ title: "Recover task", dueDate: "2026-06-01" });
+    const taskId = data.tasks[0].id;
+    data = await repository.deleteTask(taskId);
+    data = await repository.createWorkspaceFolder({ name: "Recover folder", path: "D:\\Recover" });
+    const folderId = data.workspaceFolders[0].id;
+    data = await repository.deleteWorkspaceFolder(folderId);
+    data = await repository.createProject({ name: "Recover project", color: "#4fb8d8", dueDate: null, workingFolder: null });
+    const projectId = data.projects[0].id;
+    data = await repository.archiveProject(projectId);
+
+    expect(data.deletedTasks).toEqual([]);
+    expect(data.deletedWorkspaceFolders).toEqual([]);
+    expect(data.projects.find((project) => project.id === projectId)).toBeUndefined();
+
+    const recovery = await repository.loadRecoveryItems();
+    expect(recovery.deletedTasks.map((task) => task.id)).toContain(taskId);
+    expect(recovery.deletedWorkspaceFolders.map((folder) => folder.id)).toContain(folderId);
+    expect(recovery.archivedProjects.map((project) => project.id)).toContain(projectId);
+  });
+
+  it("loads task pages with filters, totals, and reminders", async () => {
+    const repository = new LocalRepository();
+    let data = await repository.load();
+    data = await repository.createProject({
+      name: "Client launch",
+      color: "#4fb8d8",
+      dueDate: null,
+      workingFolder: null,
+    });
+    const projectId = data.projects[0].id;
+
+    data = await repository.createTask({
+      title: "Alpha task",
+      dueDate: "2026-06-01",
+      projectId,
+      priority: "high",
+      workingFolder: "D:\\Projects\\Client",
+      reminderOffset: 30,
+    });
+    data = await repository.createTask({
+      title: "Beta task",
+      dueDate: "2026-06-01",
+      priority: "low",
+    });
+    await repository.createTask({
+      title: "Other day",
+      dueDate: "2026-06-02",
+    });
+
+    const result = await repository.loadTaskPage({
+      scope: "open",
+      date: "2026-06-01",
+      projectId,
+      priority: "high",
+      reminder: "with",
+      folder: "with",
+      dateRange: "week",
+      referenceDate: "2026-06-01",
+      query: "client",
+      limit: 10,
+      offset: 0,
+      sort: "overview",
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.tasks.map((task) => task.title)).toEqual(["Alpha task"]);
+    expect(result.reminders.map((reminder) => reminder.taskId)).toEqual([data.tasks.find((task) => task.title === "Alpha task")?.id]);
   });
 
   it("snoozes and disables reminders", async () => {
@@ -262,11 +336,105 @@ describe("SqlRepository", () => {
     await repository.load();
     await repository.snoozeReminder("reminder_a", "2026-06-01T09:45:00.000Z");
     await repository.disableReminder("reminder_a");
+    await repository.loadAvailableTasks();
+    await repository.loadRecoveryItems();
 
     expect(db.execute).toHaveBeenCalledWith(
       "UPDATE reminders SET snoozed_until = ?, fired_at = NULL, failed_at = NULL, last_error = NULL WHERE id = ?",
       ["2026-06-01T09:45:00.000Z", "reminder_a"],
     );
     expect(db.execute).toHaveBeenCalledWith("UPDATE reminders SET enabled = ? WHERE id = ?", [0, "reminder_a"]);
+    expect(db.select).toHaveBeenCalledWith(
+      "SELECT * FROM tasks WHERE workspace_id != ? AND deleted_at IS NULL ORDER BY created_at DESC",
+      ["local-workspace"],
+    );
+  });
+
+  it("loads task pages with SQL filters and reminder rows", async () => {
+    const taskRow = {
+      id: "task_a",
+      workspace_id: "local-workspace",
+      project_id: null,
+      working_folder: null,
+      title: "Alpha task",
+      notes: "",
+      due_date: "2026-06-01",
+      due_time: null,
+      timezone: "Asia/Shanghai",
+      priority: "high",
+      status: "todo",
+      completed_at: null,
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      deleted_at: null,
+      recurrence_template_id: null,
+      recurrence_instance_date: null,
+    };
+    const reminderRow = {
+      id: "reminder_a",
+      task_id: "task_a",
+      remind_at: "2026-06-01T09:30:00.000Z",
+      offset_minutes: 30,
+      snoozed_until: null,
+      fired_at: null,
+      failed_at: null,
+      last_error: null,
+      last_attempted_at: null,
+      enabled: 1,
+    };
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.startsWith("SELECT COUNT(*)")) {
+          return [{ total: 1 }];
+        }
+
+        if (query.includes("FROM tasks WHERE")) {
+          return [taskRow];
+        }
+
+        if (query.includes("FROM reminders WHERE task_id IN")) {
+          return [reminderRow];
+        }
+
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    const result = await repository.loadTaskPage({
+      workspaceId: "local-workspace",
+      scope: "open",
+      date: "2026-06-01",
+      projectId: null,
+      priority: "high",
+      reminder: "with",
+      folder: "without",
+      dateRange: "today",
+      referenceDate: "2026-06-01",
+      query: "alpha",
+      limit: 25,
+      offset: 0,
+      sort: "overview",
+    });
+
+    expect(result.total).toBe(1);
+    expect(result.tasks[0].id).toBe("task_a");
+    expect(result.reminders[0].id).toBe("reminder_a");
+    expect(db.select).toHaveBeenCalledWith(expect.stringContaining("LIMIT ? OFFSET ?"), [
+      "local-workspace",
+      "todo",
+      "2026-06-01",
+      "high",
+      "2026-06-01",
+      "%alpha%",
+      "%alpha%",
+      "%alpha%",
+      "%alpha%",
+      "%alpha%",
+      25,
+      0,
+    ]);
   });
 });

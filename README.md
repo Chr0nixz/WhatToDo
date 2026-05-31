@@ -49,6 +49,8 @@ Tauri dev uses `scripts/tauri-before-dev.mjs` as `beforeDevCommand`. The script 
 - `pnpm dev` starts the Vite development server.
 - `pnpm tauri:before-dev` runs the Tauri dev-server bootstrap script.
 - `pnpm build` type-checks and builds the web frontend.
+- `pnpm perf:build` builds the frontend and reports JS/CSS asset-size baselines.
+- `pnpm perf:fixture` generates `tmp/performance-backup-20000.json` for large-data validation.
 - `pnpm preview` previews the production web build.
 - `pnpm test` runs the Vitest suite.
 - `pnpm test:watch` runs Vitest in watch mode.
@@ -70,10 +72,11 @@ cargo check
 
 Current automated baseline:
 
-- `pnpm test`: 12 test files, 43 tests.
-- `pnpm build`: frontend type-check and production build.
+- `pnpm test`: 14 test files, 50 tests.
+- `pnpm build`: frontend type-check and production build; current main JS chunk is about 100.8 kB.
+- `pnpm perf:build`: build-size baseline check with a 500 kB main JS limit.
+- `pnpm perf:fixture`: generates a 20k task backup for desktop performance validation.
 - `cargo check`: Tauri backend compile check.
-- `pnpm build` currently emits a Vite chunk-size warning for a main JS chunk of about 531 kB; this is a known performance follow-up.
 
 Recommended browser smoke checks:
 
@@ -124,7 +127,7 @@ Reminder center groups reminders by `effectiveAt = snoozedUntil ?? remindAt` int
 
 Pull requests and pushes to `main` are verified by `.github/workflows/ci.yml`. The CI job installs dependencies, runs Vitest, builds the frontend, and runs `cargo check`.
 
-Releases are published by `.github/workflows/release.yml`. Push a tag like `app-v0.1.4`, or run the workflow manually, to run verification checks, build the signed Windows NSIS installer, generate `latest.json`, and upload installer, signature, and updater metadata to GitHub Releases.
+Releases are published by `.github/workflows/release.yml`. Push a tag like `app-v0.1.5`, or run the workflow manually, to run verification checks, build the signed Windows NSIS installer, generate `latest.json`, and upload installer, signature, and updater metadata to GitHub Releases.
 
 The app uses the Tauri v2 updater plugin and checks:
 
@@ -138,16 +141,16 @@ Before publishing a release:
 2. Add release notes to `CHANGELOG.md`.
 3. Commit the version and changelog changes.
 4. Ensure GitHub Secrets contains `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-5. Run `pnpm tauri dev` and complete `DESKTOP_VALIDATION.md`.
+5. Run `pnpm tauri dev` and complete `docs/DESKTOP_VALIDATION.md`.
 6. Push `app-v<version>` and verify the release assets.
 
 The generated updater private key and password are intentionally local-only in `.tauri-updater-private-key.local` and `.tauri-updater-private-key-password.local`. The public key is committed in `src-tauri/tauri.conf.json`; the private key and password must stay in GitHub Secrets or another secure secret store.
 
 ## Current Priorities
 
-See `PROJECT_ANALYSIS.md` for the detailed project analysis and roadmap. The current short-term priorities are:
+See `docs/PROJECT_ANALYSIS.md` for the detailed project analysis and roadmap. The current short-term priorities are:
 
-1. Fix the potential duplicate-trigger race in `useReminders`.
-2. Add SQLite transactions around multi-step writes.
-3. Tighten Tauri CSP, capability scope, and file command validation.
-4. Complete Tauri desktop runtime verification.
+1. Complete the `docs/DESKTOP_VALIDATION.md` desktop runtime checklist and record any failures.
+2. Expand SqlRepository tests for recurring tasks, backup import, failed reminders, workspace filtering, and soft-delete recovery.
+3. Add a compact command panel for quick add, task search, folder opening, and workspace switching.
+4. Run the 20k-task desktop performance validation and decide whether any view needs deeper query-level pagination or virtualization.

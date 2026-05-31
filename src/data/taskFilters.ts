@@ -1,7 +1,7 @@
 import { endOfWeek, isWithinInterval } from "date-fns";
 
 import { overdueTasks, parseDateKey, todayKey } from "./date";
-import type { AppData, Task, TaskViewFilters } from "./types";
+import type { AppData, Task, TaskFilterContext, TaskViewFilters } from "./types";
 
 export const defaultTaskViewFilters = (): TaskViewFilters => ({
   scope: "open",
@@ -12,7 +12,12 @@ export const defaultTaskViewFilters = (): TaskViewFilters => ({
   dateRange: "all",
 });
 
-export const taskMatchesFilters = (task: Task, data: AppData, filters: TaskViewFilters, referenceDateKey = todayKey()) => {
+export const taskMatchesFilters = (
+  task: Task,
+  dataOrContext: AppData | TaskFilterContext,
+  filters: TaskViewFilters,
+  referenceDateKey = todayKey(),
+) => {
   if (filters.scope === "open" && task.status !== "todo") {
     return false;
   }
@@ -33,7 +38,10 @@ export const taskMatchesFilters = (task: Task, data: AppData, filters: TaskViewF
     return false;
   }
 
-  const hasReminder = data.reminders.some((reminder) => reminder.taskId === task.id && reminder.enabled);
+  const hasReminder =
+    "reminderTaskIds" in dataOrContext
+      ? dataOrContext.reminderTaskIds.has(task.id)
+      : dataOrContext.reminders.some((reminder) => reminder.taskId === task.id && reminder.enabled);
   if (filters.reminder === "with" && !hasReminder) {
     return false;
   }

@@ -5,7 +5,7 @@ import { ArchiveRestore, Bell, Check, Database, Download, FolderOpen, Languages,
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { AccentColor, AppData, Language, Settings, ThemeMode } from "@/data/types";
+import type { AccentColor, AppData, Language, RecoveryItems, Settings, ThemeMode } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 import { UpdateSettingsPanel } from "./UpdateSettingsPanel";
@@ -46,10 +46,36 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
   const [dataState, setDataState] = useState<"idle" | "saved" | "error">("idle");
   const [dataError, setDataError] = useState<string | null>(null);
+  const [recoveryItems, setRecoveryItems] = useState<RecoveryItems>({
+    deletedTasks: [],
+    deletedWorkspaceFolders: [],
+    archivedProjects: [],
+  });
+  const [recoveryState, setRecoveryState] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => {
     setDefaultWorkingFolder(settings.defaultWorkingFolder ?? "");
   }, [settings.defaultWorkingFolder]);
+
+  const loadRecoveryItems = async () => {
+    setRecoveryState("loading");
+
+    try {
+      setRecoveryItems(await actions.loadRecoveryItems());
+      setRecoveryState("ready");
+    } catch {
+      setRecoveryState("error");
+    }
+  };
+
+  useEffect(() => {
+    void loadRecoveryItems();
+  }, [data.workspaceId]);
+
+  const restoreRecoveryItem = async (restore: () => Promise<unknown>) => {
+    await restore();
+    await loadRecoveryItems();
+  };
 
   const saveSettings = async (patch: Partial<Settings>) => {
     const nextSettings = { ...settings, ...patch };
@@ -375,28 +401,44 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             <p className="text-sm text-muted-foreground">{t("recoveryCenterHint")}</p>
           </div>
         </div>
-        <div className="grid gap-3">
-          <RecoveryGroup
-            emptyLabel={t("emptyDeletedTasks")}
-            items={data.deletedTasks.map((task) => ({ id: task.id, title: task.title, meta: formatTaskDate(task.dueDate, i18n.language) }))}
-            title={t("deletedTasks")}
-            onRestore={(id) => actions.restoreTask(id)}
-          />
-          <RecoveryGroup
-            emptyLabel={t("emptyDeletedFolders")}
-            items={data.deletedWorkspaceFolders.map((folder) => ({ id: folder.id, title: folder.name, meta: folder.path }))}
-            title={t("deletedFolders")}
-            onRestore={(id) => actions.restoreWorkspaceFolder(id)}
-          />
-          <RecoveryGroup
-            emptyLabel={t("emptyArchivedProjects")}
-            items={data.projects
-              .filter((project) => project.status === "archived" && project.deletedAt === null)
-              .map((project) => ({ id: project.id, title: project.name, meta: project.dueDate ? formatTaskDate(project.dueDate, i18n.language) : t("none") }))}
-            title={t("archivedProjects")}
-            onRestore={(id) => actions.unarchiveProject(id)}
-          />
-        </div>
+        {recoveryState === "loading" ? (
+          <p className="motion-status rounded-md border border-dashed border-border bg-background/45 p-3 text-sm text-muted-foreground">
+            {t("loadingRecovery")}
+          </p>
+        ) : recoveryState === "error" ? (
+          <p className="motion-status rounded-md border border-dashed border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {t("loadRecoveryFailed")}
+          </p>
+        ) : (
+          <div className="grid gap-3">
+            <RecoveryGroup
+              emptyLabel={t("emptyDeletedTasks")}
+              items={recoveryItems.deletedTasks.map((task) => ({
+                id: task.id,
+                title: task.title,
+                meta: formatTaskDate(task.dueDate, i18n.language),
+              }))}
+              title={t("deletedTasks")}
+              onRestore={(id) => restoreRecoveryItem(() => actions.restoreTask(id))}
+            />
+            <RecoveryGroup
+              emptyLabel={t("emptyDeletedFolders")}
+              items={recoveryItems.deletedWorkspaceFolders.map((folder) => ({ id: folder.id, title: folder.name, meta: folder.path }))}
+              title={t("deletedFolders")}
+              onRestore={(id) => restoreRecoveryItem(() => actions.restoreWorkspaceFolder(id))}
+            />
+            <RecoveryGroup
+              emptyLabel={t("emptyArchivedProjects")}
+              items={recoveryItems.archivedProjects.map((project) => ({
+                id: project.id,
+                title: project.name,
+                meta: project.dueDate ? formatTaskDate(project.dueDate, i18n.language) : t("none"),
+              }))}
+              title={t("archivedProjects")}
+              onRestore={(id) => restoreRecoveryItem(() => actions.unarchiveProject(id))}
+            />
+          </div>
+        )}
       </section>
 
       <section className="motion-surface rounded-lg border border-border bg-card/70 p-4 shadow-sm">

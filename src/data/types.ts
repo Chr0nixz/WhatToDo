@@ -148,6 +148,48 @@ export type AppData = {
   settings: Settings;
 };
 
+export type RecoveryItems = {
+  deletedTasks: Task[];
+  deletedWorkspaceFolders: WorkspaceFolder[];
+  archivedProjects: Project[];
+};
+
+export type AppIndexes = {
+  projectsById: Map<string, Project>;
+  tasksById: Map<string, Task>;
+  tasksByDate: Map<string, Task[]>;
+  remindersByTaskId: Map<string, Reminder[]>;
+  reminderTaskIds: Set<string>;
+};
+
+export type TaskFilterContext = Pick<AppIndexes, "reminderTaskIds">;
+
+export type TaskPageScope = "open" | "completed" | "all";
+
+export type TaskPageSort = "createdDesc" | "dueAsc" | "overview";
+
+export type TaskPageInput = {
+  workspaceId?: string;
+  scope: TaskPageScope;
+  date?: string | null;
+  projectId?: string | "none" | null;
+  priority?: TaskViewFilters["priority"];
+  reminder?: TaskViewFilters["reminder"];
+  folder?: TaskViewFilters["folder"];
+  dateRange?: TaskViewFilters["dateRange"];
+  referenceDate?: string;
+  query?: string;
+  limit: number;
+  offset: number;
+  sort: TaskPageSort;
+};
+
+export type TaskPageResult = {
+  tasks: Task[];
+  total: number;
+  reminders: Reminder[];
+};
+
 export type CreateWorkspaceInput = {
   name: string;
   color: string;

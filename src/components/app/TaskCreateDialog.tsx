@@ -50,8 +50,8 @@ export function TaskCreateDialog({
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
-              <Button size="icon-sm" type="button" variant="ghost" title={t("close")}>
-                <X />
+              <Button aria-label={t("close")} size="icon-sm" type="button" variant="ghost" title={t("close")}>
+                <X aria-hidden="true" />
               </Button>
             </Dialog.Close>
           </div>

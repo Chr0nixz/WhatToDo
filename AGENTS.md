@@ -16,9 +16,9 @@ Product principles:
 
 Read these docs before planning larger changes:
 
-- `PRODUCT.md`
-- `DESIGN.md`
-- `PROJECT_ANALYSIS.md`
+- `docs/PRODUCT.md`
+- `docs/DESIGN.md`
+- `docs/PROJECT_ANALYSIS.md`
 - `README.md`
 
 ## Commands
@@ -64,7 +64,7 @@ Tauri dev uses `scripts/tauri-before-dev.mjs`, which reuses an existing Vite dev
 - Keep LocalRepository and SqlRepository semantics aligned for every data operation.
 - Prefer pure helper functions for non-trivial grouping, sorting, date, or state logic, then test those helpers directly.
 - Avoid adding migrations unless the feature truly needs new persisted data.
-- For frontend UI, follow `DESIGN.md`: compact product surfaces, familiar controls, 8px-or-less radius, restrained accent usage, no decorative gradients or glassmorphism.
+- For frontend UI, follow `docs/DESIGN.md`: compact product surfaces, familiar controls, 8px-or-less radius, restrained accent usage, no decorative gradients or glassmorphism.
 
 ## Reminder-Specific Notes
 
@@ -111,10 +111,10 @@ When touching UI:
 ## Current Known Gaps
 
 - Tauri desktop runtime validation is not fully complete.
-- Reminder notification failure is not yet persisted or visible in the reminder center.
-- Delete/archive actions use confirmation, not undo.
-- `workspace_folders.workspace_id` still needs an index in a future performance cleanup.
-- Tauri CSP and capability scope still need release-hardening.
+- SqlRepository still needs broader semantic tests for recurring tasks, backup import, failed reminders, workspace filtering, and soft-delete recovery.
+- Recurring task rules and future-instance update semantics are still basic.
+- Saved views, projects, and workspaces still need fuller edit/delete/default management.
+- Large-task performance still needs real 20k-task desktop validation and migration of more views to query-level pagination; available-task loading, recovery data loading, major view code splitting, first-pass list windowing, and `loadTaskPage()` are implemented.
 
 ## Release Notes
 

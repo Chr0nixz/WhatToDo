@@ -6,8 +6,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { openTasks, sortTasks } from "@/data/date";
+import { openTasks } from "@/data/date";
 import type { AppData } from "@/data/types";
+import { useTaskPage } from "@/hooks/useTaskPage";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
@@ -27,11 +28,24 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
   const { t } = useTranslation();
   const workspace = data.workspaces.find((item) => item.id === data.workspaceId) ?? data.workspaces[0] ?? null;
   const [hiddenTaskIds, setHiddenTaskIds] = useState<Set<string>>(() => new Set());
-  const tasks = useMemo(
-    () => sortTasks(data.tasks.filter((task) => task.deletedAt === null && !hiddenTaskIds.has(task.id))),
+  const taskPageInput = useMemo(
+    () => ({
+      workspaceId: data.workspaceId,
+      scope: "all" as const,
+      sort: "overview" as const,
+    }),
+    [data.workspaceId],
+  );
+  const taskPage = useTaskPage({
+    actions,
+    input: taskPageInput,
+    reloadKey: data.tasks,
+  });
+  const tasks = useMemo(() => taskPage.tasks.filter((task) => !hiddenTaskIds.has(task.id)), [hiddenTaskIds, taskPage.tasks]);
+  const openTaskCount = useMemo(
+    () => openTasks(data.tasks.filter((task) => !hiddenTaskIds.has(task.id))).length,
     [data.tasks, hiddenTaskIds],
   );
-  const openTaskCount = useMemo(() => openTasks(tasks).length, [tasks]);
   const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(true);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -159,15 +173,17 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
           <div className="flex items-center gap-1.5">
             <Button
               aria-expanded={!isCollapsed}
+              aria-label={isCollapsed ? t("expandFloatingWindow") : t("collapseFloatingWindow")}
               size="icon-lg"
               type="button"
               variant={isCollapsed ? "secondary" : "ghost"}
               title={isCollapsed ? t("expandFloatingWindow") : t("collapseFloatingWindow")}
               onClick={toggleCollapsed}
             >
-              {isCollapsed ? <ChevronDown /> : <ChevronUp />}
+              {isCollapsed ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}
             </Button>
             <Button
+              aria-label={isAlwaysOnTop ? t("disableAlwaysOnTop") : t("enableAlwaysOnTop")}
               aria-pressed={isAlwaysOnTop}
               size="icon-lg"
               type="button"
@@ -175,10 +191,10 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
               title={isAlwaysOnTop ? t("disableAlwaysOnTop") : t("enableAlwaysOnTop")}
               onClick={() => void toggleAlwaysOnTop()}
             >
-              {isAlwaysOnTop ? <Pin /> : <PinOff />}
+              {isAlwaysOnTop ? <Pin aria-hidden="true" /> : <PinOff aria-hidden="true" />}
             </Button>
-            <Button size="icon-lg" type="button" variant="ghost" title={t("close")} onClick={closeWindow}>
-              <X />
+            <Button aria-label={t("close")} size="icon-lg" type="button" variant="ghost" title={t("close")} onClick={closeWindow}>
+              <X aria-hidden="true" />
             </Button>
           </div>
         </div>
@@ -203,15 +219,31 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
           </section>
 
           <section className="min-h-0 flex-1 overflow-auto bg-background/25 p-3">
-            <TaskList
-              actions={actions}
-              compact
-              deleteMode="hide"
-              onDeleteTask={hideTask}
-              projects={data.projects}
-              reminders={data.reminders}
-              tasks={tasks}
-            />
+            {taskPage.isLoading ? (
+              <div className="motion-status flex min-h-28 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-4 text-center text-sm text-muted-foreground">
+                {t("loadingTasks")}
+              </div>
+            ) : taskPage.error && taskPage.tasks.length === 0 ? (
+              <div className="motion-status flex min-h-28 items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/10 px-4 text-center text-sm text-destructive">
+                {taskPage.error}
+              </div>
+            ) : (
+              <TaskList
+                actions={actions}
+                compact
+                deleteMode="hide"
+                emptyLabel={t("emptyTaskList")}
+                onDeleteTask={hideTask}
+                projects={data.projects}
+                reminders={taskPage.reminders}
+                tasks={tasks}
+                totalCount={Math.max(taskPage.total - hiddenTaskIds.size, tasks.length)}
+                isLoadingMore={taskPage.isLoadingMore}
+                loadError={taskPage.error}
+                onLoadMore={() => void taskPage.loadMore()}
+                windowKey={`${data.workspaceId}:${hiddenTaskIds.size}`}
+              />
+            )}
           </section>
         </div>
       )}

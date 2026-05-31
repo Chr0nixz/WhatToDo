@@ -12,17 +12,24 @@ import type {
   CreateWorkspaceFolderInput,
   CreateWorkspaceInput,
   Project,
+  RecoveryItems,
   Settings,
   Task,
+  TaskPageInput,
+  TaskPageResult,
   UpdateRecurringTaskTemplateInput,
   UpdateWorkspaceInput,
 } from "@/data/types";
 import { getInitialWorkspaceId } from "@/lib/windowContext";
+import { measureDevAsync } from "@/lib/performance";
 
 const LOAD_TIMEOUT_MS = 8000;
 
 export type TodoActions = {
   selectWorkspace: (workspaceId: string) => Promise<AppData>;
+  loadAvailableTasks: (workspaceId?: string) => Promise<Task[]>;
+  loadRecoveryItems: () => Promise<RecoveryItems>;
+  loadTaskPage: (input: TaskPageInput) => Promise<TaskPageResult>;
   createWorkspace: (input: CreateWorkspaceInput) => Promise<AppData>;
   updateWorkspace: (id: string, patch: UpdateWorkspaceInput) => Promise<AppData>;
   createWorkspaceFolder: (input: CreateWorkspaceFolderInput) => Promise<AppData>;
@@ -86,7 +93,7 @@ export const useTodos = () => {
     let timeoutId: number | null = null;
 
     const loadWithTimeout = Promise.race([
-      repository.load(getInitialWorkspaceId()),
+      measureDevAsync("repository.load", () => repository.load(getInitialWorkspaceId())),
       new Promise<never>((_, reject) => {
         timeoutId = window.setTimeout(() => {
           reject(new Error("Timed out while loading workspace data."));
@@ -132,6 +139,10 @@ export const useTodos = () => {
   const actions: TodoActions = useMemo(
     () => ({
       selectWorkspace: (workspaceId: string) => run(() => repository.selectWorkspace(workspaceId)),
+      loadAvailableTasks: (workspaceId?: string) =>
+        measureDevAsync("repository.loadAvailableTasks", () => repository.loadAvailableTasks(workspaceId)),
+      loadRecoveryItems: () => measureDevAsync("repository.loadRecoveryItems", () => repository.loadRecoveryItems()),
+      loadTaskPage: (input: TaskPageInput) => measureDevAsync("repository.loadTaskPage", () => repository.loadTaskPage(input)),
       createWorkspace: (input: CreateWorkspaceInput) => run(() => repository.createWorkspace(input)),
       updateWorkspace: (id: string, patch: UpdateWorkspaceInput) => run(() => repository.updateWorkspace(id, patch)),
       createWorkspaceFolder: (input: CreateWorkspaceFolderInput) => run(() => repository.createWorkspaceFolder(input)),

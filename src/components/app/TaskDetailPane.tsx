@@ -181,9 +181,10 @@ export function TaskDetailPane({ task, projects, reminders, recurringTaskTemplat
 
   return (
     <aside
+      aria-label={t("projectTask")}
       className={cn(
-        "min-h-0 shrink-0 overflow-hidden border-l border-border bg-card/60 transition-[background-color,border-color] duration-150 ease-[var(--ease-out-quart)] max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-40 max-md:shadow-xl",
-        task ? "w-[360px] max-xl:w-[332px] max-md:w-[min(360px,calc(100vw-56px))]" : "w-0",
+        "min-h-0 shrink-0 overflow-hidden border-l border-border bg-card/60 transition-[background-color,border-color] duration-150 ease-[var(--ease-out-quart)] max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-40 max-md:shadow-xl max-sm:bottom-14",
+        task ? "w-[360px] max-xl:w-[332px] max-md:w-[min(360px,calc(100vw-56px))] max-sm:w-full" : "w-0",
       )}
     >
       {task && (
@@ -193,8 +194,8 @@ export function TaskDetailPane({ task, projects, reminders, recurringTaskTemplat
               <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t("projectTask")}</p>
               <h2 className="truncate text-sm font-semibold">{project?.name ?? t("loose")}</h2>
             </div>
-            <Button size="icon-sm" type="button" variant="ghost" title={t("close")} onClick={onClose}>
-              <PanelRightClose />
+            <Button aria-label={t("close")} size="icon-sm" type="button" variant="ghost" title={t("close")} onClick={onClose}>
+              <PanelRightClose aria-hidden="true" />
             </Button>
           </div>
 
@@ -260,8 +261,8 @@ export function TaskDetailPane({ task, projects, reminders, recurringTaskTemplat
                 value={workingFolder}
                 onChange={(event) => setWorkingFolder(event.target.value)}
               />
-              <Button size="icon-lg" type="button" variant="secondary" onClick={() => void chooseFolder()}>
-                <FolderOpen />
+              <Button aria-label={t("chooseFolder")} size="icon-lg" title={t("chooseFolder")} type="button" variant="secondary" onClick={() => void chooseFolder()}>
+                <FolderOpen aria-hidden="true" />
               </Button>
             </div>
             <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-border bg-background/45 px-3 py-2 text-xs text-muted-foreground">
