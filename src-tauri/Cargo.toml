@@ -1,6 +1,6 @@
 [package]
 name = "whattodo"
-version = "0.1.5"
+version = "0.1.6"
 description = "A desktop task and deadline planner"
 authors = ["chr0nix"]
 edition = "2021"
