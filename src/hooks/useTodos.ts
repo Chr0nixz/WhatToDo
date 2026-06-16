@@ -32,6 +32,8 @@ export type TodoActions = {
   loadTaskPage: (input: TaskPageInput) => Promise<TaskPageResult>;
   createWorkspace: (input: CreateWorkspaceInput) => Promise<AppData>;
   updateWorkspace: (id: string, patch: UpdateWorkspaceInput) => Promise<AppData>;
+  deleteWorkspace: (id: string) => Promise<AppData>;
+  restoreWorkspace: (id: string) => Promise<AppData>;
   createWorkspaceFolder: (input: CreateWorkspaceFolderInput) => Promise<AppData>;
   deleteWorkspaceFolder: (id: string) => Promise<AppData>;
   restoreWorkspaceFolder: (id: string) => Promise<AppData>;
@@ -145,6 +147,8 @@ export const useTodos = () => {
       loadTaskPage: (input: TaskPageInput) => measureDevAsync("repository.loadTaskPage", () => repository.loadTaskPage(input)),
       createWorkspace: (input: CreateWorkspaceInput) => run(() => repository.createWorkspace(input)),
       updateWorkspace: (id: string, patch: UpdateWorkspaceInput) => run(() => repository.updateWorkspace(id, patch)),
+      deleteWorkspace: (id: string) => run(() => repository.deleteWorkspace(id)),
+      restoreWorkspace: (id: string) => run(() => repository.restoreWorkspace(id)),
       createWorkspaceFolder: (input: CreateWorkspaceFolderInput) => run(() => repository.createWorkspaceFolder(input)),
       deleteWorkspaceFolder: (id: string) => run(() => repository.deleteWorkspaceFolder(id)),
       restoreWorkspaceFolder: (id: string) => run(() => repository.restoreWorkspaceFolder(id)),

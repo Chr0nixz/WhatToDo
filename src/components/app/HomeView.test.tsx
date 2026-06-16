@@ -54,6 +54,7 @@ const makeData = (tasks: Task[]): AppData => ({
     language: "zh",
     defaultReminderOffset: 30,
     defaultWorkingFolder: null,
+    defaultSavedViewId: null,
     notificationsEnabled: false,
     closeToTray: true,
   },

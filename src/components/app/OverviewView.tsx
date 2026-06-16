@@ -1,9 +1,10 @@
-import { ListChecks, Save, Search, Trash2, X } from "lucide-react";
+import { ListChecks, MoreHorizontal, Save, Search, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { overdueTasks } from "@/data/date";
+import { applySavedViewFilters } from "@/data/savedViews";
 import { defaultTaskViewFilters } from "@/data/taskFilters";
 import type { AppData, TaskViewFilters } from "@/data/types";
 import { useTaskPage } from "@/hooks/useTaskPage";
@@ -18,15 +19,57 @@ type OverviewViewProps = {
   actions: TodoActions;
   selectedTaskId: string | null;
   setSelectedTaskId: (taskId: string | null) => void;
+  externalFilters?: TaskViewFilters | null;
+  externalSelectedViewId?: string | null;
+  onExternalFiltersApplied?: () => void;
 };
 
-export function OverviewView({ data, actions, selectedTaskId, setSelectedTaskId }: OverviewViewProps) {
+export function OverviewView({
+  data,
+  actions,
+  selectedTaskId,
+  setSelectedTaskId,
+  externalFilters = null,
+  externalSelectedViewId = null,
+  onExternalFiltersApplied,
+}: OverviewViewProps) {
   const { t } = useTranslation();
   const [filters, setFilters] = useState<TaskViewFilters>(() => defaultTaskViewFilters());
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [viewName, setViewName] = useState("");
   const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
+  const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [menuViewId, setMenuViewId] = useState<string | null>(null);
+  const hasAppliedDefaultView = useRef(false);
+
+  useEffect(() => {
+    if (!externalFilters) {
+      return;
+    }
+
+    setFilters(externalFilters);
+    setSelectedViewId(externalSelectedViewId);
+    onExternalFiltersApplied?.();
+  }, [externalFilters, externalSelectedViewId, onExternalFiltersApplied]);
+
+  useEffect(() => {
+    if (hasAppliedDefaultView.current || externalFilters) {
+      return;
+    }
+
+    const defaultViewId = data.settings.defaultSavedViewId;
+    if (!defaultViewId) {
+      return;
+    }
+
+    const defaultView = data.savedViews.find((view) => view.id === defaultViewId);
+    if (defaultView) {
+      applySavedViewFilters(defaultView, setFilters, setSelectedViewId);
+      hasAppliedDefaultView.current = true;
+    }
+  }, [data.savedViews, data.settings.defaultSavedViewId, externalFilters]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearchQuery(searchQuery), 180);
@@ -89,8 +132,43 @@ export function OverviewView({ data, actions, selectedTaskId, setSelectedTaskId 
     if (!view) {
       return;
     }
-    setFilters(view.filters);
-    setSelectedViewId(view.id);
+    applySavedViewFilters(view, setFilters, setSelectedViewId);
+  };
+
+  const renameSavedView = async (viewId: string) => {
+    const view = data.savedViews.find((item) => item.id === viewId);
+    const name = renameValue.trim();
+    if (!view || !name) {
+      return;
+    }
+
+    await actions.updateSavedView(viewId, { name, filters: view.filters });
+    setRenamingViewId(null);
+    setRenameValue("");
+  };
+
+  const updateSavedViewFilters = async (viewId: string) => {
+    const view = data.savedViews.find((item) => item.id === viewId);
+    if (!view) {
+      return;
+    }
+
+    await actions.updateSavedView(viewId, { name: view.name, filters });
+    setSelectedViewId(viewId);
+    setMenuViewId(null);
+  };
+
+  const setDefaultSavedView = async (viewId: string) => {
+    await actions.saveSettings({ ...data.settings, defaultSavedViewId: viewId });
+    setMenuViewId(null);
+  };
+
+  const deleteSavedView = async (viewId: string) => {
+    await actions.deleteSavedView(viewId);
+    if (selectedViewId === viewId) {
+      setSelectedViewId(null);
+    }
+    setMenuViewId(null);
   };
 
   return (
@@ -206,22 +284,63 @@ export function OverviewView({ data, actions, selectedTaskId, setSelectedTaskId 
             <span
               key={view.id}
               className={cn(
-                "inline-flex h-8 items-center overflow-hidden rounded-md border border-border bg-background text-sm",
+                "relative inline-flex h-8 items-center overflow-hidden rounded-md border border-border bg-background text-sm",
                 selectedViewId === view.id && "border-ring bg-accent text-accent-foreground",
               )}
             >
-              <button className="h-full px-2.5" type="button" onClick={() => applySavedView(view.id)}>
-                {view.name}
-              </button>
-              <button
-                aria-label={t("deleteSavedView")}
-                className="flex h-full w-8 items-center justify-center border-l border-border text-muted-foreground hover:text-destructive"
-                title={t("deleteSavedView")}
-                type="button"
-                onClick={() => void actions.deleteSavedView(view.id)}
-              >
-                <Trash2 aria-hidden="true" className="size-3.5" />
-              </button>
+              {renamingViewId === view.id ? (
+                <form
+                  className="flex h-full items-center gap-1 px-1"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void renameSavedView(view.id);
+                  }}
+                >
+                  <input
+                    aria-label={t("renameSavedView")}
+                    className="h-7 w-28 rounded border border-input bg-background px-2 text-sm outline-none focus:border-ring"
+                    value={renameValue}
+                    onChange={(event) => setRenameValue(event.target.value)}
+                  />
+                  <button className="px-1.5 text-xs" type="submit">
+                    {t("save")}
+                  </button>
+                </form>
+              ) : (
+                <>
+                  <button className="inline-flex h-full items-center gap-1.5 px-2.5" type="button" onClick={() => applySavedView(view.id)}>
+                    {view.name}
+                    {data.settings.defaultSavedViewId === view.id && (
+                      <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-secondary-foreground">{t("defaultSavedView")}</span>
+                    )}
+                  </button>
+                  <button
+                    aria-expanded={menuViewId === view.id}
+                    aria-label={t("moreOptions")}
+                    className="flex h-full w-8 items-center justify-center border-l border-border text-muted-foreground hover:text-foreground"
+                    title={t("moreOptions")}
+                    type="button"
+                    onClick={() => setMenuViewId((current) => (current === view.id ? null : view.id))}
+                  >
+                    <MoreHorizontal aria-hidden="true" className="size-3.5" />
+                  </button>
+                  {menuViewId === view.id && (
+                    <span className="absolute left-0 top-[calc(100%+4px)] z-10 grid min-w-36 gap-0.5 rounded-md border border-border bg-popover p-1 shadow-md">
+                      <MenuButton
+                        label={t("renameSavedView")}
+                        onClick={() => {
+                          setRenamingViewId(view.id);
+                          setRenameValue(view.name);
+                          setMenuViewId(null);
+                        }}
+                      />
+                      <MenuButton label={t("updateSavedView")} onClick={() => void updateSavedViewFilters(view.id)} />
+                      <MenuButton label={t("setDefaultSavedView")} onClick={() => void setDefaultSavedView(view.id)} />
+                      <MenuButton label={t("deleteSavedView")} tone="danger" onClick={() => void deleteSavedView(view.id)} />
+                    </span>
+                  )}
+                </>
+              )}
             </span>
           ))}
           <label className="sr-only" htmlFor="saved-view-name">
@@ -271,6 +390,29 @@ export function OverviewView({ data, actions, selectedTaskId, setSelectedTaskId 
         )}
       </section>
     </main>
+  );
+}
+
+function MenuButton({
+  label,
+  onClick,
+  tone = "default",
+}: {
+  label: string;
+  onClick: () => void;
+  tone?: "default" | "danger";
+}) {
+  return (
+    <button
+      className={cn(
+        "rounded px-2 py-1.5 text-left text-xs hover:bg-accent",
+        tone === "danger" && "text-destructive hover:text-destructive",
+      )}
+      type="button"
+      onClick={onClick}
+    >
+      {label}
+    </button>
   );
 }
 

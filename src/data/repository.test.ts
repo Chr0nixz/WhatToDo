@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/plugin-sql", () => ({
 }));
 
 import { buildReminderDate } from "./date";
-import { LocalRepository, SqlRepository } from "./repository";
+import { CANNOT_DELETE_LAST_WORKSPACE, LocalRepository, SqlRepository } from "./repository";
 
 describe("LocalRepository", () => {
   beforeEach(() => {
@@ -55,6 +55,40 @@ describe("LocalRepository", () => {
 
     data = await repository.restoreWorkspaceFolder(folderId);
     expect(data.workspaceFolders.find((folder) => folder.id === folderId)?.name).toBe("Docs");
+  });
+
+  it("soft deletes and restores workspaces while keeping one active workspace", async () => {
+    const repository = new LocalRepository();
+    let data = await repository.load();
+
+    data = await repository.createWorkspace({ name: "Extra", color: "#6cc083" });
+    const extraId = data.workspaceId;
+
+    data = await repository.deleteWorkspace(extraId);
+    expect(data.workspaces.find((workspace) => workspace.id === extraId)).toBeUndefined();
+    expect((await repository.loadRecoveryItems()).deletedWorkspaces.some((workspace) => workspace.id === extraId)).toBe(true);
+
+    data = await repository.restoreWorkspace(extraId);
+    expect(data.workspaces.some((workspace) => workspace.id === extraId)).toBe(true);
+
+    data = await repository.deleteWorkspace(extraId);
+    await expect(repository.deleteWorkspace(data.workspaceId)).rejects.toThrow(CANNOT_DELETE_LAST_WORKSPACE);
+  });
+
+  it("clears default saved view when deleting that view", async () => {
+    const repository = new LocalRepository();
+    let data = await repository.load();
+
+    data = await repository.createSavedView({
+      name: "Default view",
+      filters: { scope: "open", priority: "all", projectId: "all", reminder: "all", folder: "all", dateRange: "all" },
+    });
+    const viewId = data.savedViews[0].id;
+    data = await repository.saveSettings({ ...data.settings, defaultSavedViewId: viewId });
+    expect(data.settings.defaultSavedViewId).toBe(viewId);
+
+    data = await repository.deleteSavedView(viewId);
+    expect(data.settings.defaultSavedViewId).toBeNull();
   });
 
   it("loads cross-workspace available tasks on demand", async () => {

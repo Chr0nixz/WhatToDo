@@ -129,6 +129,7 @@ export type Settings = {
   language: Language;
   defaultReminderOffset: number;
   defaultWorkingFolder: string | null;
+  defaultSavedViewId: string | null;
   notificationsEnabled: boolean;
   closeToTray: boolean;
 };
@@ -151,6 +152,7 @@ export type AppData = {
 export type RecoveryItems = {
   deletedTasks: Task[];
   deletedWorkspaceFolders: WorkspaceFolder[];
+  deletedWorkspaces: Workspace[];
   archivedProjects: Project[];
 };
 

@@ -49,6 +49,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
   const [recoveryItems, setRecoveryItems] = useState<RecoveryItems>({
     deletedTasks: [],
     deletedWorkspaceFolders: [],
+    deletedWorkspaces: [],
     archivedProjects: [],
   });
   const [recoveryState, setRecoveryState] = useState<"loading" | "ready" | "error">("loading");
@@ -426,6 +427,16 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
               items={recoveryItems.deletedWorkspaceFolders.map((folder) => ({ id: folder.id, title: folder.name, meta: folder.path }))}
               title={t("deletedFolders")}
               onRestore={(id) => restoreRecoveryItem(() => actions.restoreWorkspaceFolder(id))}
+            />
+            <RecoveryGroup
+              emptyLabel={t("emptyDeletedWorkspaces")}
+              items={recoveryItems.deletedWorkspaces.map((workspace) => ({
+                id: workspace.id,
+                title: workspace.name,
+                meta: t("workspaces"),
+              }))}
+              title={t("deletedWorkspaces")}
+              onRestore={(id) => restoreRecoveryItem(() => actions.restoreWorkspace(id))}
             />
             <RecoveryGroup
               emptyLabel={t("emptyArchivedProjects")}

@@ -1,4 +1,4 @@
-import { Archive, FolderKanban, FolderOpen, Plus } from "lucide-react";
+import { Archive, FolderKanban, FolderOpen, Pencil, Plus } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { FormEvent, useEffect, useMemo, useState } from "react";
@@ -21,6 +21,8 @@ type ProjectsViewProps = {
   selectedDate: string;
   selectedTaskId: string | null;
   setSelectedTaskId: (taskId: string | null) => void;
+  initialProjectId?: string | null;
+  onRequestEditProject?: (projectId: string) => void;
 };
 
 const projectColors = [
@@ -37,6 +39,8 @@ export function ProjectsView({
   selectedDate,
   selectedTaskId,
   setSelectedTaskId,
+  initialProjectId = null,
+  onRequestEditProject,
 }: ProjectsViewProps) {
   const { i18n, t } = useTranslation();
   const projects = useMemo(() => visibleProjects(data.projects), [data.projects]);
@@ -57,6 +61,12 @@ export function ProjectsView({
     return grouped;
   }, [data.tasks]);
   const [selectedProjectId, setSelectedProjectId] = useState(projects[0]?.id ?? NO_PROJECT_ID);
+
+  useEffect(() => {
+    if (initialProjectId) {
+      setSelectedProjectId(initialProjectId);
+    }
+  }, [initialProjectId]);
   const [name, setName] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [workingFolder, setWorkingFolder] = useState("");
@@ -294,6 +304,12 @@ export function ProjectsView({
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+              {selectedProject && onRequestEditProject && (
+                <Button size="sm" type="button" variant="secondary" onClick={() => onRequestEditProject(selectedProject.id)}>
+                  <Pencil />
+                  {t("editProject")}
+                </Button>
+              )}
               {selectedProject && (
                 <Button
                   size="sm"

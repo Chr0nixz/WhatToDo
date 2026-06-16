@@ -38,6 +38,7 @@ describe("TaskComposer", () => {
           language: "en",
           defaultReminderOffset: 30,
           defaultWorkingFolder: null,
+          defaultSavedViewId: null,
           notificationsEnabled: false,
           closeToTray: true,
         }}
@@ -72,6 +73,7 @@ describe("TaskComposer", () => {
           language: "en",
           defaultReminderOffset: 30,
           defaultWorkingFolder: null,
+          defaultSavedViewId: null,
           notificationsEnabled: false,
           closeToTray: true,
         }}
@@ -104,6 +106,7 @@ describe("TaskComposer", () => {
           language: "en",
           defaultReminderOffset: 30,
           defaultWorkingFolder: null,
+          defaultSavedViewId: null,
           notificationsEnabled: false,
           closeToTray: true,
         }}
@@ -157,6 +160,7 @@ describe("TaskComposer", () => {
           language: "en",
           defaultReminderOffset: 30,
           defaultWorkingFolder: null,
+          defaultSavedViewId: null,
           notificationsEnabled: false,
           closeToTray: true,
         }}

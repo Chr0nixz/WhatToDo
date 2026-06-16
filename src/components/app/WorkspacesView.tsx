@@ -1,7 +1,7 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { FolderOpen, FolderPlus, MonitorUp, Plus, Trash2 } from "lucide-react";
+import { FolderOpen, FolderPlus, MonitorUp, Pencil, Plus, Trash2 } from "lucide-react";
 import type { CSSProperties } from "react";
 import { FormEvent, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -20,6 +20,7 @@ type WorkspacesViewProps = {
   actions: TodoActions;
   selectedTaskId: string | null;
   setSelectedTaskId: (taskId: string | null) => void;
+  onEditWorkspace?: () => void;
 };
 
 const workspaceColors = [
@@ -35,7 +36,7 @@ const folderNameFromPath = (path: string) => {
   return parts[parts.length - 1] ?? path;
 };
 
-export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskId }: WorkspacesViewProps) {
+export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskId, onEditWorkspace }: WorkspacesViewProps) {
   const { t } = useTranslation();
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceColor, setWorkspaceColor] = useState(workspaceColors[0].value);
@@ -282,6 +283,12 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+              {onEditWorkspace && (
+                <Button size="sm" type="button" variant="secondary" onClick={onEditWorkspace}>
+                  <Pencil />
+                  {t("editWorkspace")}
+                </Button>
+              )}
               <WorkspaceTaskPickerDialog
                 error={availableTasksError}
                 isLoading={isLoadingAvailableTasks}

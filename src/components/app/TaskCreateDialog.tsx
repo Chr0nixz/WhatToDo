@@ -15,6 +15,9 @@ type TaskCreateDialogProps = {
   defaultProjectId?: string | null;
   projects: Project[];
   settings: Settings;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
 };
 
 export function TaskCreateDialog({
@@ -23,22 +26,29 @@ export function TaskCreateDialog({
   defaultProjectId = null,
   projects,
   settings,
+  open: controlledOpen,
+  onOpenChange,
+  hideTrigger = false,
 }: TaskCreateDialogProps) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog.Trigger asChild>
-        <Button
-          className="h-10 gap-2 px-4 text-sm font-semibold shadow-sm shadow-primary/25"
-          size="lg"
-          type="button"
-        >
-          <Plus className="size-4" />
-          {t("add")}
-        </Button>
-      </Dialog.Trigger>
+      {!hideTrigger && (
+        <Dialog.Trigger asChild>
+          <Button
+            className="h-10 gap-2 px-4 text-sm font-semibold shadow-sm shadow-primary/25"
+            size="lg"
+            type="button"
+          >
+            <Plus className="size-4" />
+            {t("add")}
+          </Button>
+        </Dialog.Trigger>
+      )}
       <Dialog.Portal>
         <Dialog.Overlay className="motion-dialog-overlay fixed inset-0 z-50 bg-background/65 backdrop-blur-[2px]" />
         <Dialog.Content className="motion-dialog-content fixed left-1/2 top-1/2 z-50 w-[min(520px,calc(100vw-32px))] rounded-lg border border-border bg-popover p-5 text-popover-foreground shadow-xl outline-none">

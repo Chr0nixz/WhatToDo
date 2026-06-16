@@ -7,17 +7,20 @@ use std::sync::{
     Arc,
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use rusqlite::Connection;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     utils::config::Color,
     webview::PageLoadEvent,
-    Manager, WebviewUrl, WebviewWindowBuilder,
+    Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
 };
-use tauri_plugin_sql::{Migration, MigrationKind};
 use tauri_plugin_window_state::StateFlags;
 
-const DB_URL: &str = "sqlite:ddl_todo.db";
+const DB_FILE: &str = "ddl_todo.db";
+
+struct DbResetFlag(bool);
+
 const INIT_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
@@ -177,6 +180,10 @@ CREATE INDEX IF NOT EXISTS idx_tasks_workspace_deleted_due_date ON tasks(workspa
 CREATE INDEX IF NOT EXISTS idx_tasks_workspace_deleted_status ON tasks(workspace_id, deleted_at, status);
 CREATE INDEX IF NOT EXISTS idx_tasks_project_deleted_due_date ON tasks(project_id, deleted_at, due_date);
 CREATE INDEX IF NOT EXISTS idx_reminders_task_enabled_fired ON reminders(task_id, enabled, fired_at);
+"#;
+
+const ADD_DEFAULT_SAVED_VIEW_ID_SQL: &str = r#"
+ALTER TABLE settings ADD COLUMN default_saved_view_id TEXT;
 "#;
 
 fn show_main_window(app: &tauri::AppHandle) {
@@ -441,75 +448,294 @@ JSON.stringify({
         .map_err(|err| err.to_string())
 }
 
+fn resolve_db_path() -> Result<PathBuf, String> {
+    let data_dir = if cfg!(target_os = "windows") {
+        std::env::var("APPDATA")
+            .map(PathBuf::from)
+            .map_err(|_| "APPDATA environment variable not set".to_string())
+    } else if cfg!(target_os = "macos") {
+        std::env::var("HOME")
+            .map(|home| PathBuf::from(home).join("Library").join("Application Support"))
+            .map_err(|_| "HOME environment variable not set".to_string())
+    } else {
+        std::env::var("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|_| {
+                std::env::var("HOME")
+                    .map(|home| PathBuf::from(home).join(".local").join("share"))
+                    .map_err(|_| "Neither XDG_DATA_HOME nor HOME environment variable set".to_string())
+            })
+    }?;
+
+    Ok(data_dir.join("com.chronix.whattodo").join(DB_FILE))
+}
+
+fn apply_migrations(conn: &Connection, migrations: &[(i64, &str, &str)]) -> Result<(), String> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS _whattodo_migrations (
+            version INTEGER PRIMARY KEY,
+            description TEXT NOT NULL,
+            applied_at TEXT NOT NULL
+        )",
+    )
+    .map_err(|e| format!("Failed to create migration tracking table: {e}"))?;
+
+    let applied: Vec<i64> = {
+        let mut stmt = conn
+            .prepare("SELECT version FROM _whattodo_migrations ORDER BY version")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect::<Vec<i64>>();
+        rows
+    };
+
+    for &(version, description, sql) in migrations {
+        if applied.contains(&version) {
+            continue;
+        }
+
+        conn.execute("BEGIN TRANSACTION", [])
+            .map_err(|e| format!("Failed to begin transaction for v{version}: {e}"))?;
+
+        if let Err(e) = conn.execute_batch(sql) {
+            let _ = conn.execute("ROLLBACK", []);
+            return Err(format!("Migration v{version} ({description}) failed: {e}"));
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_else(|_| "0".to_string());
+
+        if let Err(e) = conn.execute(
+            "INSERT INTO _whattodo_migrations (version, description, applied_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params![version, description, now],
+        ) {
+            let _ = conn.execute("ROLLBACK", []);
+            return Err(format!("Failed to record migration v{version}: {e}"));
+        }
+
+        conn.execute("COMMIT", [])
+            .map_err(|e| format!("Failed to commit migration v{version}: {e}"))?;
+    }
+
+    Ok(())
+}
+
+fn infer_applied_migrations(conn: &Connection) -> Result<Vec<i64>, String> {
+    let mut applied = Vec::new();
+
+    let has_table = |name: &str| -> bool {
+        conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+            [name],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+            > 0
+    };
+
+    let has_column = |table: &str, column: &str| -> bool {
+        let sql = format!("PRAGMA table_info({table})");
+        let mut stmt = match conn.prepare(&sql) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+        stmt.query_map([], |row| row.get::<_, String>(1))
+            .map(|rows| rows.filter_map(|r| r.ok()).any(|name| name == column))
+            .unwrap_or(false)
+    };
+
+    if has_table("projects") {
+        applied.push(1);
+    }
+    if has_column("projects", "working_folder") {
+        applied.push(2);
+    }
+    if has_column("tasks", "working_folder") {
+        applied.push(3);
+    }
+    if has_table("workspaces") {
+        applied.push(4);
+    }
+    if has_column("settings", "accent_color") {
+        applied.push(5);
+    }
+
+    let has_idx = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_tasks_workspace_id'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+    if has_idx {
+        applied.push(6);
+    }
+
+    if has_column("reminders", "failed_at") {
+        applied.push(7);
+    }
+    if has_column("tasks", "recurrence_template_id") {
+        applied.push(8);
+    }
+
+    let has_perf_idx = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_tasks_workspace_deleted_due_date'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+    if has_perf_idx {
+        applied.push(9);
+    }
+    if has_column("settings", "default_saved_view_id") {
+        applied.push(10);
+    }
+
+    Ok(applied)
+}
+
+fn bootstrap_migration_tracking(conn: &Connection, applied: &[i64]) -> Result<(), String> {
+    let all_migrations: Vec<(i64, &str)> = vec![
+        (1, "create_initial_whattodo_tables"),
+        (2, "add_project_working_folder"),
+        (3, "add_task_and_default_working_folder"),
+        (4, "add_workspaces_and_workspace_folders"),
+        (5, "add_settings_accent_color"),
+        (6, "add_workspace_query_indexes"),
+        (7, "add_reminder_failure_and_saved_views"),
+        (8, "add_recurring_tasks"),
+        (9, "add_performance_indexes"),
+        (10, "add_default_saved_view_id"),
+    ];
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS _whattodo_migrations (
+            version INTEGER PRIMARY KEY,
+            description TEXT NOT NULL,
+            applied_at TEXT NOT NULL
+        )",
+    )
+    .map_err(|e| e.to_string())?;
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_else(|_| "0".to_string());
+
+    for &(version, description) in &all_migrations {
+        if applied.contains(&version) {
+            conn.execute(
+                "INSERT OR IGNORE INTO _whattodo_migrations (version, description, applied_at) VALUES (?1, ?2, ?3)",
+                rusqlite::params![version, description, now],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
+fn reset_database(db_path: &Path) {
+    for ext in ["", "-wal", "-shm"] {
+        let path = db_path.with_extension(
+            if ext.is_empty() {
+                "db".to_string()
+            } else {
+                format!("db{}", ext)
+            },
+        );
+        let _ = fs::remove_file(&path);
+    }
+}
+
+fn init_database(migrations: &[(i64, &str, &str)]) -> Result<bool, String> {
+    let db_path = resolve_db_path()?;
+
+    if let Some(parent) = db_path.parent() {
+        create_dir_all(parent).map_err(|e| format!("Failed to create data directory: {e}"))?;
+    }
+
+    match Connection::open(&db_path) {
+        Ok(conn) => match apply_migrations(&conn, migrations) {
+            Ok(()) => {
+                let has_tracking = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='_whattodo_migrations'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .unwrap_or(0)
+                    > 0;
+
+                if has_tracking {
+                    return Ok(false);
+                }
+
+                let applied = infer_applied_migrations(&conn)?;
+                bootstrap_migration_tracking(&conn, &applied)?;
+                Ok(false)
+            }
+            Err(err) => {
+                eprintln!("Migration failed: {err}. Resetting database.");
+                drop(conn);
+                reset_database(&db_path);
+                let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+                apply_migrations(&conn, migrations)?;
+                Ok(true)
+            }
+        },
+        Err(err) => {
+            eprintln!("Failed to open database: {err}. Resetting.");
+            reset_database(&db_path);
+            let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+            apply_migrations(&conn, migrations)?;
+            Ok(true)
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let migrations = vec![
-        Migration {
-            version: 1,
-            description: "create_initial_whattodo_tables",
-            sql: INIT_SQL,
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 2,
-            description: "add_project_working_folder",
-            sql: ADD_PROJECT_WORKING_FOLDER_SQL,
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 3,
-            description: "add_task_and_default_working_folder",
-            sql: ADD_TASK_AND_DEFAULT_WORKING_FOLDER_SQL,
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 4,
-            description: "add_workspaces_and_workspace_folders",
-            sql: ADD_WORKSPACES_SQL,
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 5,
-            description: "add_settings_accent_color",
-            sql: ADD_SETTINGS_ACCENT_COLOR_SQL,
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 6,
-            description: "add_workspace_query_indexes",
-            sql: ADD_WORKSPACE_QUERY_INDEXES_SQL,
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 7,
-            description: "add_reminder_failure_and_saved_views",
-            sql: ADD_REMINDER_FAILURE_AND_SAVED_VIEWS_SQL,
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 8,
-            description: "add_recurring_tasks",
-            sql: ADD_RECURRING_TASKS_SQL,
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 9,
-            description: "add_performance_indexes",
-            sql: ADD_PERFORMANCE_INDEXES_SQL,
-            kind: MigrationKind::Up,
-        },
+    let migrations: Vec<(i64, &str, &str)> = vec![
+        (1, "create_initial_whattodo_tables", INIT_SQL),
+        (2, "add_project_working_folder", ADD_PROJECT_WORKING_FOLDER_SQL),
+        (3, "add_task_and_default_working_folder", ADD_TASK_AND_DEFAULT_WORKING_FOLDER_SQL),
+        (4, "add_workspaces_and_workspace_folders", ADD_WORKSPACES_SQL),
+        (5, "add_settings_accent_color", ADD_SETTINGS_ACCENT_COLOR_SQL),
+        (6, "add_workspace_query_indexes", ADD_WORKSPACE_QUERY_INDEXES_SQL),
+        (7, "add_reminder_failure_and_saved_views", ADD_REMINDER_FAILURE_AND_SAVED_VIEWS_SQL),
+        (8, "add_recurring_tasks", ADD_RECURRING_TASKS_SQL),
+        (9, "add_performance_indexes", ADD_PERFORMANCE_INDEXES_SQL),
+        (10, "add_default_saved_view_id", ADD_DEFAULT_SAVED_VIEW_ID_SQL),
     ];
+
+    let db_reset = match init_database(&migrations) {
+        Ok(reset) => reset,
+        Err(err) => {
+            eprintln!("Fatal: database initialization failed after reset: {err}");
+            false
+        }
+    };
 
     tauri::Builder::default()
         .manage(CloseToTray(Arc::new(AtomicBool::new(true))))
+        .manage(DbResetFlag(db_reset))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_sql::Builder::default()
-                .add_migrations(DB_URL, migrations)
                 .build(),
         )
         .plugin(
@@ -547,6 +773,10 @@ pub fn run() {
                 }
             })
             .build(app)?;
+
+            if app.state::<DbResetFlag>().0 {
+                let _ = app.emit("db-reset", ());
+            }
 
             Ok(())
         })

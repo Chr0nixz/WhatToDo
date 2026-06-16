@@ -3,6 +3,7 @@ import Database from "@tauri-apps/plugin-sql";
 import { endOfWeek } from "date-fns";
 
 import { buildReminderDate, parseDateKey, todayKey, toDateKey } from "./date";
+import { clearDefaultSavedViewIfNeeded } from "./savedViews";
 import { buildTaskFromRecurringTemplate, getNextRecurrenceDate } from "./recurrence";
 import { taskMatchesFilters } from "./taskFilters";
 import type {
@@ -44,9 +45,12 @@ const DEFAULT_SETTINGS: Settings = {
   language: "zh",
   defaultReminderOffset: 30,
   defaultWorkingFolder: null,
+  defaultSavedViewId: null,
   notificationsEnabled: false,
   closeToTray: true,
 };
+
+export const CANNOT_DELETE_LAST_WORKSPACE = "CANNOT_DELETE_LAST_WORKSPACE";
 
 const DEFAULT_TASK_VIEW_FILTERS = {
   scope: "open",
@@ -154,7 +158,11 @@ const normalizeData = (data: Partial<AppData> | null): AppData => ({
     enabled: template.enabled ?? true,
     deletedAt: template.deletedAt ?? null,
   })),
-  settings: { ...DEFAULT_SETTINGS, ...data?.settings },
+  settings: {
+    ...DEFAULT_SETTINGS,
+    ...data?.settings,
+    defaultSavedViewId: data?.settings?.defaultSavedViewId ?? null,
+  },
 });
 
 const boolToInt = (value: boolean) => (value ? 1 : 0);
@@ -324,6 +332,7 @@ const rowToSettings = (row: Record<string, unknown>): Settings => ({
   language: row.language as Settings["language"],
   defaultReminderOffset: Number(row.default_reminder_offset),
   defaultWorkingFolder: row.default_working_folder ? String(row.default_working_folder) : null,
+  defaultSavedViewId: row.default_saved_view_id ? String(row.default_saved_view_id) : null,
   notificationsEnabled: intToBool(row.notifications_enabled),
   closeToTray: intToBool(row.close_to_tray),
 });
@@ -336,6 +345,8 @@ export interface TodoRepository {
   loadTaskPage(input: TaskPageInput): Promise<TaskPageResult>;
   createWorkspace(input: CreateWorkspaceInput): Promise<AppData>;
   updateWorkspace(id: string, patch: UpdateWorkspaceInput): Promise<AppData>;
+  deleteWorkspace(id: string): Promise<AppData>;
+  restoreWorkspace(id: string): Promise<AppData>;
   createWorkspaceFolder(input: CreateWorkspaceFolderInput): Promise<AppData>;
   deleteWorkspaceFolder(id: string): Promise<AppData>;
   restoreWorkspaceFolder(id: string): Promise<AppData>;
@@ -399,6 +410,7 @@ class LocalRepository implements TodoRepository {
       deletedWorkspaceFolders: this.data.workspaceFolders.filter(
         (folder) => folder.workspaceId === this.workspaceId && folder.deletedAt !== null,
       ),
+      deletedWorkspaces: this.data.workspaces.filter((workspace) => workspace.deletedAt !== null),
       archivedProjects: this.data.projects.filter(
         (project) => project.workspaceId === this.workspaceId && project.status === "archived" && project.deletedAt === null,
       ),
@@ -467,6 +479,40 @@ class LocalRepository implements TodoRepository {
       ...this.data,
       workspaces: this.data.workspaces.map((workspace) =>
         workspace.id === id ? { ...workspace, ...patch, updatedAt: nowIso() } : workspace,
+      ),
+    };
+    return this.persist();
+  }
+
+  async deleteWorkspace(id: string) {
+    const activeWorkspaces = this.data.workspaces.filter((workspace) => workspace.deletedAt === null);
+    if (activeWorkspaces.length <= 1 && activeWorkspaces.some((workspace) => workspace.id === id)) {
+      throw new Error(CANNOT_DELETE_LAST_WORKSPACE);
+    }
+
+    const timestamp = nowIso();
+    this.data = {
+      ...this.data,
+      workspaces: this.data.workspaces.map((workspace) =>
+        workspace.id === id ? { ...workspace, deletedAt: timestamp, updatedAt: timestamp } : workspace,
+      ),
+    };
+
+    if (this.workspaceId === id) {
+      const nextWorkspace = this.data.workspaces.find((workspace) => workspace.deletedAt === null && workspace.id !== id);
+      if (nextWorkspace) {
+        this.workspaceId = nextWorkspace.id;
+      }
+    }
+
+    return this.persist();
+  }
+
+  async restoreWorkspace(id: string) {
+    this.data = {
+      ...this.data,
+      workspaces: this.data.workspaces.map((workspace) =>
+        workspace.id === id ? { ...workspace, deletedAt: null, updatedAt: nowIso() } : workspace,
       ),
     };
     return this.persist();
@@ -850,7 +896,11 @@ class LocalRepository implements TodoRepository {
   }
 
   async deleteSavedView(id: string) {
-    this.data = { ...this.data, savedViews: this.data.savedViews.filter((view) => view.id !== id) };
+    this.data = {
+      ...this.data,
+      savedViews: this.data.savedViews.filter((view) => view.id !== id),
+      settings: clearDefaultSavedViewIfNeeded(this.data.settings, id),
+    };
     return this.persist();
   }
 
@@ -993,6 +1043,12 @@ class SqlRepository implements TodoRepository {
     return {
       deletedTasks: deletedTasks.map(rowToTask),
       deletedWorkspaceFolders: deletedWorkspaceFolders.map(rowToWorkspaceFolder),
+      deletedWorkspaces: (
+        (await db.select("SELECT * FROM workspaces WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")) as Record<
+          string,
+          unknown
+        >[]
+      ).map(rowToWorkspace),
       archivedProjects: archivedProjects.map(rowToProject),
     };
   }
@@ -1135,6 +1191,33 @@ class SqlRepository implements TodoRepository {
     return this.readAll();
   }
 
+  async deleteWorkspace(id: string) {
+    const data = await this.readAll();
+    const activeWorkspaces = data.workspaces.filter((workspace) => workspace.deletedAt === null);
+    if (activeWorkspaces.length <= 1 && activeWorkspaces.some((workspace) => workspace.id === id)) {
+      throw new Error(CANNOT_DELETE_LAST_WORKSPACE);
+    }
+
+    const db = await this.connect();
+    const timestamp = nowIso();
+    await db.execute("UPDATE workspaces SET deleted_at = ?, updated_at = ? WHERE id = ?", [timestamp, timestamp, id]);
+
+    if (this.workspaceId === id) {
+      const nextWorkspace = activeWorkspaces.find((workspace) => workspace.id !== id);
+      if (nextWorkspace) {
+        this.workspaceId = nextWorkspace.id;
+      }
+    }
+
+    return this.readAll();
+  }
+
+  async restoreWorkspace(id: string) {
+    const db = await this.connect();
+    await db.execute("UPDATE workspaces SET deleted_at = NULL, updated_at = ? WHERE id = ?", [nowIso(), id]);
+    return this.readAll();
+  }
+
   async createWorkspaceFolder(input: CreateWorkspaceFolderInput) {
     const db = await this.connect();
     const timestamp = nowIso();
@@ -1162,14 +1245,15 @@ class SqlRepository implements TodoRepository {
   async saveSettings(settings: Settings) {
     const db = await this.connect();
     await db.execute(
-      `INSERT INTO settings (workspace_id, theme, accent_color, language, default_reminder_offset, default_working_folder, notifications_enabled, close_to_tray)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO settings (workspace_id, theme, accent_color, language, default_reminder_offset, default_working_folder, default_saved_view_id, notifications_enabled, close_to_tray)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(workspace_id) DO UPDATE SET
          theme = excluded.theme,
          accent_color = excluded.accent_color,
          language = excluded.language,
          default_reminder_offset = excluded.default_reminder_offset,
          default_working_folder = excluded.default_working_folder,
+         default_saved_view_id = excluded.default_saved_view_id,
          notifications_enabled = excluded.notifications_enabled,
          close_to_tray = excluded.close_to_tray`,
       [
@@ -1179,6 +1263,7 @@ class SqlRepository implements TodoRepository {
         settings.language,
         settings.defaultReminderOffset,
         settings.defaultWorkingFolder,
+        settings.defaultSavedViewId,
         boolToInt(settings.notificationsEnabled),
         boolToInt(settings.closeToTray),
       ],
@@ -1518,7 +1603,14 @@ class SqlRepository implements TodoRepository {
   async deleteSavedView(id: string) {
     const db = await this.connect();
     await db.execute("DELETE FROM saved_views WHERE id = ?", [id]);
-    return this.readAll();
+
+    const data = await this.readAll();
+    const nextSettings = clearDefaultSavedViewIfNeeded(data.settings, id);
+    if (nextSettings.defaultSavedViewId !== data.settings.defaultSavedViewId) {
+      return this.saveSettings(nextSettings);
+    }
+
+    return data;
   }
 
   async exportBackup() {
@@ -1847,8 +1939,8 @@ const insertRecurringTaskTemplate = (db: DatabaseHandle, template: RecurringTask
 const insertSettings = (db: DatabaseHandle, workspaceId: string, settings: Settings) =>
   db.execute(
     `INSERT OR IGNORE INTO settings
-     (workspace_id, theme, accent_color, language, default_reminder_offset, default_working_folder, notifications_enabled, close_to_tray)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+     (workspace_id, theme, accent_color, language, default_reminder_offset, default_working_folder, default_saved_view_id, notifications_enabled, close_to_tray)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       workspaceId,
       settings.theme,
@@ -1856,6 +1948,7 @@ const insertSettings = (db: DatabaseHandle, workspaceId: string, settings: Setti
       settings.language,
       settings.defaultReminderOffset,
       settings.defaultWorkingFolder,
+      settings.defaultSavedViewId,
       boolToInt(settings.notificationsEnabled),
       boolToInt(settings.closeToTray),
     ],
