@@ -304,24 +304,18 @@ jobs:
             Where-Object { $_.Name -notlike "platform-*.json" } |
             ForEach-Object { $_.FullName }
 
+          # Delete any existing release for this tag to avoid asset name collisions
           gh release view $env:RELEASE_TAG --repo ${{ github.repository }} *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release edit $env:RELEASE_TAG `
-              --repo ${{ github.repository }} `
-              --title "$env:RELEASE_TITLE" `
-              --notes-file release-notes.md `
-              --latest
-            gh release upload $env:RELEASE_TAG $assetPaths `
-              --repo ${{ github.repository }} `
-              --clobber
-          } else {
-            gh release create $env:RELEASE_TAG $assetPaths `
-              --repo ${{ github.repository }} `
-              --target ${{ github.sha }} `
-              --title "$env:RELEASE_TITLE" `
-              --notes-file release-notes.md `
-              --latest
+            gh release delete $env:RELEASE_TAG --repo ${{ github.repository }} --yes
           }
+
+          gh release create $env:RELEASE_TAG $assetPaths `
+            --repo ${{ github.repository }} `
+            --target ${{ github.sha }} `
+            --title "$env:RELEASE_TITLE" `
+            --notes-file release-notes.md `
+            --latest
 
       - name: Verify updater endpoint
         shell: pwsh
