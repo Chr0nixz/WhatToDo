@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.6
+
+- Adds command palette with global shortcuts and fuzzy search for fast navigation across views.
+- Adds project and workspace edit dialogs for inline metadata editing.
+- Adds saved views support for reusable filter presets.
+- Adds automatic database reset and user notification when migration fails, replacing the previous hard crash.
+- Extracts AppShell into its own component and improves overview filtering.
+- Adds i18n extensions for dynamic translation support.
+
 ## 0.1.5
 
 - Adds performance baseline scripts and a 20k-task fixture generator for large-data validation.
