@@ -110,8 +110,7 @@ jobs:
             build_args: ""
             release_paths: |
               src-tauri/target/release/bundle/dmg/*.dmg
-              src-tauri/target/release/bundle/macos/*.tar.gz
-              src-tauri/target/release/bundle/macos/*.sig
+              src-tauri/target/release/bundle/macos/*_x64.tar.gz
             updater_glob: src-tauri/target/release/bundle/macos/*.app.tar.gz
           - label: macOS ARM64
             os: macos-latest
@@ -119,8 +118,7 @@ jobs:
             build_args: ""
             release_paths: |
               src-tauri/target/release/bundle/dmg/*.dmg
-              src-tauri/target/release/bundle/macos/*.tar.gz
-              src-tauri/target/release/bundle/macos/*.sig
+              src-tauri/target/release/bundle/macos/*_arm64.tar.gz
             updater_glob: src-tauri/target/release/bundle/macos/*.app.tar.gz
           - label: Linux x64
             os: ubuntu-22.04
@@ -128,7 +126,6 @@ jobs:
             build_args: --bundles appimage,deb
             release_paths: |
               src-tauri/target/release/bundle/appimage/*.AppImage
-              src-tauri/target/release/bundle/appimage/*.sig
               src-tauri/target/release/bundle/deb/*.deb
             updater_glob: src-tauri/target/release/bundle/appimage/*.AppImage
 
@@ -180,6 +177,20 @@ jobs:
 
       - name: Build signed installer
         run: pnpm tauri build ${{ matrix.build_args }}
+
+      - name: Rename macOS updater artifacts
+        if: runner.os == 'macOS'
+        shell: pwsh
+        run: |
+          $arch = if ($env:RUNNER_ARCH -eq 'ARM64') { "arm64" } else { "x64" }
+          Get-ChildItem "src-tauri/target/release/bundle/macos/*.app.tar.gz" | ForEach-Object {
+            $newName = $_.Name -replace '\.app\.tar\.gz$', "_$arch.app.tar.gz"
+            Rename-Item $_.FullName $newName
+          }
+          Get-ChildItem "src-tauri/target/release/bundle/macos/*.app.tar.gz.sig" | ForEach-Object {
+            $newName = $_.Name -replace '\.app\.tar\.gz\.sig$', "_$arch.app.tar.gz.sig"
+            Rename-Item $_.FullName $newName
+          }
 
       - name: Generate platform updater metadata
         shell: pwsh
