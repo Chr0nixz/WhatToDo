@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0
+
+- Adds multi-status tasks (todo, in progress, completed, cancelled) and subtask support via parent-child relationships.
+- Adds tag management for tasks with any/all/none matching in filters.
+- Adds file attachments to tasks with local storage and metadata tracking.
+- Adds advanced filter system with composable AND/OR/negate condition groups.
+- Adds yearly recurrence frequency and byWeekday rules for recurring templates.
+- Adds quick-add parsing that extracts dates, projects, priorities, and tags from natural-language input.
+- Adds backup schema validation and auto-backup hook for safer data management.
+- Adds ICS import schema support for calendar-based task creation.
+- Adds ErrorBoundary and ImportPreviewDialog components for better error handling and import workflows.
+- Adds Zustand-based task store (useTodoStore) alongside existing hooks for flexible state access.
+- Expands SettingsView with new preference sections and TaskDetailPane with richer metadata display.
+- Adds TaskList virtualization and repository performance tests for large-data scenarios.
+- Sets up Playwright E2E testing infrastructure and expands unit test coverage across filters, recurrence, and repository.
+
 ## 0.1.6
 
 - Adds command palette with global shortcuts and fuzzy search for fast navigation across views.
