@@ -39,7 +39,17 @@ Use this checklist before a desktop release or after changes to reminders, tray 
 - Cancel each dialog once and confirm no error is shown.
 - Try importing an invalid JSON file and confirm import failure is visible.
 
+## E2E Automated Coverage
+
+Automated webview smoke tests live under `e2e/` and run via Playwright against the Vite dev server only. They do NOT drive the Tauri desktop process, native notifications, tray, or file dialogs; those still require the manual steps above.
+
+- Run `pnpm test:e2e` before a release and confirm all smoke tests pass.
+- Smoke scope: app mounts without a runtime crash, document title is `WhatToDo`, primary shell landmark renders, language toggle switches visible copy, and the create-task entry point is reachable.
+- Tauri-only APIs (`invoke`, `@tauri-apps/plugin-*`) are expected to be unavailable in the webview smoke run; the smoke test asserts the React tree mounts and renders either the loading, error, or shell state — not full data flow.
+- When adding a new top-level surface (e.g., a new view reachable from the sidebar), add a corresponding smoke assertion in `e2e/smoke.spec.ts`.
+- Desktop-specific flows (reminders, tray, floating window, folder open, JSON/CSV/ICS export dialogs) remain manual and must be exercised against `pnpm tauri dev`.
+
 ## Release Notes
 
 - Record any failed item in `PROJECT_ANALYSIS.md` or the release checklist before publishing.
-- Run `pnpm test`, `pnpm build`, and `cd src-tauri && cargo check` after fixing desktop validation findings.
+- Run `pnpm test`, `pnpm test:e2e`, `pnpm build`, and `cd src-tauri && cargo check` after fixing desktop validation findings.

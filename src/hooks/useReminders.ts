@@ -20,7 +20,8 @@ export const dueRemindersForData = (data: AppData, now = Date.now()) => {
       reminder.firedAt === null &&
       reminder.failedAt === null &&
       task?.deletedAt === null &&
-      task?.status === "todo" &&
+      // Active tasks (todo + in_progress) still need reminders; terminal states don't
+      (task?.status === "todo" || task?.status === "in_progress") &&
       new Date(reminder.snoozedUntil ?? reminder.remindAt).getTime() <= now
     );
   });
@@ -37,10 +38,30 @@ export const useReminders = (
   const isTickingRef = useRef(false);
   const permissionDeniedRef = useRef(false);
   const activeReminderIdsRef = useRef(new Set<string>());
+  // Tracks the most recently notified task id. The Tauri desktop notification
+  // plugin does not expose a click handler on desktop, so we approximate
+  // "user clicked the notification" by navigating to this task when the app
+  // window regains focus shortly after a notification fires.
+  const pendingFocusTaskIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     latestStateRef.current = { data, markReminderFired, markReminderFailed, onOpenTask, onPermissionDenied };
   }, [data, markReminderFailed, markReminderFired, onOpenTask, onPermissionDenied]);
+
+  // Focus-based notification click handling: when the window gains focus
+  // within 60s of a notification firing, navigate to the notified task.
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    const onFocus = () => {
+      const taskId = pendingFocusTaskIdRef.current;
+      if (taskId) {
+        pendingFocusTaskIdRef.current = null;
+        latestStateRef.current.onOpenTask(taskId);
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
 
   useEffect(() => {
     if (!data?.settings.notificationsEnabled || !isTauriRuntime()) {
@@ -98,7 +119,15 @@ export const useReminders = (
               title: "WhatToDo",
               body: task.dueTime ? `${task.title} · ${task.dueTime}` : task.title,
             });
-            latestStateRef.current.onOpenTask(task.id);
+            // Record the task for focus-based click navigation instead of
+            // switching the view immediately (which disrupted users who
+            // were away from the app when the notification fired).
+            pendingFocusTaskIdRef.current = task.id;
+            window.setTimeout(() => {
+              if (pendingFocusTaskIdRef.current === task.id) {
+                pendingFocusTaskIdRef.current = null;
+              }
+            }, 60_000);
             await latestStateRef.current.markReminderFired(reminder.id);
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);

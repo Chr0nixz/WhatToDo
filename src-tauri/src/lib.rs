@@ -19,7 +19,10 @@ use tauri_plugin_window_state::StateFlags;
 
 const DB_FILE: &str = "ddl_todo.db";
 
-struct DbResetFlag(bool);
+struct DbResetFlag {
+    reset: bool,
+    backup_path: Option<PathBuf>,
+}
 
 const INIT_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS projects (
@@ -186,6 +189,32 @@ const ADD_DEFAULT_SAVED_VIEW_ID_SQL: &str = r#"
 ALTER TABLE settings ADD COLUMN default_saved_view_id TEXT;
 "#;
 
+const ADD_RECURRING_BY_WEEKDAY_SQL: &str = r#"
+ALTER TABLE recurring_task_templates ADD COLUMN by_weekday TEXT;
+"#;
+
+const ADD_TASK_TAGS_AND_PARENT_SQL: &str = r#"
+ALTER TABLE tasks ADD COLUMN parent_id TEXT;
+ALTER TABLE tasks ADD COLUMN tags TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);
+"#;
+
+const ADD_ATTACHMENTS_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS attachments (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    path TEXT NOT NULL,
+    mime_type TEXT,
+    size INTEGER,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(task_id) REFERENCES tasks(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_task_id ON attachments(task_id);
+"#;
+
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -232,6 +261,12 @@ fn validate_text_file_path(path: &str, allowed_extensions: &[&str]) -> Result<Pa
         return Err("Unsupported file extension.".to_string());
     }
 
+    for component in path.components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            return Err("Path traversal is not allowed.".to_string());
+        }
+    }
+
     Ok(path)
 }
 
@@ -274,6 +309,28 @@ fn set_close_to_tray(state: tauri::State<CloseToTray>, value: bool) {
     state.0.store(value, Ordering::Relaxed);
 }
 
+/// Rebuild the tray menu with localized labels. Called from the frontend
+/// whenever the user changes the UI language so the tray stays in sync.
+#[tauri::command]
+fn update_tray_menu(app: tauri::AppHandle, language: String) -> Result<(), String> {
+    let (open_label, quit_label) = match language.as_str() {
+        "zh" => ("打开 WhatToDo", "退出"),
+        _ => ("Open WhatToDo", "Quit"),
+    };
+
+    let open = MenuItem::with_id(&app, "open", open_label, true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let quit = MenuItem::with_id(&app, "quit", quit_label, true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let menu = Menu::with_items(&app, &[&open, &quit])
+        .map_err(|e| e.to_string())?;
+
+    if let Some(tray) = app.tray_by_id("main") {
+        tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn read_text_file(path: String) -> Result<String, String> {
     let path = validate_text_file_path(&path, &["json"])?;
@@ -287,7 +344,26 @@ fn read_text_file(path: String) -> Result<String, String> {
 #[tauri::command]
 fn write_text_file(path: String, contents: String) -> Result<(), String> {
     let path = validate_text_file_path(&path, &["json", "csv", "ics", "txt"])?;
-    fs::write(path, contents).map_err(|err| err.to_string())
+
+    // Atomic write: write to a sibling temp file, then rename. This prevents
+    // data corruption if the process is killed mid-write (e.g. system crash
+    // during a backup export). On Windows, rename over an existing file is
+    // atomic when both files are on the same volume.
+    let dir = path.parent().ok_or_else(|| "Invalid file path.".to_string())?;
+    let tmp = dir.join(format!(
+        ".{}~",
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("whattodo_tmp")
+    ));
+
+    fs::write(&tmp, &contents).map_err(|e| format!("Failed to write temp file: {e}"))?;
+    fs::rename(&tmp, &path).map_err(|e| {
+        // Best-effort cleanup of the temp file if rename failed.
+        let _ = fs::remove_file(&tmp);
+        format!("Failed to rename temp file: {e}")
+    })?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -500,7 +576,29 @@ fn apply_migrations(conn: &Connection, migrations: &[(i64, &str, &str)]) -> Resu
         conn.execute("BEGIN TRANSACTION", [])
             .map_err(|e| format!("Failed to begin transaction for v{version}: {e}"))?;
 
+        // SQLite's ALTER TABLE ADD COLUMN has no IF NOT EXISTS clause. If a
+        // column was added out-of-band (e.g. by a previous partially-applied
+        // run that failed to record the migration), re-running the migration
+        // would fail with "duplicate column name". Detect that case and treat
+        // it as already-applied so the migration can be recorded as complete.
         if let Err(e) = conn.execute_batch(sql) {
+            let msg = e.to_string();
+            if msg.contains("duplicate column name") {
+                let _ = conn.execute("ROLLBACK", []);
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs().to_string())
+                    .unwrap_or_else(|_| "0".to_string());
+                if let Err(rec_err) = conn.execute(
+                    "INSERT INTO _whattodo_migrations (version, description, applied_at) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![version, description, now],
+                ) {
+                    return Err(format!(
+                        "Failed to record migration v{version} after duplicate column recovery: {rec_err}"
+                    ));
+                }
+                continue;
+            }
             let _ = conn.execute("ROLLBACK", []);
             return Err(format!("Migration v{version} ({description}) failed: {e}"));
         }
@@ -614,6 +712,9 @@ fn bootstrap_migration_tracking(conn: &Connection, applied: &[i64]) -> Result<()
         (8, "add_recurring_tasks"),
         (9, "add_performance_indexes"),
         (10, "add_default_saved_view_id"),
+        (11, "add_recurring_by_weekday"),
+        (12, "add_task_tags_and_parent"),
+        (13, "add_attachments"),
     ];
 
     conn.execute_batch(
@@ -656,7 +757,40 @@ fn reset_database(db_path: &Path) {
     }
 }
 
-fn init_database(migrations: &[(i64, &str, &str)]) -> Result<bool, String> {
+fn backup_database_before_reset(db_path: &Path) -> Option<PathBuf> {
+    let data_dir = db_path.parent()?;
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let backup_name = format!("ddl_todo_backup_{}.db", ts);
+    let backup_path = data_dir.join(backup_name);
+
+    // Checkpoint WAL into the main db file so the backup is complete.
+    if let Ok(conn) = Connection::open(db_path) {
+        let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+        drop(conn);
+    }
+
+    if fs::copy(db_path, &backup_path).is_ok() {
+        Some(backup_path)
+    } else {
+        None
+    }
+}
+
+fn apply_connection_pragmas(conn: &Connection) {
+    if let Err(e) = conn.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         PRAGMA synchronous=NORMAL;
+         PRAGMA busy_timeout=5000;
+         PRAGMA foreign_keys=ON;",
+    ) {
+        eprintln!("Warning: failed to apply connection PRAGMAs: {e}");
+    }
+}
+
+fn init_database(migrations: &[(i64, &str, &str)]) -> Result<DbResetFlag, String> {
     let db_path = resolve_db_path()?;
 
     if let Some(parent) = db_path.parent() {
@@ -664,40 +798,47 @@ fn init_database(migrations: &[(i64, &str, &str)]) -> Result<bool, String> {
     }
 
     match Connection::open(&db_path) {
-        Ok(conn) => match apply_migrations(&conn, migrations) {
-            Ok(()) => {
-                let has_tracking = conn
-                    .query_row(
-                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='_whattodo_migrations'",
-                        [],
-                        |row| row.get::<_, i64>(0),
-                    )
-                    .unwrap_or(0)
-                    > 0;
+        Ok(conn) => {
+            apply_connection_pragmas(&conn);
+            match apply_migrations(&conn, migrations) {
+                Ok(()) => {
+                    let has_tracking = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='_whattodo_migrations'",
+                            [],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .unwrap_or(0)
+                        > 0;
 
-                if has_tracking {
-                    return Ok(false);
+                    if has_tracking {
+                        return Ok(DbResetFlag { reset: false, backup_path: None });
+                    }
+
+                    let applied = infer_applied_migrations(&conn)?;
+                    bootstrap_migration_tracking(&conn, &applied)?;
+                    Ok(DbResetFlag { reset: false, backup_path: None })
                 }
-
-                let applied = infer_applied_migrations(&conn)?;
-                bootstrap_migration_tracking(&conn, &applied)?;
-                Ok(false)
+                Err(err) => {
+                    eprintln!("Migration failed: {err}. Backing up then resetting database.");
+                    let backup_path = backup_database_before_reset(&db_path);
+                    drop(conn);
+                    reset_database(&db_path);
+                    let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+                    apply_connection_pragmas(&conn);
+                    apply_migrations(&conn, migrations)?;
+                    Ok(DbResetFlag { reset: true, backup_path })
+                }
             }
-            Err(err) => {
-                eprintln!("Migration failed: {err}. Resetting database.");
-                drop(conn);
-                reset_database(&db_path);
-                let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
-                apply_migrations(&conn, migrations)?;
-                Ok(true)
-            }
-        },
+        }
         Err(err) => {
-            eprintln!("Failed to open database: {err}. Resetting.");
+            eprintln!("Failed to open database: {err}. Backing up then resetting.");
+            let backup_path = backup_database_before_reset(&db_path);
             reset_database(&db_path);
             let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+            apply_connection_pragmas(&conn);
             apply_migrations(&conn, migrations)?;
-            Ok(true)
+            Ok(DbResetFlag { reset: true, backup_path })
         }
     }
 }
@@ -715,19 +856,22 @@ pub fn run() {
         (8, "add_recurring_tasks", ADD_RECURRING_TASKS_SQL),
         (9, "add_performance_indexes", ADD_PERFORMANCE_INDEXES_SQL),
         (10, "add_default_saved_view_id", ADD_DEFAULT_SAVED_VIEW_ID_SQL),
+        (11, "add_recurring_by_weekday", ADD_RECURRING_BY_WEEKDAY_SQL),
+        (12, "add_task_tags_and_parent", ADD_TASK_TAGS_AND_PARENT_SQL),
+        (13, "add_attachments", ADD_ATTACHMENTS_SQL),
     ];
 
     let db_reset = match init_database(&migrations) {
-        Ok(reset) => reset,
+        Ok(flag) => flag,
         Err(err) => {
             eprintln!("Fatal: database initialization failed after reset: {err}");
-            false
+            DbResetFlag { reset: true, backup_path: None }
         }
     };
 
     tauri::Builder::default()
         .manage(CloseToTray(Arc::new(AtomicBool::new(true))))
-        .manage(DbResetFlag(db_reset))
+        .manage(db_reset)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -774,14 +918,21 @@ pub fn run() {
             })
             .build(app)?;
 
-            if app.state::<DbResetFlag>().0 {
-                let _ = app.emit("db-reset", ());
+            let reset_state = app.state::<DbResetFlag>();
+            if reset_state.reset {
+                let payload = reset_state
+                    .backup_path
+                    .as_ref()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let _ = app.emit("db-reset", payload);
             }
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             set_close_to_tray,
+            update_tray_menu,
             open_workspace_window,
             read_text_file,
             write_text_file
@@ -806,4 +957,61 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_text_file_path;
+
+    #[test]
+    fn validate_text_file_path_accepts_valid_json_path() {
+        let result = validate_text_file_path("/tmp/backup.json", &["json"]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().to_str().unwrap(), "/tmp/backup.json");
+    }
+
+    #[test]
+    fn validate_text_file_path_rejects_empty_path() {
+        let result = validate_text_file_path("   ", &["json"]);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Path is required.");
+    }
+
+    #[test]
+    fn validate_text_file_path_rejects_missing_extension() {
+        let result = validate_text_file_path("/tmp/backup", &["json"]);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "File extension is required.");
+    }
+
+    #[test]
+    fn validate_text_file_path_rejects_unsupported_extension() {
+        let result = validate_text_file_path("/tmp/backup.exe", &["json", "csv", "ics", "txt"]);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Unsupported file extension.");
+    }
+
+    #[test]
+    fn validate_text_file_path_rejects_path_traversal() {
+        let cases = [
+            "../secret.json",
+            "data/../outside.json",
+            "/tmp/../etc/passwd.json",
+            "a/b/../../escape.json",
+        ];
+        for case in cases {
+            let result = validate_text_file_path(case, &["json"]);
+            assert!(result.is_err(), "expected {case} to be rejected");
+            assert_eq!(result.unwrap_err(), "Path traversal is not allowed.");
+        }
+    }
+
+    #[test]
+    fn validate_text_file_path_accepts_absolute_and_relative_paths_without_traversal() {
+        let cases = ["/tmp/data.json", "data/backup.json", "./local.json", "backup.json"];
+        for case in cases {
+            let result = validate_text_file_path(case, &["json"]);
+            assert!(result.is_ok(), "expected {case} to be accepted");
+        }
+    }
 }

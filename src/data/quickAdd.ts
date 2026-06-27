@@ -2,6 +2,54 @@ import { addDays, format, parse } from "date-fns";
 
 import type { CreateTaskInput, Project, TaskPriority } from "./types";
 
+const weekdayMap: Record<string, number> = {
+  "一": 1,
+  "二": 2,
+  "三": 3,
+  "四": 4,
+  "五": 5,
+  "六": 6,
+  "日": 0,
+  "天": 0,
+};
+
+const chineseNumMap: Record<string, number> = {
+  "一": 1,
+  "两": 2,
+  "二": 2,
+  "三": 3,
+  "四": 4,
+  "五": 5,
+  "六": 6,
+  "七": 7,
+  "八": 8,
+  "九": 9,
+  "十": 10,
+};
+
+const nextWeekdayDate = (referenceDate: Date, targetDay: number, weekOffset = 0): Date => {
+  const currentDay = referenceDate.getDay();
+  let diff = (targetDay - currentDay + 7) % 7;
+  if (diff === 0 && weekOffset === 0) {
+    diff = 7;
+  }
+  return addDays(referenceDate, diff + weekOffset * 7);
+};
+
+const endOfMonthDate = (referenceDate: Date): Date =>
+  new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0);
+
+const nextMonthSameDay = (referenceDate: Date, day?: number): Date => {
+  const year = referenceDate.getFullYear();
+  const month = referenceDate.getMonth();
+  const targetDay = day ?? referenceDate.getDate();
+  const candidate = new Date(year, month + 1, targetDay);
+  if (candidate.getMonth() !== (month + 1) % 12) {
+    return new Date(year, month + 2, 0);
+  }
+  return candidate;
+};
+
 type QuickAddOptions = {
   input: string;
   referenceDate?: Date;
@@ -167,10 +215,166 @@ export const parseQuickAdd = ({
     matches.push({ kind: "date", value: dueDate });
   });
 
+  // 大后天（3 天后，必须在"后天"之前匹配，避免短模式吞掉长模式）
+  remove(/(大后天)/, () => {
+    dueDate = toDateKey(addDays(referenceDate, 3));
+    matched.date = true;
+    matches.push({ kind: "date", value: dueDate });
+  });
+
   remove(/(后天)/, () => {
     dueDate = toDateKey(addDays(referenceDate, 2));
     matched.date = true;
     matches.push({ kind: "date", value: dueDate });
+  });
+
+  // 扩展中文日期解析（按长模式优先排序，避免短模式吞掉长模式）
+  // 下下周X（weekOffset=2）
+  remove(/下下周([一二三四五六日天])/, (match) => {
+    const target = weekdayMap[match[1]];
+    if (target !== undefined) {
+      dueDate = toDateKey(nextWeekdayDate(referenceDate, target, 2));
+      matched.date = true;
+      matches.push({ kind: "date", value: dueDate });
+    }
+  });
+
+  // 下下周（默认下下周一）
+  remove(/下下周/, () => {
+    dueDate = toDateKey(nextWeekdayDate(referenceDate, 1, 2));
+    matched.date = true;
+    matches.push({ kind: "date", value: dueDate });
+  });
+
+  // 下周X（weekOffset=1）
+  remove(/下周([一二三四五六日天])/, (match) => {
+    const target = weekdayMap[match[1]];
+    if (target !== undefined) {
+      dueDate = toDateKey(nextWeekdayDate(referenceDate, target, 1));
+      matched.date = true;
+      matches.push({ kind: "date", value: dueDate });
+    }
+  });
+
+  // 下周（默认下周一）
+  remove(/下周/, () => {
+    dueDate = toDateKey(nextWeekdayDate(referenceDate, 1, 1));
+    matched.date = true;
+    matches.push({ kind: "date", value: dueDate });
+  });
+
+  // 本周X / 这周X（weekOffset=0）
+  remove(/(?:本周|这周)([一二三四五六日天])/, (match) => {
+    const target = weekdayMap[match[1]];
+    if (target !== undefined) {
+      dueDate = toDateKey(nextWeekdayDate(referenceDate, target, 0));
+      matched.date = true;
+      matches.push({ kind: "date", value: dueDate });
+    }
+  });
+
+  // 本周末（本周六）
+  remove(/本周末/, () => {
+    dueDate = toDateKey(nextWeekdayDate(referenceDate, 6, 0));
+    matched.date = true;
+    matches.push({ kind: "date", value: dueDate });
+  });
+
+  // 周X前（取本周该日，移除"前"）
+  remove(/周([一二三四五六日天])前/, (match) => {
+    const target = weekdayMap[match[1]];
+    if (target !== undefined) {
+      dueDate = toDateKey(nextWeekdayDate(referenceDate, target, 0));
+      matched.date = true;
+      matches.push({ kind: "date", value: dueDate });
+    }
+  });
+
+  // 周X（同本周X）
+  remove(/周([一二三四五六日天])/, (match) => {
+    const target = weekdayMap[match[1]];
+    if (target !== undefined) {
+      dueDate = toDateKey(nextWeekdayDate(referenceDate, target, 0));
+      matched.date = true;
+      matches.push({ kind: "date", value: dueDate });
+    }
+  });
+
+  // X天后（中文数字/阿拉伯数字/"一周"）
+  remove(/(一周|两周|[一二两三四五六七八九十]|\d+)天后/, (match) => {
+    let days: number | null = null;
+    if (match[1] === "一周") {
+      days = 7;
+    } else if (match[1] === "两周") {
+      days = 14;
+    } else if (/^\d+$/.test(match[1])) {
+      days = Number(match[1]);
+    } else {
+      days = chineseNumMap[match[1]] ?? null;
+    }
+    if (days !== null) {
+      dueDate = toDateKey(addDays(referenceDate, days));
+      matched.date = true;
+      matches.push({ kind: "date", value: dueDate });
+    }
+  });
+
+  // 一周后
+  remove(/一周后/, () => {
+    dueDate = toDateKey(addDays(referenceDate, 7));
+    matched.date = true;
+    matches.push({ kind: "date", value: dueDate });
+  });
+
+  // 两周后
+  remove(/两周后/, () => {
+    dueDate = toDateKey(addDays(referenceDate, 14));
+    matched.date = true;
+    matches.push({ kind: "date", value: dueDate });
+  });
+
+  // 月底
+  remove(/月底/, () => {
+    dueDate = toDateKey(endOfMonthDate(referenceDate));
+    matched.date = true;
+    matches.push({ kind: "date", value: dueDate });
+  });
+
+  // 下个月X日 / 下月X日
+  remove(/(?:下个月|下月)(\d{1,2})[日号]/, (match) => {
+    const day = Number(match[1]);
+    if (day >= 1 && day <= 31) {
+      dueDate = toDateKey(nextMonthSameDay(referenceDate, day));
+      matched.date = true;
+      matches.push({ kind: "date", value: dueDate });
+    }
+  });
+
+  // 下个月 / 下月（同日，溢出回退月末）
+  remove(/(?:下个月|下月)(?!\d)/, () => {
+    dueDate = toDateKey(nextMonthSameDay(referenceDate));
+    matched.date = true;
+    matches.push({ kind: "date", value: dueDate });
+  });
+
+  // 每月X日（单次任务，非循环）
+  remove(/每月(\d{1,2})[日号]/, (match) => {
+    const day = Number(match[1]);
+    if (day >= 1 && day <= 31) {
+      dueDate = toDateKey(nextMonthSameDay(referenceDate, day));
+      matched.date = true;
+      matches.push({ kind: "date", value: dueDate });
+    }
+  });
+
+  // 每周X（单次任务，非循环）
+  remove(/每周([一二三四五六日天])/, (match) => {
+    const target = weekdayMap[match[1]];
+    if (target !== undefined) {
+      dueDate = toDateKey(nextWeekdayDate(referenceDate, target, 1));
+      matched.date = true;
+      matches.push({ kind: "date", value: dueDate });
+    }
   });
 
   remove(/\b(\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}[-/.月]\d{1,2}日?)\b/, (match) => {

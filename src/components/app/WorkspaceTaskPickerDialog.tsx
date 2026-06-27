@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { CalendarClock, Check, Clock, Plus, X } from "lucide-react";
+import { CalendarClock, Check, Clock, Loader2, Plus, X, XCircle } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -105,9 +105,11 @@ export function WorkspaceTaskPickerDialog({
                     <div className="min-w-0">
                       <div className="flex min-w-0 items-center gap-2">
                         {task.status === "completed" && <Check className="size-3.5 shrink-0 text-muted-foreground" />}
+                        {task.status === "in_progress" && <Loader2 className="size-3.5 shrink-0 text-blue-500" />}
+                        {task.status === "cancelled" && <XCircle className="size-3.5 shrink-0 text-muted-foreground" />}
                         <h3 className="truncate text-sm font-medium">{task.title}</h3>
                         <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
-                          {task.status === "todo" ? t("openTasks") : t("completed")}
+                          {task.status === "completed" ? t("completed") : task.status === "in_progress" ? t("statusInProgress") : task.status === "cancelled" ? t("statusCancelled") : t("statusTodo")}
                         </span>
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

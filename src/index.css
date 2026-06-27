@@ -42,11 +42,18 @@
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
 }
+
+/*
+ * Surface opacity scale (bg-{card|background|popover|...}/N)
+ *   /80  header bar, sticky top surfaces
+ *   /65  dialog overlay, view sub-header, detail pane
+ *   /50  recessed card, segmented control track, sub-section
+ *   /35  empty state, sidebar stats, deepest recess
+ * Avoid intermediate values (/25, /30, /45, /55, /60, /70, /75).
+ */
 
 :root {
   color-scheme: light;
@@ -68,6 +75,8 @@
   --accent: oklch(0.89 0.046 205);
   --accent-foreground: oklch(0.21 0.03 232);
   --destructive: oklch(0.59 0.18 25);
+  --warning: oklch(0.72 0.15 75);
+  --warning-foreground: oklch(0.32 0.06 70);
   --border: oklch(0.84 0.018 232);
   --input: oklch(0.88 0.017 232);
   --ring: oklch(0.55 0.12 210);
@@ -104,6 +113,8 @@
   --accent: oklch(0.3 0.057 232);
   --accent-foreground: oklch(0.94 0.016 220);
   --destructive: oklch(0.66 0.17 28);
+  --warning: oklch(0.78 0.14 80);
+  --warning-foreground: oklch(0.92 0.04 85);
   --border: oklch(0.31 0.024 246);
   --input: oklch(0.285 0.021 246);
   --ring: oklch(0.71 0.11 205);

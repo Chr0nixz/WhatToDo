@@ -22,6 +22,8 @@ const makeTask = (patch: Partial<Task>): Task => ({
   deletedAt: patch.deletedAt ?? null,
   recurrenceTemplateId: patch.recurrenceTemplateId ?? null,
   recurrenceInstanceDate: patch.recurrenceInstanceDate ?? null,
+  parentId: null,
+  tags: [],
 });
 
 const makeReminder = (patch: Partial<Reminder>): Reminder => ({
@@ -49,6 +51,7 @@ const makeData = (tasks: Task[], reminders: Reminder[]): AppData => ({
   reminders,
   savedViews: [],
   recurringTaskTemplates: [],
+  attachments: [],
   settings: {
     theme: "system",
     accentColor: "blue",
@@ -59,6 +62,7 @@ const makeData = (tasks: Task[], reminders: Reminder[]): AppData => ({
     notificationsEnabled: true,
     closeToTray: true,
   },
+  settingsByWorkspace: {},
 });
 
 describe("dueRemindersForData", () => {

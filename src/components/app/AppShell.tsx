@@ -2,6 +2,7 @@ import {
   CalendarDays,
   Bell,
   BriefcaseBusiness,
+  Check,
   Command,
   FolderKanban,
   ListChecks,
@@ -14,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { openPath } from "@tauri-apps/plugin-opener";
+import { invoke } from "@tauri-apps/api/core";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -24,7 +26,8 @@ import { WorkspaceEditDialog } from "@/components/app/WorkspaceEditDialog";
 import { buildCommandItems, type CommandItem } from "@/data/commandPalette";
 import { openTasks, overdueTasks, todayKey } from "@/data/date";
 import { buildAppIndexes } from "@/data/appIndexes";
-import type { AppData, AppView, SavedTaskView, TaskViewFilters } from "@/data/types";
+import type { AppData, AppView, SavedTaskView, Settings as SettingsType, TaskDetailPaneHandle, TaskViewFilters } from "@/data/types";
+import { useAutoBackup } from "@/hooks/useAutoBackup";
 import { useCommandPalette } from "@/hooks/useCommandPalette";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { useReminders } from "@/hooks/useReminders";
@@ -60,7 +63,7 @@ const navItems = [
 type AppShellProps = {
   data: AppData;
   error: string | null;
-  dbReset: boolean;
+  dbReset: string | null;
   actions: TodoActions;
 };
 
@@ -70,12 +73,21 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
   const [selectedDate, setSelectedDate] = useState(todayKey());
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [showResetBanner, setShowResetBanner] = useState(dbReset);
+  const [showResetBanner, setShowResetBanner] = useState(dbReset !== null);
+  const taskDetailRef = useRef<TaskDetailPaneHandle>(null);
+
+  const safeSetSelectedTaskId = useCallback((next: string | null) => {
+    if (next && taskDetailRef.current && !taskDetailRef.current.requestSwitch(next)) {
+      return; // blocked by unsaved-changes dialog inside TaskDetailPane
+    }
+    setSelectedTaskId(next);
+  }, []);
 
   useEffect(() => {
-    if (dbReset) setShowResetBanner(true);
+    if (dbReset !== null) setShowResetBanner(true);
   }, [dbReset]);
   const [undoToast, setUndoToast] = useState<{ message: string; undo: () => Promise<unknown> } | null>(null);
+  const [noticeToast, setNoticeToast] = useState<string | null>(null);
   const [isRailExpanded, setIsRailExpanded] = useState(
     () => (localStorage.getItem("whattodo:rail") ?? localStorage.getItem("ddl-todo:rail")) === "expanded",
   );
@@ -99,6 +111,8 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
     if (i18n.language !== data.settings.language) {
       void i18n.changeLanguage(data.settings.language);
     }
+    // Keep the desktop tray menu labels in sync with the active language.
+    void invoke("update_tray_menu", { language: data.settings.language }).catch(() => undefined);
   }, [data.settings.language, i18n]);
 
   useEffect(() => {
@@ -130,6 +144,15 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
         showUndo(t("taskDeleted"), () => actions.restoreTask(id));
         return next;
       },
+      bulkDeleteTasks: async (ids: string[]) => {
+        const next = await actions.bulkDeleteTasks(ids);
+        showUndo(t("bulkTasksDeleted", { count: ids.length }), async () => {
+          for (const id of ids) {
+            await actions.restoreTask(id);
+          }
+        });
+        return next;
+      },
       deleteWorkspaceFolder: async (id: string) => {
         const next = await actions.deleteWorkspaceFolder(id);
         showUndo(t("folderDeleted"), () => actions.restoreWorkspaceFolder(id));
@@ -156,20 +179,33 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
       const task = appIndexes.tasksById.get(taskId);
       if (task) {
         setSelectedDate(task.dueDate);
-        setSelectedTaskId(task.id);
+        safeSetSelectedTaskId(task.id);
         setView("home");
       }
     },
-    [appIndexes],
+    [appIndexes, safeSetSelectedTaskId],
   );
 
   const openFolder = useCallback(async (path: string) => {
     try {
       await openPath(path);
     } catch {
-      // Folder open failures are surfaced in view-level actions when needed.
+      setNoticeToast(t("openFolderFailed"));
+      window.setTimeout(() => setNoticeToast(null), 5000);
     }
-  }, []);
+  }, [t]);
+
+  const openBackupFolder = useCallback(async () => {
+    if (!dbReset) return;
+    const separator = dbReset.includes("\\") ? "\\" : "/";
+    const parent = dbReset.lastIndexOf(separator);
+    if (parent <= 0) return;
+    try {
+      await openPath(dbReset.slice(0, parent));
+    } catch {
+      // Best-effort: ignore folder open failures.
+    }
+  }, [dbReset]);
 
   const applySavedView = useCallback((viewItem: SavedTaskView) => {
     setPendingSavedView(viewItem);
@@ -198,6 +234,15 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
           setEditingProjectId(projectId);
           setView("projects");
           setProjectEditOpen(true);
+        },
+        onCycleTheme: () => {
+          const order: SettingsType["theme"][] = ["system", "light", "dark"];
+          const next = order[(order.indexOf(data.settings.theme) + 1) % order.length];
+          void appActions.saveSettings({ ...data.settings, theme: next });
+        },
+        onToggleLanguage: () => {
+          const next: SettingsType["language"] = data.settings.language === "zh" ? "en" : "zh";
+          void appActions.saveSettings({ ...data.settings, language: next });
         },
       }),
     [appActions, applySavedView, data, onOpenTask, openFolder, t],
@@ -244,6 +289,8 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
 
   useReminders(data, appActions.markReminderFired, appActions.markReminderFailed, onOpenTask, disableNotifications);
 
+  useAutoBackup(data, appActions);
+
   useEffect(() => {
     if (!pendingSavedView) {
       return;
@@ -278,6 +325,32 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
     }
     await current.undo();
   };
+
+  const dismissUndo = useCallback(() => {
+    setUndoToast(null);
+    if (undoTimer.current !== null) {
+      window.clearTimeout(undoTimer.current);
+    }
+  }, []);
+
+  // Undo toast keyboard shortcuts: Ctrl/Cmd+Z triggers undo, Esc dismisses.
+  useEffect(() => {
+    if (!undoToast) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+      const modifier = isMac ? event.metaKey : event.ctrlKey;
+      if (modifier && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        void runUndo();
+      } else if (event.key === "Escape") {
+        dismissUndo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [undoToast, dismissUndo]);
 
   return (
     <div className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground max-sm:flex-col">
@@ -332,14 +405,23 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
               !isRailExpanded && "hidden",
             )}
           >
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">{t("openTasks")}</span>
-              <strong>{stats.open}</strong>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">{t("overdue")}</span>
-              <strong className={stats.overdue > 0 ? "text-red-500" : ""}>{stats.overdue}</strong>
-            </div>
+            {stats.open === 0 && stats.overdue === 0 ? (
+              <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+                <Check className="size-3.5 text-emerald-500" aria-hidden="true" />
+                <span>{t("allClear")}</span>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">{t("openTasks")}</span>
+                  <strong>{stats.open}</strong>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">{t("overdue")}</span>
+                  <strong className={stats.overdue > 0 ? "text-destructive" : ""}>{stats.overdue}</strong>
+                </div>
+              </>
+            )}
           </div>
 
           <button
@@ -417,11 +499,22 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
         </header>
 
         {showResetBanner && (
-          <div className="motion-status flex items-center gap-2 border-b border-amber-300/40 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+          <div className="motion-status flex items-center gap-2 border-b border-warning/40 bg-warning/10 px-4 py-2 text-xs text-warning-foreground">
             <TriangleAlert className="size-3.5 shrink-0" />
-            <span className="flex-1">{t("dbResetNotice")}</span>
+            <span className="flex-1 break-all">
+              {dbReset ? `${t("dbBackupSaved")} ${dbReset}` : t("dbResetNotice")}
+            </span>
+            {dbReset && (
+              <button
+                className="shrink-0 rounded border border-warning/40 px-2 py-0.5 hover:bg-warning/20"
+                type="button"
+                onClick={() => void openBackupFolder()}
+              >
+                {t("dbBackupOpenFolder")}
+              </button>
+            )}
             <button
-              className="shrink-0 rounded p-0.5 hover:bg-amber-200/50 dark:hover:bg-amber-800/30"
+              className="shrink-0 rounded p-0.5 hover:bg-warning/20"
               type="button"
               onClick={() => setShowResetBanner(false)}
               aria-label={t("dismiss")}
@@ -443,7 +536,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
                   selectedTaskId={selectedTaskId}
                   setSearchQuery={setSearchQuery}
                   setSelectedDate={setSelectedDate}
-                  setSelectedTaskId={setSelectedTaskId}
+                  setSelectedTaskId={safeSetSelectedTaskId}
                 />
               )}
               {view === "overview" && (
@@ -454,7 +547,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
                   externalSelectedViewId={overviewSelectedViewId}
                   onExternalFiltersApplied={clearExternalOverviewFilters}
                   selectedTaskId={selectedTaskId}
-                  setSelectedTaskId={setSelectedTaskId}
+                  setSelectedTaskId={safeSetSelectedTaskId}
                 />
               )}
               {view === "projects" && (
@@ -464,7 +557,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
                   initialProjectId={editingProjectId}
                   selectedDate={selectedDate}
                   selectedTaskId={selectedTaskId}
-                  setSelectedTaskId={setSelectedTaskId}
+                  setSelectedTaskId={safeSetSelectedTaskId}
                   onRequestEditProject={(projectId) => {
                     setEditingProjectId(projectId);
                     setProjectEditOpen(true);
@@ -477,10 +570,10 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
                   data={data}
                   onEditWorkspace={() => setWorkspaceEditOpen(true)}
                   selectedTaskId={selectedTaskId}
-                  setSelectedTaskId={setSelectedTaskId}
+                  setSelectedTaskId={safeSetSelectedTaskId}
                 />
               )}
-              {view === "reminders" && <ReminderCenterView actions={appActions} data={data} onOpenTask={onOpenTask} />}
+              {view === "reminders" && <ReminderCenterView actions={appActions} onOpenTask={onOpenTask} />}
               {view === "settings" && (
                 <div className="h-full overflow-auto p-4">
                   <SettingsView actions={appActions} data={data} />
@@ -493,11 +586,15 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
 
       <Suspense fallback={null}>
         <TaskDetailPane
+          ref={taskDetailRef}
           actions={appActions}
           onClose={() => setSelectedTaskId(null)}
+          onRequestSwitchCommit={(next) => setSelectedTaskId(next)}
           projects={data.projects}
           reminders={data.reminders}
           recurringTaskTemplates={data.recurringTaskTemplates}
+          attachments={data.attachments}
+          tasks={data.tasks}
           settings={data.settings}
           task={
             view === "settings"
@@ -562,15 +659,48 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
       />
 
       {undoToast && (
-        <div className="motion-status absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-popover px-3 py-2 text-sm shadow-xl">
+        <div
+          className="motion-status absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-popover px-3 py-2 text-sm shadow-xl"
+          role="status"
+          aria-live="polite"
+          aria-label={undoToast.message}
+        >
           <span>{undoToast.message}</span>
           <button
+            aria-label={t("undo")}
             className="inline-flex h-8 items-center gap-1.5 rounded-md bg-secondary px-2.5 font-medium text-secondary-foreground hover:bg-accent"
             type="button"
             onClick={() => void runUndo()}
           >
-            <RotateCcw className="size-3.5" />
+            <RotateCcw className="size-3.5" aria-hidden="true" />
             {t("undo")}
+          </button>
+          <button
+            aria-label={t("close")}
+            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            type="button"
+            onClick={dismissUndo}
+          >
+            <X className="size-3.5" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+
+      {noticeToast && (
+        <div
+          className="motion-status absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive shadow-xl"
+          role="alert"
+          aria-live="assertive"
+        >
+          <TriangleAlert className="size-3.5" aria-hidden="true" />
+          <span>{noticeToast}</span>
+          <button
+            aria-label={t("close")}
+            className="inline-flex size-7 items-center justify-center rounded-md hover:bg-destructive/20"
+            type="button"
+            onClick={() => setNoticeToast(null)}
+          >
+            <X className="size-3.5" aria-hidden="true" />
           </button>
         </div>
       )}

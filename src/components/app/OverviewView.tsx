@@ -1,9 +1,9 @@
-import { ListChecks, MoreHorizontal, Save, Search, X } from "lucide-react";
+import { Filter, ListChecks, MoreHorizontal, Save, Search, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { overdueTasks } from "@/data/date";
+import { Button } from "@/components/ui/button";
 import { applySavedViewFilters } from "@/data/savedViews";
 import { defaultTaskViewFilters } from "@/data/taskFilters";
 import type { AppData, TaskViewFilters } from "@/data/types";
@@ -42,6 +42,7 @@ export function OverviewView({
   const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [menuViewId, setMenuViewId] = useState<string | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
   const hasAppliedDefaultView = useRef(false);
 
   useEffect(() => {
@@ -76,16 +77,37 @@ export function OverviewView({
     return () => window.clearTimeout(timer);
   }, [searchQuery]);
 
-  const visibleTasks = useMemo(() => data.tasks.filter((task) => task.deletedAt === null), [data.tasks]);
-  const counts = useMemo(
-    () => ({
-      all: visibleTasks.length,
-      open: visibleTasks.filter((task) => task.status === "todo").length,
-      completed: visibleTasks.filter((task) => task.status === "completed").length,
-      overdue: overdueTasks(data.tasks).length,
-    }),
-    [data.tasks, visibleTasks],
-  );
+  const counts = useMemo(() => {
+    // Single pass over data.tasks to compute visibility + per-status counts.
+    // Previously this was four separate filter() calls plus overdueTasks()
+    // iterating data.tasks again — five full passes over the task list.
+    let open = 0;
+    let completed = 0;
+    let cancelled = 0;
+    let overdue = 0;
+    let visible = 0;
+    const today = new Date().toISOString().slice(0, 10);
+    for (const task of data.tasks) {
+      if (task.deletedAt !== null) continue;
+      visible++;
+      switch (task.status) {
+        case "todo":
+        case "in_progress":
+          open++;
+          break;
+        case "completed":
+          completed++;
+          break;
+        case "cancelled":
+          cancelled++;
+          break;
+      }
+      if (task.status !== "completed" && task.status !== "cancelled" && task.dueDate < today) {
+        overdue++;
+      }
+    }
+    return { all: visible, open, completed, cancelled, overdue };
+  }, [data.tasks]);
   const taskPageInput = useMemo(
     () => ({
       workspaceId: data.workspaceId,
@@ -109,8 +131,19 @@ export function OverviewView({
   const scopes: { id: TaskViewFilters["scope"]; label: string; count: number }[] = [
     { id: "open", label: t("openTasks"), count: counts.open },
     { id: "completed", label: t("completed"), count: counts.completed },
+    { id: "cancelled", label: t("statusCancelled"), count: counts.cancelled },
     { id: "all", label: t("all"), count: counts.all },
   ];
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filters.priority !== "all") count++;
+    if (filters.projectId !== "all") count++;
+    if (filters.reminder !== "all") count++;
+    if (filters.folder !== "all") count++;
+    if (filters.dateRange !== "all") count++;
+    return count;
+  }, [filters]);
 
   const setFilter = <K extends keyof TaskViewFilters>(key: K, value: TaskViewFilters[K]) => {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -185,14 +218,37 @@ export function OverviewView({
                 <h1 className="truncate text-2xl font-semibold">{t("allTasks")}</h1>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <Metric label={t("openTasks")} value={counts.open} />
-              <Metric label={t("completed")} value={counts.completed} />
-              <Metric label={t("overdue")} value={counts.overdue} tone={counts.overdue > 0 ? "danger" : "default"} />
-            </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {data.savedViews.length > 0 && (
+              <div className="relative">
+                <label className="sr-only" htmlFor="overview-saved-views">
+                  {t("savedViews")}
+                </label>
+                <select
+                  id="overview-saved-views"
+                  className="h-9 rounded-md border border-input bg-background px-2 text-sm outline-none transition-colors focus:border-ring max-sm:w-40"
+                  value={selectedViewId ?? ""}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value) {
+                      applySavedView(value);
+                    } else {
+                      setSelectedViewId(null);
+                    }
+                  }}
+                >
+                  <option value="">{t("allTasks")}</option>
+                  {data.savedViews.map((view) => (
+                    <option key={view.id} value={view.id}>
+                      {view.name}
+                      {data.settings.defaultSavedViewId === view.id ? ` · ${t("defaultSavedView")}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="relative">
               <label className="sr-only" htmlFor="overview-search">
                 {t("search")}
@@ -243,54 +299,48 @@ export function OverviewView({
           ))}
         </div>
 
-        <div className="mt-3 grid grid-cols-[repeat(5,minmax(120px,1fr))] gap-2 max-xl:grid-cols-3 max-md:grid-cols-2">
-          <FilterSelect label={t("priority")} value={filters.priority} onChange={(value) => setFilter("priority", value as TaskViewFilters["priority"])}>
-            <option value="all">{t("allPriorities")}</option>
-            <option value="high">{t("high")}</option>
-            <option value="medium">{t("medium")}</option>
-            <option value="low">{t("low")}</option>
-          </FilterSelect>
-          <FilterSelect label={t("projects")} value={filters.projectId} onChange={(value) => setFilter("projectId", value as TaskViewFilters["projectId"])}>
-            <option value="all">{t("allProjects")}</option>
-            <option value="none">{t("noProject")}</option>
-            {data.projects
-              .filter((project) => project.deletedAt === null && project.status !== "archived")
-              .map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-          </FilterSelect>
-          <FilterSelect label={t("reminder")} value={filters.reminder} onChange={(value) => setFilter("reminder", value as TaskViewFilters["reminder"])}>
-            <option value="all">{t("all")}</option>
-            <option value="with">{t("withReminder")}</option>
-            <option value="without">{t("withoutReminder")}</option>
-          </FilterSelect>
-          <FilterSelect label={t("taskFolder")} value={filters.folder} onChange={(value) => setFilter("folder", value as TaskViewFilters["folder"])}>
-            <option value="all">{t("all")}</option>
-            <option value="with">{t("withFolder")}</option>
-            <option value="without">{t("withoutFolder")}</option>
-          </FilterSelect>
-          <FilterSelect label={t("dateRange")} value={filters.dateRange} onChange={(value) => setFilter("dateRange", value as TaskViewFilters["dateRange"])}>
-            <option value="all">{t("allDates")}</option>
-            <option value="today">{t("today")}</option>
-            <option value="week">{t("thisWeek")}</option>
-            <option value="overdue">{t("overdue")}</option>
-          </FilterSelect>
-        </div>
-
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {data.savedViews.map((view) => (
-            <span
-              key={view.id}
-              className={cn(
-                "relative inline-flex h-8 items-center overflow-hidden rounded-md border border-border bg-background text-sm",
-                selectedViewId === view.id && "border-ring bg-accent text-accent-foreground",
-              )}
+          <button
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm transition-colors hover:bg-accent",
+              showFilters && "border-ring bg-accent text-accent-foreground",
+            )}
+            type="button"
+            onClick={() => setShowFilters((v) => !v)}
+          >
+            <Filter className="size-3.5" />
+            {t("filters")}
+            {activeFilterCount > 0 && (
+              <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+          {activeFilterCount > 0 && (
+            <button
+              className="text-xs text-muted-foreground hover:text-foreground"
+              type="button"
+              onClick={() => {
+                setFilters((current) => ({
+                  ...current,
+                  priority: "all",
+                  projectId: "all",
+                  reminder: "all",
+                  folder: "all",
+                  dateRange: "all",
+                }));
+                setSelectedViewId(null);
+              }}
             >
-              {renamingViewId === view.id ? (
+              {t("clearFilters")}
+            </button>
+          )}
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {data.savedViews.map((view) =>
+              renamingViewId === view.id ? (
                 <form
-                  className="flex h-full items-center gap-1 px-1"
+                  key={view.id}
+                  className="flex h-8 items-center gap-1 rounded-md border border-border bg-background px-1"
                   onSubmit={(event) => {
                     event.preventDefault();
                     void renameSavedView(view.id);
@@ -307,7 +357,13 @@ export function OverviewView({
                   </button>
                 </form>
               ) : (
-                <>
+                <span
+                  key={view.id}
+                  className={cn(
+                    "relative inline-flex h-8 items-center overflow-hidden rounded-md border border-border bg-background text-sm",
+                    selectedViewId === view.id && "border-ring bg-accent text-accent-foreground",
+                  )}
+                >
                   <button className="inline-flex h-full items-center gap-1.5 px-2.5" type="button" onClick={() => applySavedView(view.id)}>
                     {view.name}
                     {data.settings.defaultSavedViewId === view.id && (
@@ -339,25 +395,62 @@ export function OverviewView({
                       <MenuButton label={t("deleteSavedView")} tone="danger" onClick={() => void deleteSavedView(view.id)} />
                     </span>
                   )}
-                </>
-              )}
-            </span>
-          ))}
-          <label className="sr-only" htmlFor="saved-view-name">
-            {t("savedViewName")}
-          </label>
-          <input
-            id="saved-view-name"
-            className="h-8 w-40 rounded-md border border-input bg-background px-2.5 text-sm outline-none transition-colors focus:border-ring"
-            placeholder={t("savedViewName")}
-            value={viewName}
-            onChange={(event) => setViewName(event.target.value)}
-          />
-          <ButtonLike disabled={!viewName.trim()} onClick={() => void saveView()}>
-            <Save className="size-3.5" />
-            {t("saveView")}
-          </ButtonLike>
+                </span>
+              ),
+            )}
+            <label className="sr-only" htmlFor="saved-view-name">
+              {t("savedViewName")}
+            </label>
+            <input
+              id="saved-view-name"
+              className="h-8 w-40 rounded-md border border-input bg-background px-2.5 text-sm outline-none transition-colors focus:border-ring"
+              placeholder={t("savedViewName")}
+              value={viewName}
+              onChange={(event) => setViewName(event.target.value)}
+            />
+            <Button disabled={!viewName.trim()} size="sm" type="button" onClick={() => void saveView()}>
+              <Save className="size-3.5" />
+              {t("saveView")}
+            </Button>
+          </div>
         </div>
+        {showFilters && (
+          <div className="mt-2 grid grid-cols-[repeat(5,minmax(120px,1fr))] gap-2 max-xl:grid-cols-3 max-md:grid-cols-2">
+            <FilterSelect label={t("priority")} value={filters.priority} onChange={(value) => setFilter("priority", value as TaskViewFilters["priority"])}>
+              <option value="all">{t("allPriorities")}</option>
+              <option value="high">{t("high")}</option>
+              <option value="medium">{t("medium")}</option>
+              <option value="low">{t("low")}</option>
+            </FilterSelect>
+            <FilterSelect label={t("projects")} value={filters.projectId} onChange={(value) => setFilter("projectId", value as TaskViewFilters["projectId"])}>
+              <option value="all">{t("allProjects")}</option>
+              <option value="none">{t("noProject")}</option>
+              {data.projects
+                .filter((project) => project.deletedAt === null && project.status !== "archived")
+                .map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+            </FilterSelect>
+            <FilterSelect label={t("reminder")} value={filters.reminder} onChange={(value) => setFilter("reminder", value as TaskViewFilters["reminder"])}>
+              <option value="all">{t("all")}</option>
+              <option value="with">{t("withReminder")}</option>
+              <option value="without">{t("withoutReminder")}</option>
+            </FilterSelect>
+            <FilterSelect label={t("taskFolder")} value={filters.folder} onChange={(value) => setFilter("folder", value as TaskViewFilters["folder"])}>
+              <option value="all">{t("all")}</option>
+              <option value="with">{t("withFolder")}</option>
+              <option value="without">{t("withoutFolder")}</option>
+            </FilterSelect>
+            <FilterSelect label={t("dateRange")} value={filters.dateRange} onChange={(value) => setFilter("dateRange", value as TaskViewFilters["dateRange"])}>
+              <option value="all">{t("allDates")}</option>
+              <option value="today">{t("today")}</option>
+              <option value="week">{t("thisWeek")}</option>
+              <option value="overdue">{t("overdue")}</option>
+            </FilterSelect>
+          </div>
+        )}
       </section>
 
       <section className="min-h-0 flex-1 overflow-auto p-4">
@@ -386,6 +479,7 @@ export function OverviewView({
             loadError={taskPage.error}
             onLoadMore={() => void taskPage.loadMore()}
             windowKey={JSON.stringify({ filters, query: debouncedSearchQuery })}
+            selectionEnabled
           />
         )}
       </section>
@@ -438,35 +532,5 @@ function FilterSelect({
         {children}
       </select>
     </label>
-  );
-}
-
-function ButtonLike({
-  children,
-  disabled,
-  onClick,
-}: {
-  children: ReactNode;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
-      disabled={disabled}
-      type="button"
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Metric({ label, value, tone = "default" }: { label: string; value: number; tone?: "default" | "danger" }) {
-  return (
-    <div className="motion-surface min-w-24 rounded-md border border-border bg-card/60 px-3 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={cn("mt-1 text-lg font-semibold", tone === "danger" && "text-red-500")}>{value}</p>
-    </div>
   );
 }

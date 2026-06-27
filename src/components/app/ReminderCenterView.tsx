@@ -1,4 +1,4 @@
-import { Bell, Check, CircleSlash, Clock3, ExternalLink, RefreshCw, RotateCcw } from "lucide-react";
+import { Bell, Check, ChevronDown, CircleSlash, Clock3, ExternalLink, RefreshCw, RotateCcw } from "lucide-react";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import type { CSSProperties } from "react";
 import { useMemo, useState } from "react";
@@ -13,13 +13,12 @@ import {
   type ReminderCenterItem,
   type SnoozeOption,
 } from "@/data/reminderCenter";
-import type { AppData } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
+import { useReminders, useTasks } from "@/hooks/useTodoStore";
 import { cn } from "@/lib/utils";
 
 type ReminderCenterViewProps = {
   actions: TodoActions;
-  data: AppData;
   onOpenTask: (taskId: string) => void;
 };
 
@@ -38,12 +37,18 @@ const snoozeOptions: { id: SnoozeOption; labelKey: string }[] = [
   { id: "tomorrowMorning", labelKey: "snoozeTomorrow" },
 ];
 
-export function ReminderCenterView({ actions, data, onOpenTask }: ReminderCenterViewProps) {
+export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewProps) {
   const { i18n, t } = useTranslation();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const groups = useMemo(() => groupReminderCenterItems(data), [data]);
+  const [menuReminderId, setMenuReminderId] = useState<string | null>(null);
+  // Subscribe only to the slices this view needs. Thanks to applyRepositoryPatch
+  // preserving slice references, this view will NOT re-render when unrelated
+  // data (e.g. settings, projects) changes.
+  const reminders = useReminders();
+  const tasks = useTasks();
+  const groups = useMemo(() => groupReminderCenterItems({ tasks, reminders }), [tasks, reminders]);
   const total = groupOrder.reduce((sum, group) => sum + groups[group].length, 0);
 
   const runReminderAction = async (reminderId: string, operation: () => Promise<unknown>, successMessage: string) => {
@@ -55,7 +60,7 @@ export function ReminderCenterView({ actions, data, onOpenTask }: ReminderCenter
       await operation();
       setFeedback(successMessage);
     } catch {
-      setError(t("operationFailed"));
+      setError(t("reminderActionFailed"));
     } finally {
       setPendingId(null);
     }
@@ -173,7 +178,7 @@ export function ReminderCenterView({ actions, data, onOpenTask }: ReminderCenter
                               <ExternalLink />
                               {t("openTask")}
                             </Button>
-                            {item.task.status !== "completed" && (
+                            {item.task.status !== "completed" && item.task.status !== "cancelled" && (
                               <Button
                                 disabled={pendingId === item.reminder.id}
                                 size="sm"
@@ -202,30 +207,52 @@ export function ReminderCenterView({ actions, data, onOpenTask }: ReminderCenter
                                 {t("retry")}
                               </Button>
                             )}
-                            <span className="mr-1 text-xs text-muted-foreground">{t("snooze")}</span>
-                            {snoozeOptions.map((option) => (
+                            <div className="relative ml-auto">
                               <Button
-                                key={option.id}
+                                aria-expanded={menuReminderId === item.reminder.id}
+                                aria-label={t("moreActions")}
                                 disabled={pendingId === item.reminder.id}
                                 size="xs"
                                 type="button"
                                 variant="outline"
-                                onClick={() => void handleSnooze(item, option.id)}
+                                title={t("moreActions")}
+                                onClick={() => setMenuReminderId((current) => (current === item.reminder.id ? null : item.reminder.id))}
                               >
                                 <RotateCcw />
-                                {t(option.labelKey)}
+                                {t("snooze")}
+                                <ChevronDown />
                               </Button>
-                            ))}
-                            <Button
-                              disabled={pendingId === item.reminder.id}
-                              size="xs"
-                              type="button"
-                              variant="ghost"
-                              onClick={() => void handleDisable(item)}
-                            >
-                              <CircleSlash />
-                              {t("disableReminder")}
-                            </Button>
+                              {menuReminderId === item.reminder.id && (
+                                <span className="absolute right-0 top-[calc(100%+4px)] z-10 grid min-w-40 gap-0.5 rounded-md border border-border bg-popover p-1 shadow-md">
+                                  {snoozeOptions.map((option) => (
+                                    <button
+                                      key={option.id}
+                                      className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs hover:bg-accent"
+                                      type="button"
+                                      onClick={() => {
+                                        setMenuReminderId(null);
+                                        void handleSnooze(item, option.id);
+                                      }}
+                                    >
+                                      <RotateCcw className="size-3" />
+                                      {t(option.labelKey)}
+                                    </button>
+                                  ))}
+                                  <span className="my-0.5 h-px bg-border" />
+                                  <button
+                                    className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10"
+                                    type="button"
+                                    onClick={() => {
+                                      setMenuReminderId(null);
+                                      void handleDisable(item);
+                                    }}
+                                  >
+                                    <CircleSlash className="size-3" />
+                                    {t("disableReminder")}
+                                  </button>
+                                </span>
+                              )}
+                            </div>
                           </div>
                         )}
                       </article>

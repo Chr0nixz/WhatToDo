@@ -47,6 +47,42 @@ if (process.env.TAURI_SIGNING_PRIVATE_KEY_PATH && !existsSync(process.env.TAURI_
   errors.push(`TAURI_SIGNING_PRIVATE_KEY_PATH does not exist: ${process.env.TAURI_SIGNING_PRIVATE_KEY_PATH}`);
 }
 
+// Validate the updater pubkey is well-formed. Tauri updater pubkeys are
+// base64-encoded (Djb or Ed25519) — at minimum, decode and check length.
+const pubkey = tauriConfig.plugins?.updater?.pubkey;
+if (pubkey) {
+  const trimmed = pubkey.trim();
+  const isValidBase64 = /^[A-Za-z0-9+/\r\n]+={0,2}$/.test(trimmed);
+  if (!isValidBase64) {
+    errors.push("tauri.conf.json plugins.updater.pubkey is not valid base64.");
+  } else {
+    try {
+      const decoded = Buffer.from(trimmed, "base64");
+      // Ed25519 public key is 32 bytes; Djb (x25519) is also 32 bytes.
+      if (decoded.length < 32) {
+        errors.push(`tauri.conf.json plugins.updater.pubkey decoded length ${decoded.length} is too short (expected >=32 bytes).`);
+      }
+    } catch {
+      errors.push("tauri.conf.json plugins.updater.pubkey could not be base64-decoded.");
+    }
+  }
+}
+
+// Warn if password is required but missing. Tauri signing keys are often
+// password-protected; surface a clear error instead of letting signing fail
+// silently mid-build.
+const signingKeyProvided =
+  Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY) ||
+  Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY_PATH);
+const signingPasswordProvided =
+  Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD) ||
+  "TAURI_SIGNING_PRIVATE_KEY_PASSWORD" in process.env;
+if (signingKeyProvided && !signingPasswordProvided) {
+  console.warn(
+    "Warning: TAURI_SIGNING_PRIVATE_KEY_PASSWORD is not set. If the signing key is password-protected, the release build will fail.",
+  );
+}
+
 if (errors.length) {
   console.error("Release check failed:");
   for (const error of errors) {

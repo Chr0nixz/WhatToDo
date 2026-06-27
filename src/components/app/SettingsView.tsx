@@ -1,13 +1,16 @@
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { ArchiveRestore, Bell, Check, Database, Download, FolderOpen, Languages, Moon, Palette, Upload } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArchiveRestore, Bell, Check, Database, Download, FolderOpen, HelpCircle, Keyboard, Languages, Moon, Palette, RotateCw, Upload, Wand2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { AccentColor, AppData, Language, RecoveryItems, Settings, ThemeMode } from "@/data/types";
+import { Button } from "@/components/ui/button";
+import type { AccentColor, AppData, BackupPayload, Language, RecoveryItems, Settings, ThemeMode } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
+import { loadAutoBackupConfig, saveAutoBackupConfig, type AutoBackupConfig } from "@/hooks/useAutoBackup";
 import { cn } from "@/lib/utils";
+import { ImportPreviewDialog } from "./ImportPreviewDialog";
 import { UpdateSettingsPanel } from "./UpdateSettingsPanel";
 import { formatTaskDate } from "@/data/dateFormat";
 
@@ -42,6 +45,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
   const { i18n, t } = useTranslation();
   const settings = data.settings;
   const [defaultWorkingFolder, setDefaultWorkingFolder] = useState(settings.defaultWorkingFolder ?? "");
+  const [reminderOffsetInput, setReminderOffsetInput] = useState(String(settings.defaultReminderOffset));
   const [isSaving, setIsSaving] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
   const [dataState, setDataState] = useState<"idle" | "saved" | "error">("idle");
@@ -53,10 +57,41 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
     archivedProjects: [],
   });
   const [recoveryState, setRecoveryState] = useState<"loading" | "ready" | "error">("loading");
+  const [importPreview, setImportPreview] = useState<{ open: boolean; payload: unknown }>({ open: false, payload: null });
+  const [autoBackup, setAutoBackup] = useState<AutoBackupConfig>(() => loadAutoBackupConfig());
+  const [autoBackupState, setAutoBackupState] = useState<"idle" | "saved" | "error">("idle");
+  const reminderOffsetTimer = useRef<number | null>(null);
 
   useEffect(() => {
     setDefaultWorkingFolder(settings.defaultWorkingFolder ?? "");
-  }, [settings.defaultWorkingFolder]);
+    setReminderOffsetInput(String(settings.defaultReminderOffset));
+  }, [settings.defaultWorkingFolder, settings.defaultReminderOffset]);
+
+  useEffect(() => {
+    if (reminderOffsetTimer.current !== null) {
+      window.clearTimeout(reminderOffsetTimer.current);
+    }
+    const trimmed = reminderOffsetInput.trim();
+    if (trimmed === "") {
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return;
+    }
+    if (parsed === settings.defaultReminderOffset) {
+      return;
+    }
+    reminderOffsetTimer.current = window.setTimeout(() => {
+      void saveSettings({ defaultReminderOffset: Math.floor(parsed) });
+    }, 600);
+    return () => {
+      if (reminderOffsetTimer.current !== null) {
+        window.clearTimeout(reminderOffsetTimer.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reminderOffsetInput]);
 
   const loadRecoveryItems = async () => {
     setRecoveryState("loading");
@@ -187,11 +222,29 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
       }
 
       const contents = await invoke<string>("read_text_file", { path: selected });
-      await actions.importBackup(JSON.parse(contents));
-      setDataState("saved");
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(contents);
+      } catch {
+        throw new Error(t("importInvalidJson"));
+      }
+      setImportPreview({ open: true, payload: parsed });
     } catch (err) {
       setDataState("error");
-      setDataError(err instanceof Error ? err.message : t("importFailed"));
+      const message = err instanceof Error ? err.message : t("importFailed");
+      setDataError(message === t("importInvalidJson") || message === t("preImportBackupFailed") ? message : t("importFailed"));
+    }
+  };
+
+  const confirmImportBackup = async (payload: BackupPayload) => {
+    try {
+      await actions.importBackup(payload);
+      setImportPreview({ open: false, payload: null });
+      setDataState("saved");
+    } catch {
+      setDataState("error");
+      setDataError(t("importFailed"));
+      setImportPreview({ open: false, payload: null });
     }
   };
 
@@ -219,6 +272,45 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
     }
   };
 
+  const updateAutoBackup = (patch: Partial<AutoBackupConfig>) => {
+    const next = { ...autoBackup, ...patch };
+    setAutoBackup(next);
+    saveAutoBackupConfig(next);
+    setAutoBackupState("saved");
+    window.setTimeout(() => setAutoBackupState("idle"), 2000);
+  };
+
+  const chooseAutoBackupFolder = async () => {
+    const selected = await openDialog({
+      directory: true,
+      multiple: false,
+      title: t("autoBackupFolder"),
+    });
+    if (typeof selected === "string") {
+      updateAutoBackup({ folder: selected });
+    }
+  };
+
+  const runAutoBackupNow = async () => {
+    setAutoBackupState("idle");
+    try {
+      const payload = await actions.exportBackup();
+      const filename = `whattodo-auto-${timestampForFile()}.json`;
+      const folder = autoBackup.folder;
+      if (!folder) {
+        setAutoBackupState("error");
+        return;
+      }
+      const separator = folder.includes("\\") ? "\\" : "/";
+      const path = `${folder}${separator}${filename}`;
+      await invoke("write_text_file", { path, contents: JSON.stringify(payload, null, 2) });
+      localStorage.setItem("whattodo:auto-backup:last-run", String(Date.now()));
+      setAutoBackupState("saved");
+    } catch {
+      setAutoBackupState("error");
+    }
+  };
+
   return (
     <main className="mx-auto grid w-full max-w-4xl gap-4">
       <section className="motion-surface rounded-lg border border-border bg-card/70 p-4 shadow-sm">
@@ -242,7 +334,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             value={settings.theme}
             onChange={(value) => void saveSettings({ theme: value as ThemeMode })}
           />
-          <div className="grid gap-2 rounded-md border border-border bg-background/45 px-3 py-3">
+          <div className="grid gap-2 rounded-md bg-background/45 px-3 py-3">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Palette className="size-4 text-muted-foreground" />
               {t("accentColor")}
@@ -323,7 +415,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             label={t("closeToTray")}
             onClick={() => void saveSettings({ closeToTray: !settings.closeToTray })}
           />
-          <label className="grid grid-cols-[1fr_160px] items-center gap-3 rounded-md border border-border bg-background/45 px-3 py-2 text-sm">
+          <label className="grid grid-cols-[1fr_160px] items-center gap-3 rounded-md bg-background/45 px-3 py-2 text-sm">
             <span>
               <span className="block font-medium">{t("defaultReminder")}</span>
               <span className="text-xs text-muted-foreground">{t("minutes")}</span>
@@ -334,9 +426,13 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
               min={0}
               step={5}
               type="number"
-              value={settings.defaultReminderOffset}
-              onChange={(event) => void saveSettings({ defaultReminderOffset: Number(event.target.value) })}
+              value={reminderOffsetInput}
+              onChange={(event) => setReminderOffsetInput(event.target.value)}
+              aria-invalid={reminderOffsetInput.trim() !== "" && (!Number.isFinite(Number(reminderOffsetInput)) || Number(reminderOffsetInput) < 0)}
             />
+            {reminderOffsetInput.trim() !== "" && (!Number.isFinite(Number(reminderOffsetInput)) || Number(reminderOffsetInput) < 0) && (
+              <p className="text-xs text-destructive">{t("invalidReminderOffset")}</p>
+            )}
           </label>
         </div>
       </section>
@@ -359,31 +455,33 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             value={defaultWorkingFolder}
             onChange={(event) => setDefaultWorkingFolder(event.target.value)}
           />
-          <button
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-secondary px-3 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50"
+          <Button
             disabled={isSaving}
+            size="lg"
             type="button"
+            variant="secondary"
             onClick={() => void chooseDefaultWorkingFolder()}
           >
             <FolderOpen className="size-4" />
             {t("chooseFolder")}
-          </button>
-          <button
-            className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-secondary px-3 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50"
+          </Button>
+          <Button
             disabled={isSaving}
+            size="lg"
             type="button"
+            variant="secondary"
             onClick={() => void saveDefaultWorkingFolder()}
           >
             {isSaving ? t("saving") : t("save")}
-          </button>
-          <button
-            className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
+          </Button>
+          <Button
             disabled={!settings.defaultWorkingFolder || isSaving}
+            size="lg"
             type="button"
             onClick={() => void openDefaultWorkingFolder()}
           >
             {t("openFolder")}
-          </button>
+          </Button>
         </div>
         {saveState !== "idle" && (
           <p className={cn("motion-status mt-3 text-xs", saveState === "saved" ? "text-emerald-600" : "text-destructive")}>
@@ -463,22 +561,22 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90" type="button" onClick={() => void exportBackup()}>
+          <Button size="lg" type="button" onClick={() => void exportBackup()}>
             <Download className="size-4" />
             {t("exportBackup")}
-          </button>
-          <button className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-secondary px-3 text-sm font-medium hover:bg-accent" type="button" onClick={() => void importBackup()}>
+          </Button>
+          <Button size="lg" type="button" variant="secondary" onClick={() => void importBackup()}>
             <Upload className="size-4" />
             {t("importBackup")}
-          </button>
-          <button className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-secondary px-3 text-sm font-medium hover:bg-accent" type="button" onClick={() => void exportCsv()}>
+          </Button>
+          <Button size="lg" type="button" variant="secondary" onClick={() => void exportCsv()}>
             <Download className="size-4" />
             {t("exportCsv")}
-          </button>
-          <button className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-secondary px-3 text-sm font-medium hover:bg-accent" type="button" onClick={() => void exportIcs()}>
+          </Button>
+          <Button size="lg" type="button" variant="secondary" onClick={() => void exportIcs()}>
             <Download className="size-4" />
             {t("exportIcs")}
-          </button>
+          </Button>
         </div>
         {dataState !== "idle" && (
           <p className={cn("motion-status mt-3 text-xs", dataState === "saved" ? "text-emerald-600" : "text-destructive")}>
@@ -487,7 +585,138 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
         )}
       </section>
 
+      <section className="motion-surface rounded-lg border border-border bg-card/70 p-4 shadow-sm">
+        <div className="mb-4 flex items-center gap-3">
+          <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
+            <RotateCw className="size-4" />
+          </span>
+          <div>
+            <h2 className="text-lg font-semibold">{t("autoBackup")}</h2>
+            <p className="text-sm text-muted-foreground">{t("autoBackupHint")}</p>
+          </div>
+        </div>
+        <div className="grid gap-3">
+          <ToggleRow
+            checked={autoBackup.enabled}
+            label={t("autoBackupEnabled")}
+            onClick={() => updateAutoBackup({ enabled: !autoBackup.enabled })}
+          />
+          <label className="grid grid-cols-[1fr_120px] items-center gap-3 rounded-md bg-background/45 px-3 py-2 text-sm">
+            <span>
+              <span className="block font-medium">{t("autoBackupInterval")}</span>
+              <span className="text-xs text-muted-foreground">{t("hours")}</span>
+            </span>
+            <input
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring disabled:opacity-50"
+              disabled={!autoBackup.enabled}
+              min={1}
+              step={1}
+              type="number"
+              value={autoBackup.intervalHours}
+              onChange={(event) => {
+                const parsed = Number(event.target.value);
+                if (Number.isFinite(parsed) && parsed >= 1) {
+                  updateAutoBackup({ intervalHours: Math.floor(parsed) });
+                }
+              }}
+            />
+          </label>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 max-sm:grid-cols-1">
+            <input
+              className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring disabled:opacity-50"
+              disabled={!autoBackup.enabled}
+              placeholder="D:\\Backups\\..."
+              value={autoBackup.folder ?? ""}
+              readOnly
+            />
+            <Button
+              disabled={!autoBackup.enabled}
+              size="lg"
+              type="button"
+              variant="secondary"
+              onClick={() => void chooseAutoBackupFolder()}
+            >
+              <FolderOpen className="size-4" />
+              {t("chooseFolder")}
+            </Button>
+            <Button
+              disabled={!autoBackup.enabled || !autoBackup.folder}
+              size="lg"
+              type="button"
+              onClick={() => void runAutoBackupNow()}
+            >
+              {t("autoBackupRunNow")}
+            </Button>
+          </div>
+          {autoBackupState !== "idle" && (
+            <p className={cn("motion-status text-xs", autoBackupState === "saved" ? "text-emerald-600" : "text-destructive")}>
+              {autoBackupState === "saved" ? t("autoBackupDone") : t("autoBackupFailed")}
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section className="motion-surface rounded-lg border border-border bg-card/70 p-4 shadow-sm">
+        <div className="mb-4 flex items-center gap-3">
+          <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
+            <HelpCircle className="size-4" />
+          </span>
+          <div>
+            <h2 className="text-lg font-semibold">{t("help")}</h2>
+            <p className="text-sm text-muted-foreground">{t("helpHint")}</p>
+          </div>
+        </div>
+        <div className="grid gap-4">
+          <div className="rounded-md bg-background/45 p-3">
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+              <Keyboard className="size-4 text-muted-foreground" />
+              {t("keyboardShortcuts")}
+            </div>
+            <dl className="grid gap-1.5 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-muted-foreground">{t("shortcutOpenPalette")}</dt>
+                <dd><kbd className="rounded border border-border bg-secondary px-1.5 py-0.5 text-xs">⌘/Ctrl + K</kbd></dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-muted-foreground">{t("shortcutNewTask")}</dt>
+                <dd><kbd className="rounded border border-border bg-secondary px-1.5 py-0.5 text-xs">⌘/Ctrl + N</kbd></dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-muted-foreground">{t("shortcutSearchTasks")}</dt>
+                <dd><kbd className="rounded border border-border bg-secondary px-1.5 py-0.5 text-xs">⌘/Ctrl + Shift + F</kbd></dd>
+              </div>
+            </dl>
+          </div>
+          <div className="rounded-md bg-background/45 p-3">
+            <div className="mb-1 flex items-center gap-2 text-sm font-medium">
+              <Wand2 className="size-4 text-muted-foreground" />
+              {t("quickAddSyntax")}
+            </div>
+            <p className="mb-2 text-xs text-muted-foreground">{t("quickAddSyntaxHint")}</p>
+            <ul className="grid gap-1 text-xs text-muted-foreground">
+              <li>{t("quickAddDateDesc")}</li>
+              <li>{t("quickAddTimeDesc")}</li>
+              <li>{t("quickAddProjectDesc")}</li>
+              <li>{t("quickAddPriorityDesc")}</li>
+              <li>{t("quickAddReminderDesc")}</li>
+            </ul>
+            <p className="mt-3 mb-1 text-xs font-medium text-foreground">{t("quickAddExamples")}</p>
+            <ul className="grid gap-1 text-xs text-muted-foreground">
+              <li className="rounded border border-border bg-background px-2 py-1 font-mono">{t("quickAddExample1")}</li>
+              <li className="rounded border border-border bg-background px-2 py-1 font-mono">{t("quickAddExample2")}</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <UpdateSettingsPanel />
+
+      <ImportPreviewDialog
+        open={importPreview.open}
+        rawPayload={importPreview.payload}
+        onOpenChange={(open) => setImportPreview((prev) => ({ ...prev, open }))}
+        onConfirm={(payload) => void confirmImportBackup(payload)}
+      />
     </main>
   );
 }
@@ -506,7 +735,7 @@ function RecoveryGroup({
   const { t } = useTranslation();
 
   return (
-    <div className="rounded-md border border-border bg-background/45 p-3">
+    <div className="rounded-md bg-background/45 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">{title}</h3>
         <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">{items.length}</span>
@@ -516,18 +745,19 @@ function RecoveryGroup({
       ) : (
         <div className="grid gap-2">
           {items.map((item) => (
-            <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border bg-card/70 px-3 py-2">
+            <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md bg-card/70 px-3 py-2">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{item.title}</p>
                 <p className="truncate text-xs text-muted-foreground">{item.meta}</p>
               </div>
-              <button
-                className="inline-flex h-8 items-center rounded-md border border-border bg-secondary px-2.5 text-sm font-medium hover:bg-accent"
+              <Button
+                size="sm"
                 type="button"
+                variant="secondary"
                 onClick={() => void onRestore(item.id)}
               >
                 {t("restore")}
-              </button>
+              </Button>
             </div>
           ))}
         </div>
@@ -582,7 +812,7 @@ function ToggleRow({
   return (
     <button
       aria-checked={checked}
-      className="motion-surface flex items-center justify-between rounded-md border border-border bg-background/45 px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-50"
+      className="motion-surface flex items-center justify-between rounded-md bg-background/45 px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-50"
       disabled={disabled}
       role="switch"
       type="button"

@@ -139,6 +139,7 @@ export function HomeView({
             tasks={selectedTasks}
             windowKey={`${selectedDate}:${debouncedSearchQuery}`}
             windowSize={150}
+            selectionEnabled
           />
         </div>
       </section>

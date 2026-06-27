@@ -61,7 +61,7 @@ export function WorkspaceEditDialog({ workspace, open, onOpenChange, actions, on
       await actions.updateWorkspace(workspace.id, { name: trimmed, color });
       onOpenChange(false);
     } catch {
-      setError(t("operationFailed"));
+      setError(t("workspaceUpdateFailed"));
     } finally {
       setIsSaving(false);
     }
@@ -80,7 +80,7 @@ export function WorkspaceEditDialog({ workspace, open, onOpenChange, actions, on
       onOpenChange(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message === "CANNOT_DELETE_LAST_WORKSPACE" ? t("cannotDeleteLastWorkspace") : t("operationFailed"));
+      setError(message === "CANNOT_DELETE_LAST_WORKSPACE" ? t("cannotDeleteLastWorkspace") : t("workspaceUpdateFailed"));
     } finally {
       setIsDeleting(false);
     }

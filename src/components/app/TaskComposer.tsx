@@ -22,13 +22,15 @@ type TaskComposerProps = {
 };
 
 const priorityOptions: TaskPriority[] = ["low", "medium", "high"];
-const recurrenceOptions: RecurrenceFrequency[] = ["daily", "weekly", "monthly"];
+const recurrenceOptions: RecurrenceFrequency[] = ["daily", "weekly", "monthly", "yearly"];
 const reminderOffsetOptions = [10, 30, 60, 1440];
 const recurrenceLabelKeys: Record<RecurrenceFrequency, string> = {
   daily: "repeatDaily",
   weekly: "repeatWeekly",
   monthly: "repeatMonthly",
+  yearly: "repeatYearly",
 };
+const weekdayShortKeys = ["weekdaySun", "weekdayMon", "weekdayTue", "weekdayWed", "weekdayThu", "weekdayFri", "weekdaySat"];
 
 export function TaskComposer({
   projects,
@@ -49,6 +51,8 @@ export function TaskComposer({
   const [useReminder, setUseReminder] = useState(true);
   const [reminderOffset, setReminderOffset] = useState(settings.defaultReminderOffset);
   const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency | "none">("none");
+  const [recurrenceInterval, setRecurrenceInterval] = useState(1);
+  const [recurrenceByWeekday, setRecurrenceByWeekday] = useState<number[]>([]);
   const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -138,6 +142,8 @@ export function TaskComposer({
         await actions.createRecurringTask({
           ...input,
           frequency: recurrenceFrequency,
+          interval: recurrenceInterval,
+          byWeekday: recurrenceFrequency === "weekly" && recurrenceByWeekday.length > 0 ? recurrenceByWeekday : null,
           endDate: recurrenceEndDate || null,
         });
       }
@@ -150,12 +156,14 @@ export function TaskComposer({
       setWorkingFolder("");
       setReminderOffset(settings.defaultReminderOffset);
       setRecurrenceFrequency("none");
+      setRecurrenceInterval(1);
+      setRecurrenceByWeekday([]);
       setRecurrenceEndDate("");
       setQuickAddMatches([]);
       setDetailsOpen(false);
       onCreated?.();
     } catch {
-      setSubmitError(t("operationFailed"));
+      setSubmitError(t("taskCreateFailed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -317,6 +325,49 @@ export function TaskComposer({
                 ))}
               </select>
             </label>
+            {recurrenceFrequency !== "none" && (
+              <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="task-repeat-interval">
+                <span>{t("repeatInterval")}</span>
+                <input
+                  id="task-repeat-interval"
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
+                  max={365}
+                  min={1}
+                  type="number"
+                  value={recurrenceInterval}
+                  onChange={(event) => setRecurrenceInterval(Math.max(1, Math.floor(Number(event.target.value) || 1)))}
+                />
+              </label>
+            )}
+            {recurrenceFrequency === "weekly" && (
+              <div className="grid gap-1 text-xs text-muted-foreground">
+                <span>{t("repeatWeekdays")}</span>
+                <div className="flex gap-1">
+                  {weekdayShortKeys.map((key, day) => {
+                    const active = recurrenceByWeekday.includes(day);
+                    return (
+                      <button
+                        key={day}
+                        aria-label={t(key)}
+                        aria-pressed={active}
+                        className={cn(
+                          "h-7 w-7 rounded-md border border-input text-xs font-medium transition-colors",
+                          active ? "border-ring bg-accent text-accent-foreground ring-1 ring-ring" : "bg-background hover:bg-accent",
+                        )}
+                        type="button"
+                        onClick={() =>
+                          setRecurrenceByWeekday((prev) =>
+                            prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b),
+                          )
+                        }
+                      >
+                        {t(key)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="task-repeat-end">
               <span>{t("repeatUntil")}</span>
               <input

@@ -52,6 +52,8 @@ const makeTask = (index: number): Task => ({
   deletedAt: null,
   recurrenceTemplateId: null,
   recurrenceInstanceDate: null,
+  parentId: null,
+  tags: [],
 });
 
 const makeData = (tasks: Task[]): AppData => ({
@@ -75,6 +77,7 @@ const makeData = (tasks: Task[]): AppData => ({
   reminders: [],
   savedViews: [],
   recurringTaskTemplates: [],
+  attachments: [],
   settings: {
     theme: "system",
     accentColor: "blue",
@@ -85,6 +88,7 @@ const makeData = (tasks: Task[]): AppData => ({
     notificationsEnabled: false,
     closeToTray: true,
   },
+  settingsByWorkspace: {},
 });
 
 describe("WorkspaceFloatingWindow performance list behavior", () => {

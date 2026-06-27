@@ -22,7 +22,10 @@ export const emptyReminderCenterGroups = (): ReminderCenterGroups => ({
 
 export const effectiveReminderTime = (reminder: Reminder) => reminder.snoozedUntil ?? reminder.remindAt;
 
-export const groupReminderCenterItems = (data: AppData, now = Date.now()): ReminderCenterGroups => {
+export const groupReminderCenterItems = (
+  data: Pick<AppData, "tasks" | "reminders">,
+  now = Date.now(),
+): ReminderCenterGroups => {
   const groups = emptyReminderCenterGroups();
   const tasksById = new Map(data.tasks.map((task) => [task.id, task]));
 
@@ -52,7 +55,8 @@ export const groupReminderCenterItems = (data: AppData, now = Date.now()): Remin
       continue;
     }
 
-    if (task.status === "completed") {
+    // Skip terminal states: completed and cancelled tasks don't need reminders
+    if (task.status === "completed" || task.status === "cancelled") {
       continue;
     }
 

@@ -56,7 +56,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
     [data.workspaceId, data.workspaces],
   );
   const openTasks = useMemo(
-    () => data.tasks.filter((task) => task.deletedAt === null && task.status === "todo"),
+    () => data.tasks.filter((task) => task.deletedAt === null && (task.status === "todo" || task.status === "in_progress")),
     [data.tasks],
   );
   const taskPageInput = useMemo(
@@ -120,7 +120,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
       setWorkspaceColor(workspaceColors[0].value);
       setSelectedTaskId(null);
     } catch {
-      setWorkspaceError(t("operationFailed"));
+      setWorkspaceError(t("workspaceCreateFailed"));
     } finally {
       setIsCreatingWorkspace(false);
     }
@@ -146,7 +146,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
       setFolderName("");
       setFolderPath("");
     } catch {
-      setFolderError(t("operationFailed"));
+      setFolderError(t("workspaceFolderCreateFailed"));
     } finally {
       setIsCreatingFolder(false);
     }
@@ -385,7 +385,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
                       title={t("delete")}
                       onClick={() => {
                         setWorkspaceActionError(null);
-                        void actions.deleteWorkspaceFolder(folder.id).catch(() => setWorkspaceActionError(t("operationFailed")));
+                        void actions.deleteWorkspaceFolder(folder.id).catch(() => setWorkspaceActionError(t("workspaceFolderCreateFailed")));
                       }}
                     >
                       <Trash2 aria-hidden="true" />

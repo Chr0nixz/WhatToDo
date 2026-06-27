@@ -24,6 +24,8 @@ export type CommandPaletteContext = {
   applySavedView: (view: SavedTaskView) => void;
   onEditWorkspace: () => void;
   onEditProject: (projectId: string) => void;
+  onCycleTheme: () => void | Promise<void>;
+  onToggleLanguage: () => void | Promise<void>;
 };
 
 const navViews: { id: AppView; labelKey: string; keywords: string[] }[] = [
@@ -36,8 +38,20 @@ const navViews: { id: AppView; labelKey: string; keywords: string[] }[] = [
 ];
 
 export const buildCommandItems = (context: CommandPaletteContext): CommandItem[] => {
-  const { data, t, setView, onNewTask, onSearchTasks, selectWorkspace, openFolder, applySavedView, onEditWorkspace, onEditProject } =
-    context;
+  const {
+    data,
+    t,
+    setView,
+    onNewTask,
+    onSearchTasks,
+    selectWorkspace,
+    openFolder,
+    applySavedView,
+    onEditWorkspace,
+    onEditProject,
+    onCycleTheme,
+    onToggleLanguage,
+  } = context;
 
   const items: CommandItem[] = [];
 
@@ -128,6 +142,28 @@ export const buildCommandItems = (context: CommandPaletteContext): CommandItem[]
     label: t("commandEditWorkspace"),
     keywords: ["edit workspace"],
     run: onEditWorkspace,
+  });
+
+  const themeLabelKey = data.settings.theme === "system"
+    ? "commandCycleThemeSystem"
+    : data.settings.theme === "light"
+      ? "commandCycleThemeLight"
+      : "commandCycleThemeDark";
+  items.push({
+    id: "manage:cycle-theme",
+    group: "manage",
+    label: t(themeLabelKey),
+    keywords: ["theme", "dark", "light", "system", "appearance"],
+    run: () => void onCycleTheme(),
+  });
+
+  const languageLabelKey = data.settings.language === "zh" ? "commandToggleLanguageToEn" : "commandToggleLanguageToZh";
+  items.push({
+    id: "manage:toggle-language",
+    group: "manage",
+    label: t(languageLabelKey),
+    keywords: ["language", "english", "chinese", "中文", "i18n", "locale"],
+    run: () => void onToggleLanguage(),
   });
 
   for (const project of data.projects.filter((item) => item.deletedAt === null && item.status !== "archived")) {

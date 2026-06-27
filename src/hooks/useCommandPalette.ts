@@ -105,6 +105,13 @@ export const useCommandPalette = ({ buildItems, searchTasks, onClose }: UseComma
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
+      // Ignore keystrokes while the user is composing with an IME (e.g. typing
+      // Chinese pinyin). Without this guard, pressing Enter to confirm an IME
+      // candidate would also trigger command execution.
+      if (event.isComposing || event.keyCode === 229) {
+        return;
+      }
+
       if (event.key === "ArrowDown") {
         event.preventDefault();
         setActiveIndex((current) => Math.min(current + 1, Math.max(visibleItems.length - 1, 0)));

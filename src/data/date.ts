@@ -49,12 +49,17 @@ export const shiftMonth = (selectedDateKey: string, amount: number) => {
 
 export const isToday = (date: Date) => isSameDay(date, new Date());
 
+// Status rank: active tasks (todo, in_progress) before terminal states (completed, cancelled)
+const statusRank: Record<Task["status"], number> = { todo: 0, in_progress: 1, completed: 2, cancelled: 3 };
+
 export const sortTasks = (tasks: Task[]) => {
   const priorityRank = { high: 0, medium: 1, low: 2 };
 
   return [...tasks].sort((a, b) => {
-    if (a.status !== b.status) {
-      return a.status === "todo" ? -1 : 1;
+    const statusA = statusRank[a.status];
+    const statusB = statusRank[b.status];
+    if (statusA !== statusB) {
+      return statusA - statusB;
     }
 
     const dueTime = (a.dueTime ?? "99:99").localeCompare(b.dueTime ?? "99:99");
@@ -74,8 +79,9 @@ export const sortTasks = (tasks: Task[]) => {
 export const tasksForDate = (tasks: Task[], dateKey: string) =>
   sortTasks(tasks.filter((task) => task.deletedAt === null && task.dueDate === dateKey));
 
+// "Open" = active, not in a terminal state (todo + in_progress)
 export const openTasks = (tasks: Task[]) =>
-  tasks.filter((task) => task.deletedAt === null && task.status === "todo");
+  tasks.filter((task) => task.deletedAt === null && (task.status === "todo" || task.status === "in_progress"));
 
 export const overdueTasks = (tasks: Task[], referenceDateKey = todayKey()) =>
   sortTasks(
@@ -84,7 +90,7 @@ export const overdueTasks = (tasks: Task[], referenceDateKey = todayKey()) =>
 
 export const taskCountsByDate = (tasks: Task[]) =>
   tasks.reduce<Record<string, number>>((counts, task) => {
-    if (task.deletedAt || task.status === "completed") {
+    if (task.deletedAt || task.status === "completed" || task.status === "cancelled") {
       return counts;
     }
 

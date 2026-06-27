@@ -8,15 +8,51 @@ export type AccentColor = "blue" | "emerald" | "amber" | "rose" | "violet";
 
 export type ProjectStatus = "active" | "paused" | "completed" | "archived";
 
-export type TaskStatus = "todo" | "completed";
+export type TaskStatus = "todo" | "in_progress" | "completed" | "cancelled";
 
 export type TaskPriority = "low" | "medium" | "high";
 
-export type RecurrenceFrequency = "daily" | "weekly" | "monthly";
+export type RecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly";
 
 export type DateRangeFilter = "all" | "today" | "week" | "overdue";
 
 export type PresenceFilter = "all" | "with" | "without";
+
+export type FilterConditionField =
+  | "priority"
+  | "status"
+  | "projectId"
+  | "tags"
+  | "hasReminder"
+  | "hasFolder"
+  | "dueDate"
+  | "parentId";
+
+export type FilterConditionOperator =
+  | "eq"
+  | "neq"
+  | "contains"
+  | "notContains"
+  | "in"
+  | "notIn"
+  | "before"
+  | "after"
+  | "isEmpty"
+  | "isNotEmpty";
+
+export type FilterCondition = {
+  field: FilterConditionField;
+  op: FilterConditionOperator;
+  // Optional because isEmpty/isNotEmpty operators don't need a value.
+  value?: string | string[];
+};
+
+export type FilterGroup = {
+  operator: "AND" | "OR";
+  negate: boolean;
+  conditions: FilterCondition[];
+  groups: FilterGroup[];
+};
 
 export type Workspace = {
   id: string;
@@ -69,6 +105,18 @@ export type Task = {
   deletedAt: string | null;
   recurrenceTemplateId: string | null;
   recurrenceInstanceDate: string | null;
+  parentId: string | null;
+  tags: string[];
+};
+
+export type Attachment = {
+  id: string;
+  task_id: string;
+  filename: string;
+  path: string;
+  mimeType: string | null;
+  size: number | null;
+  createdAt: string;
 };
 
 export type RecurringTaskTemplate = {
@@ -84,6 +132,7 @@ export type RecurringTaskTemplate = {
   reminderOffset: number | null;
   frequency: RecurrenceFrequency;
   interval: number;
+  byWeekday: number[] | null;
   anchorDate: string;
   endDate: string | null;
   enabled: boolean;
@@ -106,12 +155,15 @@ export type Reminder = {
 };
 
 export type TaskViewFilters = {
-  scope: "open" | "completed" | "all";
+  scope: "open" | "completed" | "cancelled" | "all";
   priority: TaskPriority | "all";
   projectId: string | "all" | "none";
   reminder: PresenceFilter;
   folder: PresenceFilter;
   dateRange: DateRangeFilter;
+  tags: string[];
+  tagMatch: "any" | "all" | "none";
+  advancedFilter: FilterGroup | null;
 };
 
 export type SavedTaskView = {
@@ -146,7 +198,9 @@ export type AppData = {
   reminders: Reminder[];
   savedViews: SavedTaskView[];
   recurringTaskTemplates: RecurringTaskTemplate[];
+  attachments: Attachment[];
   settings: Settings;
+  settingsByWorkspace: Record<string, Settings>;
 };
 
 export type RecoveryItems = {
@@ -166,7 +220,7 @@ export type AppIndexes = {
 
 export type TaskFilterContext = Pick<AppIndexes, "reminderTaskIds">;
 
-export type TaskPageScope = "open" | "completed" | "all";
+export type TaskPageScope = "open" | "completed" | "cancelled" | "all";
 
 export type TaskPageSort = "createdDesc" | "dueAsc" | "overview";
 
@@ -213,10 +267,14 @@ export type CreateTaskInput = {
   priority?: TaskPriority;
   notes?: string;
   reminderOffset?: number | null;
+  parentId?: string | null;
+  tags?: string[];
 };
 
 export type CreateRecurringTaskInput = CreateTaskInput & {
   frequency: RecurrenceFrequency;
+  interval?: number;
+  byWeekday?: number[] | null;
   endDate?: string | null;
   reminderOffset?: number | null;
 };
@@ -232,6 +290,8 @@ export type UpdateRecurringTaskTemplateInput = Partial<
     | "priority"
     | "reminderOffset"
     | "frequency"
+    | "interval"
+    | "byWeekday"
     | "endDate"
   >
 >;
@@ -246,6 +306,14 @@ export type CreateProjectInput = {
 export type CreateSavedTaskViewInput = {
   name: string;
   filters: TaskViewFilters;
+};
+
+export type CreateAttachmentInput = {
+  taskId: string;
+  filename: string;
+  path: string;
+  mimeType?: string | null;
+  size?: number | null;
 };
 
 export type BackupPayload = {
@@ -272,4 +340,22 @@ export type BackupPayload = {
   settingsByWorkspace: Record<string, Settings>;
   savedViews: SavedTaskView[];
   recurringTaskTemplates: RecurringTaskTemplate[];
+  attachments?: Attachment[];
+};
+
+export type AppDataKey = keyof AppData;
+
+export type RepositoryPatch = {
+  /** Top-level AppData fields whose references actually changed. */
+  affectedKeys: ReadonlyArray<AppDataKey>;
+};
+
+export type RepositoryResult = {
+  data: AppData;
+  patch: RepositoryPatch;
+};
+
+export type TaskDetailPaneHandle = {
+  isDirty: () => boolean;
+  requestSwitch: (nextTaskId: string | null) => boolean;
 };

@@ -1,12 +1,13 @@
-import { CalendarClock, Check, Clock, EyeOff, Repeat2, Trash2 } from "lucide-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { CalendarClock, Check, CheckSquare, Clock, EyeOff, Loader2, Repeat2, Square, Trash2, X, XCircle } from "lucide-react";
 import type { CSSProperties } from "react";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { formatTaskDate } from "@/data/dateFormat";
 import { cn } from "@/lib/utils";
-import type { Project, Reminder, Task } from "@/data/types";
+import type { Project, Reminder, Task, TaskStatus } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 
 type TaskListProps = {
@@ -26,6 +27,8 @@ type TaskListProps = {
   isLoadingMore?: boolean;
   loadError?: string | null;
   onLoadMore?: () => void;
+  /** Enable multi-select mode with bulk action toolbar. Floating windows should omit this. */
+  selectionEnabled?: boolean;
 };
 
 const priorityClasses = {
@@ -34,7 +37,186 @@ const priorityClasses = {
   low: "bg-emerald-500",
 };
 
-export function TaskList({
+const priorityTextClasses = {
+  high: "text-red-600",
+  medium: "text-amber-600",
+  low: "text-emerald-600",
+};
+
+const priorityLabelKeys: Record<string, string> = {
+  high: "priorityShortHigh",
+  medium: "priorityShortMedium",
+  low: "priorityShortLow",
+};
+
+const VIRTUAL_THRESHOLD = 200;
+
+type TaskRowProps = {
+  task: Task;
+  project: Project | null;
+  reminder: Reminder | undefined;
+  isSelected: boolean;
+  isCompact: boolean;
+  index: number;
+  actions: TodoActions;
+  onSelectTask?: (taskId: string) => void;
+  onDeleteTask?: (taskId: string) => void;
+  deleteMode: "delete" | "hide";
+  language: string;
+  t: (key: string, options?: Record<string, unknown>) => string;
+  style?: CSSProperties;
+  selectionMode?: boolean;
+  isChecked?: boolean;
+  onToggleCheck?: (taskId: string) => void;
+};
+
+const TaskRow = React.memo(function TaskRow({
+  task,
+  project,
+  reminder,
+  isSelected,
+  isCompact,
+  index,
+  actions,
+  onSelectTask,
+  onDeleteTask,
+  deleteMode,
+  language,
+  t,
+  style,
+  selectionMode = false,
+  isChecked = false,
+  onToggleCheck,
+}: TaskRowProps) {
+  const [actionError, setActionError] = useState<string | null>(null);
+  const DeleteIcon = deleteMode === "hide" ? EyeOff : Trash2;
+
+  return (
+    <div style={style}>
+      <article
+        className={cn(
+          "motion-surface group grid items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-2 shadow-sm hover:border-ring/70",
+          selectionMode ? "grid-cols-[24px_32px_minmax(0,1fr)_auto]" : "grid-cols-[32px_minmax(0,1fr)_auto]",
+          isSelected && "border-ring bg-accent/80",
+          (task.status === "completed" || task.status === "cancelled") && "opacity-60",
+          isCompact && "py-1.5",
+        )}
+        style={{ "--motion-index": index } as CSSProperties}
+      >
+        {selectionMode && (
+          <button
+            aria-label={isChecked ? t("deselectAll") : t("selectAll")}
+            className="flex size-5 items-center justify-center rounded border transition-colors"
+            type="button"
+            onClick={() => onToggleCheck?.(task.id)}
+          >
+            {isChecked ? <CheckSquare className="size-4 text-primary" /> : <Square className="size-4 text-muted-foreground" />}
+          </button>
+        )}
+        <button
+          aria-pressed={task.status === "completed"}
+          className={cn(
+            "flex size-6 items-center justify-center rounded-full border transition-[background-color,border-color,color,transform] duration-150 ease-[var(--ease-out-quart)] active:scale-90",
+            task.status === "completed"
+              ? "border-primary bg-primary text-primary-foreground"
+              : task.status === "in_progress"
+                ? "border-blue-500 bg-blue-500/10 text-blue-500"
+                : task.status === "cancelled"
+                  ? "border-muted-foreground bg-muted text-muted-foreground"
+                  : "border-input bg-background hover:border-ring",
+          )}
+          type="button"
+          aria-label={task.status === "completed" ? t("completed") : task.status === "in_progress" ? t("statusInProgress") : task.status === "cancelled" ? t("statusCancelled") : t("statusTodo")}
+          onClick={() => void actions.toggleTask(task.id)}
+        >
+          {task.status === "completed" && <Check className="motion-status size-3.5" />}
+          {task.status === "in_progress" && <Loader2 className="motion-status size-3.5 animate-spin" />}
+          {task.status === "cancelled" && <XCircle className="motion-status size-3.5" />}
+        </button>
+        <button
+          aria-current={isSelected ? "true" : undefined}
+          aria-label={`${t("openTask")}: ${task.title}`}
+          className="min-w-0 text-left"
+          type="button"
+          onClick={() => onSelectTask?.(task.id)}
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="inline-flex items-center gap-0.5 shrink-0">
+              <span
+                aria-label={`${t("priority")}: ${t(task.priority)}`}
+                className={cn("size-1.5 rounded-full", priorityClasses[task.priority])}
+                role="img"
+              />
+              <span className={cn("text-[10px] font-medium leading-none", priorityTextClasses[task.priority])}>
+                {t(priorityLabelKeys[task.priority])}
+              </span>
+            </span>
+            <h3
+              className={cn(
+                "truncate text-sm font-medium",
+                (task.status === "completed" || task.status === "cancelled") && "text-muted-foreground line-through",
+              )}
+            >
+              {task.title}
+            </h3>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <CalendarClock className="size-3" />
+              {formatTaskDate(task.dueDate, language)}
+            </span>
+            {task.dueTime && (
+              <span className="inline-flex items-center gap-1">
+                <Clock className="size-3" />
+                {task.dueTime}
+              </span>
+            )}
+            {project ? (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5"
+                title={project.name}
+              >
+                <span className="size-1.5 rounded-full" style={{ backgroundColor: project.color }} />
+                {project.name}
+              </span>
+            ) : (
+              <span className="rounded-full border border-border px-2 py-0.5">{t("loose")}</span>
+            )}
+            {reminder && <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-amber-600">{t("reminder")}</span>}
+            {task.recurrenceTemplateId && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-primary">
+                <Repeat2 className="size-3" />
+                {t("repeat")}
+              </span>
+            )}
+          </div>
+        </button>
+        <Button
+          aria-label={deleteMode === "hide" ? t("hideFromFloatingWindow") : t("delete")}
+          className="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+          size="icon-sm"
+          type="button"
+          variant="ghost"
+          title={deleteMode === "hide" ? t("hideFromFloatingWindow") : t("delete")}
+          onClick={() => {
+            setActionError(null);
+            if (onDeleteTask) {
+              onDeleteTask(task.id);
+              return;
+            }
+
+            void actions.deleteTask(task.id).catch(() => setActionError(t("taskDeleteFailed")));
+          }}
+        >
+          <DeleteIcon />
+        </Button>
+      </article>
+      {actionError && <p className="motion-status mt-1 text-xs text-destructive">{actionError}</p>}
+    </div>
+  );
+});
+
+function TaskListImpl({
   tasks,
   projects,
   reminders,
@@ -51,11 +233,15 @@ export function TaskList({
   isLoadingMore = false,
   loadError = null,
   onLoadMore,
+  selectionEnabled = false,
 }: TaskListProps) {
   const { i18n, t } = useTranslation();
-  const [actionError, setActionError] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(windowSize ?? tasks.length);
-  const DeleteIcon = deleteMode === "hide" ? EyeOff : Trash2;
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const projectsById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const remindersByTaskId = useMemo(() => {
     const reminderMap = new Map<string, Reminder>();
@@ -70,10 +256,87 @@ export function TaskList({
   }, [reminders]);
   const visibleTasks = onLoadMore ? tasks : windowSize ? tasks.slice(0, visibleCount) : tasks;
   const hasMore = onLoadMore ? tasks.length < (totalCount ?? tasks.length) : windowSize ? visibleCount < tasks.length : false;
+  const shouldVirtualize = visibleTasks.length > VIRTUAL_THRESHOLD;
+
+  const toggleCheck = (taskId: string) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (checkedIds.size === visibleTasks.length) {
+      setCheckedIds(new Set());
+    } else {
+      setCheckedIds(new Set(visibleTasks.map((task) => task.id)));
+    }
+  };
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setCheckedIds(new Set());
+    setBulkError(null);
+  };
+
+  const runBulkStatus = async (status: TaskStatus) => {
+    if (checkedIds.size === 0) return;
+    setIsBulkProcessing(true);
+    setBulkError(null);
+    try {
+      await actions.bulkSetTaskStatus([...checkedIds], status);
+      exitSelectionMode();
+    } catch {
+      setBulkError(t("operationFailed"));
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
+
+  const runBulkDelete = async () => {
+    if (checkedIds.size === 0) return;
+    setIsBulkProcessing(true);
+    setBulkError(null);
+    try {
+      await actions.bulkDeleteTasks([...checkedIds]);
+      exitSelectionMode();
+    } catch {
+      setBulkError(t("operationFailed"));
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
+
+  const runBulkMoveToProject = async (projectId: string | null) => {
+    if (checkedIds.size === 0) return;
+    setIsBulkProcessing(true);
+    setBulkError(null);
+    try {
+      await actions.bulkMoveTasksToProject([...checkedIds], projectId);
+      exitSelectionMode();
+    } catch {
+      setBulkError(t("operationFailed"));
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
 
   useEffect(() => {
     setVisibleCount(windowSize ?? tasks.length);
   }, [tasks, windowKey, windowSize]);
+
+  const virtualizer = useVirtualizer({
+    count: shouldVirtualize ? visibleTasks.length : 0,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => (compact ? 52 : 68) + 8,
+    overscan: 6,
+    enabled: shouldVirtualize,
+  });
 
   if (tasks.length === 0) {
     return (
@@ -83,112 +346,173 @@ export function TaskList({
     );
   }
 
-  return (
-    <div className="motion-list space-y-2">
-      {visibleTasks.map((task, index) => {
-        const project = task.projectId ? projectsById.get(task.projectId) ?? null : null;
-        const reminder = remindersByTaskId.get(task.id);
+  const bulkToolbar = selectionEnabled && (
+    <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card/60 p-2">
+      {!selectionMode ? (
+        <Button
+          size="sm"
+          type="button"
+          variant="outline"
+          onClick={() => setSelectionMode(true)}
+        >
+          <CheckSquare className="size-3.5" />
+          {t("selectMode")}
+        </Button>
+      ) : (
+        <>
+          <Button size="sm" type="button" variant="ghost" onClick={toggleSelectAll}>
+            {checkedIds.size === visibleTasks.length ? t("deselectAll") : t("selectAll")}
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {t("selectedCount", { count: checkedIds.size })}
+          </span>
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            <Button disabled={isBulkProcessing || checkedIds.size === 0} size="sm" type="button" variant="ghost" onClick={() => void runBulkStatus("completed")}>
+              <Check className="size-3.5" />
+              {t("bulkComplete")}
+            </Button>
+            <Button disabled={isBulkProcessing || checkedIds.size === 0} size="sm" type="button" variant="ghost" onClick={() => void runBulkStatus("todo")}>
+              {t("bulkSetTodo")}
+            </Button>
+            <Button disabled={isBulkProcessing || checkedIds.size === 0} size="sm" type="button" variant="ghost" onClick={() => void runBulkStatus("in_progress")}>
+              {t("bulkSetInProgress")}
+            </Button>
+            <Button disabled={isBulkProcessing || checkedIds.size === 0} size="sm" type="button" variant="ghost" onClick={() => void runBulkStatus("cancelled")}>
+              {t("bulkCancel")}
+            </Button>
+            <select
+              className="h-8 rounded-md border border-input bg-background px-2 text-xs outline-none focus:border-ring"
+              disabled={isBulkProcessing || checkedIds.size === 0 || projects.filter((p) => p.deletedAt === null && p.status !== "archived").length === 0}
+              value=""
+              onChange={(event) => {
+                const value = event.target.value;
+                if (value === "") return;
+                if (value === "none") {
+                  void runBulkMoveToProject(null);
+                } else {
+                  void runBulkMoveToProject(value);
+                }
+              }}
+            >
+              <option value="">{t("bulkMoveToProject")}</option>
+              <option value="none">{t("none")}</option>
+              {projects.filter((p) => p.deletedAt === null && p.status !== "archived").map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <Button disabled={isBulkProcessing || checkedIds.size === 0} size="sm" type="button" variant="destructive" onClick={() => void runBulkDelete()}>
+              <Trash2 className="size-3.5" />
+              {t("bulkDelete")}
+            </Button>
+            <Button disabled={isBulkProcessing} size="sm" type="button" variant="ghost" onClick={exitSelectionMode}>
+              <X className="size-3.5" />
+              {t("exitSelectMode")}
+            </Button>
+          </div>
+        </>
+      )}
+      {bulkError && <p className="w-full text-xs text-destructive">{bulkError}</p>}
+    </div>
+  );
 
-        return (
-          <article
-            key={task.id}
-            className={cn(
-              "motion-surface group grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-2 shadow-sm hover:border-ring/70",
-              selectedTaskId === task.id && "border-ring bg-accent/80",
-              task.status === "completed" && "opacity-60",
-              compact && "py-1.5",
-            )}
-            style={{ "--motion-index": index } as CSSProperties}
-          >
-            <button
-              aria-pressed={task.status === "completed"}
-              className={cn(
-                "flex size-6 items-center justify-center rounded-full border transition-[background-color,border-color,color,transform] duration-150 ease-[var(--ease-out-quart)] active:scale-90",
-                task.status === "completed"
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-input bg-background hover:border-ring",
-              )}
-              type="button"
-              aria-label={task.status === "completed" ? t("completed") : t("openTasks")}
-              onClick={() => void actions.toggleTask(task.id)}
-            >
-              {task.status === "completed" && <Check className="motion-status size-3.5" />}
-            </button>
-            <button
-              aria-current={selectedTaskId === task.id ? "true" : undefined}
-              aria-label={`${t("openTask")}: ${task.title}`}
-              className="min-w-0 text-left"
-              type="button"
-              onClick={() => onSelectTask?.(task.id)}
-            >
-              <div className="flex min-w-0 items-center gap-2">
-                <span
-                  aria-label={`${t("priority")}: ${t(task.priority)}`}
-                  className={cn("size-2 shrink-0 rounded-full", priorityClasses[task.priority])}
-                  role="img"
-                />
-                <h3
-                  className={cn(
-                    "truncate text-sm font-medium",
-                    task.status === "completed" && "text-muted-foreground line-through",
-                  )}
+  if (shouldVirtualize) {
+    const virtualItems = virtualizer.getVirtualItems();
+    return (
+      <div>
+        {bulkToolbar}
+        <div className="motion-list" ref={scrollRef} style={{ maxHeight: "70vh", overflowY: "auto" }}>
+          <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+            {virtualItems.map((virtualItem) => {
+              const task = visibleTasks[virtualItem.index];
+              if (!task) {
+                return null;
+              }
+              return (
+                <div
+                  key={task.id}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualItem.start}px)`,
+                  }}
                 >
-                  {task.title}
-                </h3>
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span className="inline-flex items-center gap-1">
-                  <CalendarClock className="size-3" />
-                  {formatTaskDate(task.dueDate, i18n.language)}
-                </span>
-                {task.dueTime && (
-                  <span className="inline-flex items-center gap-1">
-                    <Clock className="size-3" />
-                    {task.dueTime}
-                  </span>
-                )}
-                {project ? (
-                  <span
-                    className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5"
-                    title={project.name}
-                  >
-                    <span className="size-1.5 rounded-full" style={{ backgroundColor: project.color }} />
-                    {project.name}
-                  </span>
-                ) : (
-                  <span className="rounded-full border border-border px-2 py-0.5">{t("loose")}</span>
-                )}
-                {reminder && <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-amber-600">{t("reminder")}</span>}
-                {task.recurrenceTemplateId && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-primary">
-                    <Repeat2 className="size-3" />
-                    {t("repeat")}
-                  </span>
-                )}
-              </div>
-            </button>
-            <Button
-              aria-label={deleteMode === "hide" ? t("hideFromFloatingWindow") : t("delete")}
-              className="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
-              size="icon-sm"
+                  <TaskRow
+                    task={task}
+                    project={task.projectId ? projectsById.get(task.projectId) ?? null : null}
+                    reminder={remindersByTaskId.get(task.id)}
+                    isSelected={selectedTaskId === task.id}
+                    isCompact={compact}
+                    index={virtualItem.index}
+                    actions={actions}
+                    onSelectTask={onSelectTask}
+                    onDeleteTask={onDeleteTask}
+                    deleteMode={deleteMode}
+                    language={i18n.language}
+                    t={t}
+                    selectionMode={selectionMode}
+                    isChecked={checkedIds.has(task.id)}
+                    onToggleCheck={toggleCheck}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          {hasMore && (
+            <button
+              className="motion-surface mt-2 flex h-9 w-full items-center justify-center rounded-md border border-border bg-secondary px-3 text-sm font-medium hover:bg-accent"
+              disabled={isLoadingMore}
               type="button"
-              variant="ghost"
-              title={deleteMode === "hide" ? t("hideFromFloatingWindow") : t("delete")}
-          onClick={() => {
-                setActionError(null);
-                if (onDeleteTask) {
-                  onDeleteTask(task.id);
+              onClick={() => {
+                if (onLoadMore) {
+                  onLoadMore();
                   return;
                 }
 
-                void actions.deleteTask(task.id).catch(() => setActionError(t("operationFailed")));
+                setVisibleCount((count) => Math.min(count + (windowSize ?? 0), tasks.length));
               }}
             >
-              <DeleteIcon />
-            </Button>
-          </article>
-        );
-      })}
+              {isLoadingMore
+                ? t("loadingTasks")
+                : t("loadMoreTasks", { shown: visibleTasks.length, total: totalCount ?? tasks.length })}
+            </button>
+          )}
+          {loadError && <p className="motion-status mt-2 text-xs text-destructive">{loadError}</p>}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {bulkToolbar}
+      <div className="motion-list space-y-2">
+        {visibleTasks.map((task, index) => {
+          const project = task.projectId ? projectsById.get(task.projectId) ?? null : null;
+          const reminder = remindersByTaskId.get(task.id);
+
+          return (
+            <TaskRow
+              key={task.id}
+              task={task}
+              project={project}
+              reminder={reminder}
+              isSelected={selectedTaskId === task.id}
+              isCompact={compact}
+              index={index}
+              actions={actions}
+              onSelectTask={onSelectTask}
+              onDeleteTask={onDeleteTask}
+              deleteMode={deleteMode}
+              language={i18n.language}
+              t={t}
+              selectionMode={selectionMode}
+              isChecked={checkedIds.has(task.id)}
+              onToggleCheck={toggleCheck}
+            />
+          );
+        })}
       {hasMore && (
         <button
           className="motion-surface flex h-9 w-full items-center justify-center rounded-md border border-border bg-secondary px-3 text-sm font-medium hover:bg-accent"
@@ -209,7 +533,13 @@ export function TaskList({
         </button>
       )}
       {loadError && <p className="motion-status text-xs text-destructive">{loadError}</p>}
-      {actionError && <p className="motion-status text-xs text-destructive">{actionError}</p>}
+      </div>
     </div>
   );
 }
+
+// React.memo so the list skips re-renders when props are referentially stable.
+// Combined with applyRepositoryPatch preserving slice references, this means a
+// reminder mutation (which keeps tasks/projects/reminders refs stable) will no
+// longer re-render the task list.
+export const TaskList = React.memo(TaskListImpl);

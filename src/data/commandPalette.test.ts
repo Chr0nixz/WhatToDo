@@ -35,12 +35,13 @@ const baseData: AppData = {
       id: "v-1",
       workspaceId: "ws-1",
       name: "High priority",
-      filters: { scope: "open", priority: "high", projectId: "all", reminder: "all", folder: "all", dateRange: "all" },
+      filters: { scope: "open", priority: "high", projectId: "all", reminder: "all", folder: "all", dateRange: "all", tags: [], tagMatch: "any", advancedFilter: null },
       createdAt: "2026-01-01",
       updatedAt: "2026-01-01",
     },
   ],
   recurringTaskTemplates: [],
+  attachments: [],
   settings: {
     theme: "system",
     accentColor: "blue",
@@ -51,6 +52,7 @@ const baseData: AppData = {
     notificationsEnabled: false,
     closeToTray: true,
   },
+  settingsByWorkspace: {},
 };
 
 describe("commandPalette", () => {
@@ -67,6 +69,8 @@ describe("commandPalette", () => {
       applySavedView: () => undefined,
       onEditWorkspace: () => undefined,
       onEditProject: () => undefined,
+      onCycleTheme: () => undefined,
+      onToggleLanguage: () => undefined,
     });
 
     const filtered = filterCommandItems(items, "launch");
@@ -86,6 +90,8 @@ describe("commandPalette", () => {
       applySavedView: () => undefined,
       onEditWorkspace: () => undefined,
       onEditProject: () => undefined,
+      onCycleTheme: () => undefined,
+      onToggleLanguage: () => undefined,
     });
 
     expect(items.some((item) => item.id === "workspace:ws-1")).toBe(false);

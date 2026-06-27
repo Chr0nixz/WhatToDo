@@ -14,10 +14,18 @@ tmp
 src-tauri/target
 *.local
 
-# Editor directories and files
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# Editor / tool directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
+.trae/
+.impeccable/
 .DS_Store
 *.suo
 *.ntvs*

@@ -55,4 +55,24 @@ describe("parseQuickAdd", () => {
     expect(result.draft.priority).toBe("low");
     expect(result.draft.reminderOffset).toBeNull();
   });
+
+  it("parses extended chinese date expressions", () => {
+    const referenceDate = new Date("2026-06-01T00:00:00.000Z"); // 周一
+    const cases: Array<{ input: string; expectedDue: string }> = [
+      { input: "下周三开会", expectedDue: "2026-06-10" },
+      { input: "下周五交报告", expectedDue: "2026-06-12" },
+      { input: "本周五复盘", expectedDue: "2026-06-05" },
+      { input: "周日报假", expectedDue: "2026-06-07" },
+      { input: "3天后交货", expectedDue: "2026-06-04" },
+      { input: "一周后上线", expectedDue: "2026-06-08" },
+      { input: "大后天出差", expectedDue: "2026-06-04" },
+      { input: "月底结账", expectedDue: "2026-06-30" },
+      { input: "下个月15号发薪", expectedDue: "2026-07-15" },
+      { input: "下月1号复盘", expectedDue: "2026-07-01" },
+    ];
+    for (const { input, expectedDue } of cases) {
+      const result = parseQuickAdd({ input, referenceDate, projects: [project], defaultReminderOffset: 15 });
+      expect(result.draft.dueDate).toBe(expectedDue);
+    }
+  });
 });

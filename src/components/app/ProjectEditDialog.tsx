@@ -1,10 +1,11 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { FolderOpen, X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import type { Project } from "@/data/types";
+import type { Project, ProjectStatus } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +16,8 @@ const projectColors = [
   { labelKey: "accentEmerald", value: "#6cc083" },
   { labelKey: "accentAmber", value: "#d7a742" },
 ];
+
+const projectStatuses: ProjectStatus[] = ["active", "paused", "completed"];
 
 type ProjectEditDialogProps = {
   project: Project | null;
@@ -28,6 +31,8 @@ export function ProjectEditDialog({ project, open, onOpenChange, actions }: Proj
   const [name, setName] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [color, setColor] = useState(projectColors[0].value);
+  const [status, setStatus] = useState<ProjectStatus>("active");
+  const [workingFolder, setWorkingFolder] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,8 +44,22 @@ export function ProjectEditDialog({ project, open, onOpenChange, actions }: Proj
     setName(project.name);
     setDueDate(project.dueDate ?? "");
     setColor(project.color);
+    setStatus(project.status);
+    setWorkingFolder(project.workingFolder ?? "");
     setError(null);
   }, [open, project]);
+
+  const chooseFolder = async () => {
+    const selected = await openDialog({
+      directory: true,
+      multiple: false,
+      title: t("chooseFolder"),
+    });
+
+    if (typeof selected === "string") {
+      setWorkingFolder(selected);
+    }
+  };
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -62,10 +81,12 @@ export function ProjectEditDialog({ project, open, onOpenChange, actions }: Proj
         name: trimmed,
         color,
         dueDate: dueDate || null,
+        status,
+        workingFolder: workingFolder.trim() || null,
       });
       onOpenChange(false);
     } catch {
-      setError(t("operationFailed"));
+      setError(t("projectUpdateFailed"));
     } finally {
       setIsSaving(false);
     }
@@ -102,15 +123,53 @@ export function ProjectEditDialog({ project, open, onOpenChange, actions }: Proj
                 onChange={(event) => setName(event.target.value)}
               />
             </label>
-            <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="edit-project-due">
-              <span>{t("projectDue")}</span>
-              <input
-                id="edit-project-due"
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
-                type="date"
-                value={dueDate}
-                onChange={(event) => setDueDate(event.target.value)}
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="edit-project-due">
+                <span>{t("projectDue")}</span>
+                <input
+                  id="edit-project-due"
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
+                  type="date"
+                  value={dueDate}
+                  onChange={(event) => setDueDate(event.target.value)}
+                />
+              </label>
+              <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="edit-project-status">
+                <span>{t("projectStatus")}</span>
+                <select
+                  id="edit-project-status"
+                  className="h-9 rounded-md border border-input bg-background px-2 text-sm outline-none transition-colors focus:border-ring"
+                  value={status}
+                  onChange={(event) => setStatus(event.target.value as ProjectStatus)}
+                >
+                  {projectStatuses.map((item) => (
+                    <option key={item} value={item}>
+                      {t(item)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="edit-project-folder">
+              <span>{t("projectWorkingFolder")}</span>
+              <div className="grid grid-cols-[minmax(0,1fr)_36px] gap-1.5">
+                <input
+                  id="edit-project-folder"
+                  className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
+                  value={workingFolder}
+                  onChange={(event) => setWorkingFolder(event.target.value)}
+                />
+                <Button
+                  aria-label={t("chooseFolder")}
+                  size="icon-lg"
+                  title={t("chooseFolder")}
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void chooseFolder()}
+                >
+                  <FolderOpen aria-hidden="true" />
+                </Button>
+              </div>
             </label>
             <div className="flex gap-2">
               {projectColors.map((item) => (

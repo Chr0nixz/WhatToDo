@@ -16,10 +16,12 @@ function App() {
   const { data, isLoading, error, actions } = useTodos();
   const { t } = useTranslation();
   const isFloatingWindow = isWorkspaceFloatingWindow();
-  const [dbReset, setDbReset] = useState(false);
+  const [dbReset, setDbReset] = useState<string | null>(null);
 
   useEffect(() => {
-    const unlisten = listen("db-reset", () => setDbReset(true));
+    const unlisten = listen<string>("db-reset", (event) => {
+      setDbReset(typeof event.payload === "string" ? event.payload : "");
+    });
     return () => {
       unlisten.then((fn) => fn());
     };

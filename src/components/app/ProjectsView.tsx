@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { Metric } from "@/components/ui/metric";
 import { formatTaskDate } from "@/data/dateFormat";
 import { NO_PROJECT_ID, getProjectProgress, visibleProjects } from "@/data/project";
 import type { AppData } from "@/data/types";
@@ -135,7 +136,7 @@ export function ProjectsView({
       setWorkingFolder("");
       setColor(projectColors[0].value);
     } catch {
-      setFormError(t("operationFailed"));
+      setFormError(t("projectCreateFailed"));
     } finally {
       setIsCreating(false);
     }
@@ -210,7 +211,7 @@ export function ProjectsView({
                 key={project.id}
                 active={selectedProjectId === project.id}
                 color={project.color}
-                count={(tasksByProjectId.get(project.id) ?? []).filter((task) => task.status === "todo").length}
+                count={(tasksByProjectId.get(project.id) ?? []).filter((task) => task.status === "todo" || task.status === "in_progress").length}
                 label={project.name}
                 onClick={() => setSelectedProjectId(project.id)}
               />
@@ -317,7 +318,7 @@ export function ProjectsView({
                   variant="ghost"
                   onClick={() => {
                     setProjectActionError(null);
-                    void actions.archiveProject(selectedProject.id).catch(() => setProjectActionError(t("operationFailed")));
+                    void actions.archiveProject(selectedProject.id).catch(() => setProjectActionError(t("projectUpdateFailed")));
                   }}
                 >
                   <Archive />
@@ -376,7 +377,7 @@ export function ProjectsView({
               </div>
               {folderSaveState !== "idle" && (
                 <p className={cn("motion-status mt-2 text-xs", folderSaveState === "saved" ? "text-emerald-600" : "text-destructive")}>
-                  {folderSaveState === "saved" ? t("saved") : t("operationFailed")}
+                  {folderSaveState === "saved" ? t("saved") : t("projectUpdateFailed")}
                 </p>
               )}
             </div>
@@ -446,11 +447,3 @@ function ProjectButton({
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="motion-surface rounded-md border border-border bg-card/60 px-3 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-semibold">{value}</p>
-    </div>
-  );
-}

@@ -21,6 +21,8 @@ const makeTask = (patch: Partial<Task>): Task => ({
   deletedAt: patch.deletedAt ?? null,
   recurrenceTemplateId: patch.recurrenceTemplateId ?? null,
   recurrenceInstanceDate: patch.recurrenceInstanceDate ?? null,
+  parentId: null,
+  tags: [],
 });
 
 describe("date task helpers", () => {
