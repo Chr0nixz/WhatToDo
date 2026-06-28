@@ -18,6 +18,7 @@ type TaskListProps = {
   compact?: boolean;
   selectedTaskId?: string | null;
   onSelectTask?: (taskId: string) => void;
+  onClearSelection?: () => void;
   onDeleteTask?: (taskId: string) => void;
   deleteMode?: "delete" | "hide";
   emptyLabel?: string;
@@ -94,6 +95,7 @@ const TaskRow = React.memo(function TaskRow({
   return (
     <div style={style}>
       <article
+        data-task-id={task.id}
         className={cn(
           "motion-surface group grid items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-2 shadow-sm hover:border-ring/70",
           selectionMode ? "grid-cols-[24px_32px_minmax(0,1fr)_auto]" : "grid-cols-[32px_minmax(0,1fr)_auto]",
@@ -224,6 +226,7 @@ function TaskListImpl({
   compact = false,
   selectedTaskId = null,
   onSelectTask,
+  onClearSelection,
   onDeleteTask,
   deleteMode = "delete",
   emptyLabel,
@@ -338,6 +341,15 @@ function TaskListImpl({
     enabled: shouldVirtualize,
   });
 
+  // Keep the keyboard-selected task visible when it moves off-screen.
+  useEffect(() => {
+    if (!selectedTaskId) return;
+    const el = document.querySelector(`[data-task-id="${selectedTaskId}"]`);
+    if (el instanceof HTMLElement) {
+      el.scrollIntoView({ block: "nearest" });
+    }
+  }, [selectedTaskId]);
+
   if (tasks.length === 0) {
     return (
       <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
@@ -345,6 +357,48 @@ function TaskListImpl({
       </div>
     );
   }
+
+  // Power-user keyboard navigation: j/k (and arrows) move between tasks,
+  // Enter opens the selected task, Escape clears the selection. Ignored while
+  // typing in a field, while a dialog is open, or when j/k are used with a
+  // modifier (so Cmd+J etc. keep working).
+  const handleListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (document.querySelector('[role="dialog"]')) return;
+    const active = document.activeElement as HTMLElement | null;
+    const tag = active?.tagName.toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select" || active?.isContentEditable) return;
+
+    const key = event.key;
+    const lower = key.toLowerCase();
+
+    if (lower === "j" || key === "ArrowDown") {
+      if (lower === "j" && (event.ctrlKey || event.metaKey || event.altKey)) return;
+      event.preventDefault();
+      const currentIndex = selectedTaskId ? visibleTasks.findIndex((task) => task.id === selectedTaskId) : -1;
+      const next = visibleTasks[currentIndex + 1];
+      if (next) onSelectTask?.(next.id);
+    } else if (lower === "k" || key === "ArrowUp") {
+      if (lower === "k" && (event.ctrlKey || event.metaKey || event.altKey)) return;
+      event.preventDefault();
+      const currentIndex = selectedTaskId ? visibleTasks.findIndex((task) => task.id === selectedTaskId) : -1;
+      const prev = visibleTasks[currentIndex - 1];
+      if (prev) onSelectTask?.(prev.id);
+    } else if (key === "Enter") {
+      // Only handle Enter when the list container itself is focused; a focused
+      // child button already activates on Enter natively.
+      if (event.target === event.currentTarget && selectedTaskId) {
+        event.preventDefault();
+        onSelectTask?.(selectedTaskId);
+      }
+    } else if (key === "Escape") {
+      if (selectedTaskId && onClearSelection) {
+        event.preventDefault();
+        onClearSelection();
+      } else if (!selectedTaskId) {
+        event.currentTarget.blur();
+      }
+    }
+  };
 
   const bulkToolbar = selectionEnabled && (
     <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card/60 p-2">
@@ -420,7 +474,13 @@ function TaskListImpl({
     return (
       <div>
         {bulkToolbar}
-        <div className="motion-list" ref={scrollRef} style={{ maxHeight: "70vh", overflowY: "auto" }}>
+        <div
+          className="motion-list focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          ref={scrollRef}
+          style={{ maxHeight: "70vh", overflowY: "auto" }}
+          tabIndex={0}
+          onKeyDown={handleListKeyDown}
+        >
           <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
             {virtualItems.map((virtualItem) => {
               const task = visibleTasks[virtualItem.index];
@@ -487,7 +547,11 @@ function TaskListImpl({
   return (
     <div>
       {bulkToolbar}
-      <div className="motion-list space-y-2">
+      <div
+        className="motion-list space-y-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        tabIndex={0}
+        onKeyDown={handleListKeyDown}
+      >
         {visibleTasks.map((task, index) => {
           const project = task.projectId ? projectsById.get(task.projectId) ?? null : null;
           const reminder = remindersByTaskId.get(task.id);

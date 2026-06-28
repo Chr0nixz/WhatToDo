@@ -55,6 +55,13 @@ export function HomeView({
     return tasks.filter((task) => task.title.toLowerCase().includes(query));
   }, [appIndexes, debouncedSearchQuery, selectedDate]);
   const overdue = useMemo(() => overdueTasks(data.tasks), [data.tasks]);
+  const isFirstRun = data.tasks.length === 0 && localStorage.getItem("whattodo:firstRunSeen") === null;
+
+  useEffect(() => {
+    if (isFirstRun) {
+      localStorage.setItem("whattodo:firstRunSeen", "1");
+    }
+  }, [isFirstRun]);
 
   return (
     <main className="flex h-full min-h-0 max-md:flex-col">
@@ -132,6 +139,7 @@ export function HomeView({
           </div>
           <TaskList
             actions={actions}
+            emptyLabel={isFirstRun ? t("firstRunHint") : undefined}
             onSelectTask={setSelectedTaskId}
             projects={data.projects}
             reminders={data.reminders}

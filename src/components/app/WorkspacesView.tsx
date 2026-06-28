@@ -263,7 +263,9 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
         <div className="border-b border-border bg-background/65 p-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t("currentWorkspace")}</p>
+              {currentWorkspace && (
+                <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t("currentWorkspace")}</p>
+              )}
               <div className="mt-1 flex min-w-0 items-center gap-2">
                 <span
                   className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary"

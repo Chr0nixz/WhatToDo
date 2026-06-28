@@ -5,6 +5,7 @@ import {
   Check,
   Command,
   FolderKanban,
+  Keyboard,
   ListChecks,
   Loader2,
   PanelLeftClose,
@@ -12,8 +13,10 @@ import {
   RotateCcw,
   Settings,
   TriangleAlert,
+  Wand2,
   X,
 } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -23,6 +26,7 @@ import { CommandPalette } from "@/components/app/CommandPalette";
 import { ProjectEditDialog } from "@/components/app/ProjectEditDialog";
 import { TaskCreateDialog } from "@/components/app/TaskCreateDialog";
 import { WorkspaceEditDialog } from "@/components/app/WorkspaceEditDialog";
+import { Button } from "@/components/ui/button";
 import { buildCommandItems, type CommandItem } from "@/data/commandPalette";
 import { openTasks, overdueTasks, todayKey } from "@/data/date";
 import { buildAppIndexes } from "@/data/appIndexes";
@@ -92,6 +96,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
     () => (localStorage.getItem("whattodo:rail") ?? localStorage.getItem("ddl-todo:rail")) === "expanded",
   );
   const [taskCreateOpen, setTaskCreateOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [workspaceEditOpen, setWorkspaceEditOpen] = useState(false);
   const [projectEditOpen, setProjectEditOpen] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
@@ -277,6 +282,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
     onOpenPalette: palette.togglePalette,
     onNewTask: () => setTaskCreateOpen(true),
     onSearchTasks: palette.openTaskSearch,
+    onOpenHelp: () => setHelpOpen(true),
   });
 
   const disableNotifications = useCallback(async () => {
@@ -462,33 +468,19 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/80 px-4">
-          <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t(view)}</p>
-            <h2 key={view} className="motion-status truncate text-sm font-semibold">
-              {view === "home"
-                ? t("allDeadlines")
-                : view === "overview"
-                  ? t("allTasks")
-                  : view === "projects"
-                    ? t("projects")
-                    : view === "workspaces"
-                      ? currentWorkspace?.name ?? t("workspaces")
-                      : view === "reminders"
-                        ? t("reminderCenter")
-                        : t("settings")}
-            </h2>
-          </div>
+        <header className="flex h-12 shrink-0 items-center justify-end border-b border-border bg-background/80 px-4">
           <div className="flex items-center gap-2">
-            <button
-              className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-secondary px-3 text-sm text-secondary-foreground hover:bg-accent hover:text-accent-foreground"
+            <Button
+              className="border-border px-3 hover:bg-accent hover:text-accent-foreground"
+              size="lg"
               type="button"
+              variant="secondary"
               onClick={() => palette.openPalette("commands")}
             >
               <Command aria-hidden="true" className="size-4" />
               <span className="hidden sm:inline">{t("commandPalette")}</span>
               <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">{shortcutHint}</span>
-            </button>
+            </Button>
             {error && (
               <span className="motion-status inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-1 text-xs text-destructive">
                 <TriangleAlert className="size-3" />
@@ -634,6 +626,15 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
         onOpenChange={setProjectEditOpen}
       />
 
+      <HelpDialog
+        open={helpOpen}
+        onOpenChange={setHelpOpen}
+        onOpenSettings={() => {
+          setView("settings");
+          setSelectedTaskId(null);
+        }}
+      />
+
       <CommandPalette
         activeIndex={palette.activeIndex}
         isSearchingTasks={palette.isSearchingTasks}
@@ -716,5 +717,105 @@ function ViewLoading({ label }: { label: string }) {
         {label}
       </div>
     </div>
+  );
+}
+
+function HelpDialog({
+  open,
+  onOpenChange,
+  onOpenSettings,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onOpenSettings: () => void;
+}) {
+  const { t } = useTranslation();
+  const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+  const mod = isMac ? "\u2318" : "Ctrl";
+  const shortcuts: Array<[string, string]> = [
+    [t("shortcutOpenPalette"), `${mod} + K`],
+    [t("shortcutNewTask"), `${mod} + N`],
+    [t("shortcutSearchTasks"), `${mod} + Shift + F`],
+    [t("shortcutNextTask"), "j"],
+    [t("shortcutPrevTask"), "k"],
+    [t("shortcutSaveTask"), `${mod} + S`],
+    [t("shortcutSwitchScope"), "\u2190 / \u2192"],
+    [t("undo"), `${mod} + Z`],
+    [t("shortcutHelp"), "?"],
+    [t("close"), "Esc"],
+  ];
+
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="motion-dialog-overlay fixed inset-0 z-50 bg-background/65 backdrop-blur-[2px]" />
+        <Dialog.Content className="motion-dialog-content fixed left-1/2 top-1/2 z-50 w-[min(560px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-popover p-5 text-popover-foreground shadow-xl outline-none">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <Dialog.Title className="text-base font-semibold">{t("help")}</Dialog.Title>
+              <Dialog.Description className="mt-0.5 text-sm text-muted-foreground">{t("helpHint")}</Dialog.Description>
+            </div>
+            <Dialog.Close asChild>
+              <Button aria-label={t("close")} size="icon-sm" type="button" variant="ghost" title={t("close")}>
+                <X aria-hidden="true" />
+              </Button>
+            </Dialog.Close>
+          </div>
+
+          <div className="grid max-h-[60vh] gap-4 overflow-auto">
+            <div className="rounded-md bg-background/45 p-3">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+                <Keyboard className="size-4 text-muted-foreground" />
+                {t("keyboardShortcuts")}
+              </div>
+              <dl className="grid gap-1.5 text-sm">
+                {shortcuts.map(([label, keys]) => (
+                  <div key={label} className="flex items-center justify-between gap-2">
+                    <dt className="text-muted-foreground">{label}</dt>
+                    <dd>
+                      <kbd className="rounded border border-border bg-secondary px-1.5 py-0.5 text-xs">{keys}</kbd>
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+
+            <div className="rounded-md bg-background/45 p-3">
+              <div className="mb-1 flex items-center gap-2 text-sm font-medium">
+                <Wand2 className="size-4 text-muted-foreground" />
+                {t("quickAddSyntax")}
+              </div>
+              <p className="mb-2 text-xs text-muted-foreground">{t("quickAddSyntaxHint")}</p>
+              <ul className="grid gap-1 text-xs text-muted-foreground">
+                <li>{t("quickAddDateDesc")}</li>
+                <li>{t("quickAddTimeDesc")}</li>
+                <li>{t("quickAddProjectDesc")}</li>
+                <li>{t("quickAddPriorityDesc")}</li>
+                <li>{t("quickAddReminderDesc")}</li>
+              </ul>
+              <p className="mt-3 mb-1 text-xs font-medium text-foreground">{t("quickAddExamples")}</p>
+              <ul className="grid gap-1 text-xs text-muted-foreground">
+                <li className="rounded border border-border bg-background px-2 py-1 font-mono">{t("quickAddExample1")}</li>
+                <li className="rounded border border-border bg-background px-2 py-1 font-mono">{t("quickAddExample2")}</li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="mt-4 flex justify-end">
+            <Button
+              size="sm"
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                onOpenSettings();
+                onOpenChange(false);
+              }}
+            >
+              {t("helpOpenSettings")}
+            </Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

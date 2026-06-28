@@ -177,4 +177,71 @@ describe("ReminderCenterView", () => {
     expect(onOpenTask).toHaveBeenCalledWith("missed");
     await waitFor(() => expect(actions.toggleTask).toHaveBeenCalledWith("missed"));
   });
+
+  it("snoozes all missed reminders and reports success", async () => {
+    const actions = makeActions({
+      snoozeReminder: vi.fn().mockResolvedValue({} as AppData),
+    });
+    seedStore(
+      [
+        makeTask({ id: "missed-1", title: "Missed 1" }),
+        makeTask({ id: "missed-2", title: "Missed 2" }),
+      ],
+      [
+        makeReminder({ id: "r-1", taskId: "missed-1", remindAt: "2000-06-01T00:00:00.000Z" }),
+        makeReminder({ id: "r-2", taskId: "missed-2", remindAt: "2000-06-01T00:00:00.000Z" }),
+      ],
+    );
+
+    render(<ReminderCenterView actions={actions} onOpenTask={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /snooze all until tomorrow/i }));
+
+    await waitFor(() => expect(actions.snoozeReminder).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText("Reminder snoozed.")).toBeInTheDocument());
+  });
+
+  it("reports partial success when only some missed reminders snooze", async () => {
+    const actions = makeActions({
+      snoozeReminder: vi
+        .fn()
+        .mockResolvedValueOnce({} as AppData)
+        .mockResolvedValueOnce({} as AppData)
+        .mockRejectedValueOnce(new Error("boom")),
+    });
+    seedStore(
+      [
+        makeTask({ id: "missed-1", title: "Missed 1" }),
+        makeTask({ id: "missed-2", title: "Missed 2" }),
+        makeTask({ id: "missed-3", title: "Missed 3" }),
+      ],
+      [
+        makeReminder({ id: "r-1", taskId: "missed-1", remindAt: "2000-06-01T00:00:00.000Z" }),
+        makeReminder({ id: "r-2", taskId: "missed-2", remindAt: "2000-06-01T00:00:00.000Z" }),
+        makeReminder({ id: "r-3", taskId: "missed-3", remindAt: "2000-06-01T00:00:00.000Z" }),
+      ],
+    );
+
+    render(<ReminderCenterView actions={actions} onOpenTask={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /snooze all until tomorrow/i }));
+
+    await waitFor(() => expect(screen.getByText("Snoozed 2 of 3 reminders. 1 failed.")).toBeInTheDocument());
+  });
+
+  it("shows the error toast when snoozing all missed reminders fails entirely", async () => {
+    const actions = makeActions({
+      snoozeReminder: vi.fn().mockRejectedValue(new Error("boom")),
+    });
+    seedStore(
+      [makeTask({ id: "missed-1", title: "Missed 1" })],
+      [makeReminder({ id: "r-1", taskId: "missed-1", remindAt: "2000-06-01T00:00:00.000Z" })],
+    );
+
+    render(<ReminderCenterView actions={actions} onOpenTask={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /snooze all until tomorrow/i }));
+
+    await waitFor(() => expect(screen.getByText("Could not update the reminder. Try again.")).toBeInTheDocument());
+  });
 });

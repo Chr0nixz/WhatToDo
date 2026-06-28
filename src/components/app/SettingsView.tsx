@@ -185,9 +185,9 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
       const payload = await actions.exportBackup();
       await writeText(`whattodo-backup-${timestampForFile()}.json`, JSON.stringify(payload, null, 2), "application/json");
       setDataState("saved");
-    } catch {
+    } catch (err) {
       setDataState("error");
-      setDataError(t("exportFailed"));
+      setDataError(`${t("exportFailed")}: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -231,8 +231,9 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
       setImportPreview({ open: true, payload: parsed });
     } catch (err) {
       setDataState("error");
-      const message = err instanceof Error ? err.message : t("importFailed");
-      setDataError(message === t("importInvalidJson") || message === t("preImportBackupFailed") ? message : t("importFailed"));
+      const message = err instanceof Error ? err.message : String(err);
+      const isKnown = message === t("importInvalidJson") || message === t("preImportBackupFailed");
+      setDataError(isKnown ? message : `${t("importFailed")}: ${message}`);
     }
   };
 
@@ -241,9 +242,9 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
       await actions.importBackup(payload);
       setImportPreview({ open: false, payload: null });
       setDataState("saved");
-    } catch {
+    } catch (err) {
       setDataState("error");
-      setDataError(t("importFailed"));
+      setDataError(`${t("importFailed")}: ${err instanceof Error ? err.message : String(err)}`);
       setImportPreview({ open: false, payload: null });
     }
   };
@@ -254,9 +255,9 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
     try {
       await writeText(`whattodo-tasks-${timestampForFile()}.csv`, await actions.exportCurrentWorkspaceCsv(), "text/csv");
       setDataState("saved");
-    } catch {
+    } catch (err) {
       setDataState("error");
-      setDataError(t("exportFailed"));
+      setDataError(`${t("exportFailed")}: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -266,9 +267,9 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
     try {
       await writeText(`whattodo-tasks-${timestampForFile()}.ics`, await actions.exportCurrentWorkspaceIcs(), "text/calendar");
       setDataState("saved");
-    } catch {
+    } catch (err) {
       setDataState("error");
-      setDataError(t("exportFailed"));
+      setDataError(`${t("exportFailed")}: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -666,7 +667,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             <p className="text-sm text-muted-foreground">{t("helpHint")}</p>
           </div>
         </div>
-        <div className="grid gap-4">
+        <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-md bg-background/45 p-3">
             <div className="mb-2 flex items-center gap-2 text-sm font-medium">
               <Keyboard className="size-4 text-muted-foreground" />

@@ -59,12 +59,20 @@ export function TaskComposer({
   const [parseFeedback, setParseFeedback] = useState<string | null>(null);
   const [quickAddMatches, setQuickAddMatches] = useState<QuickAddMatch[]>([]);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [showHint, setShowHint] = useState(false);
 
   useEffect(() => {
     setDueDate(defaultDate);
     setProjectId(defaultProjectId ?? "none");
     setReminderOffset(settings.defaultReminderOffset);
   }, [defaultDate, defaultProjectId, settings.defaultReminderOffset]);
+
+  const handleTitleFocus = () => {
+    if (localStorage.getItem("whattodo:quickAddHintSeen") === null) {
+      setShowHint(true);
+      localStorage.setItem("whattodo:quickAddHintSeen", "1");
+    }
+  };
 
   const chooseFolder = async () => {
     const selected = await openDialog({
@@ -181,10 +189,13 @@ export function TaskComposer({
             className="h-11 min-w-0 rounded-md border border-input bg-background px-3 text-base outline-none transition-colors placeholder:text-muted-foreground focus:border-ring"
             placeholder={t("taskTitle")}
             value={title}
+            onBlur={() => setShowHint(false)}
             onChange={(event) => {
               setTitle(event.target.value);
               setParseFeedback(null);
+              setShowHint(false);
             }}
+            onFocus={handleTitleFocus}
           />
           <Button
             aria-label={t("parseQuickAdd")}
@@ -199,6 +210,11 @@ export function TaskComposer({
             <span className="max-sm:hidden">{t("parseQuickAdd")}</span>
           </Button>
         </div>
+        {showHint && (
+          <p className="motion-status mt-1 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs text-muted-foreground">
+            {t("quickAddHint")}
+          </p>
+        )}
 
         <div className="grid grid-cols-[minmax(0,1fr)_128px] gap-2 max-sm:grid-cols-1">
           <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="task-date">
@@ -441,10 +457,13 @@ export function TaskComposer({
         className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring"
         placeholder={t("taskTitle")}
         value={title}
+        onBlur={() => setShowHint(false)}
         onChange={(event) => {
           setTitle(event.target.value);
           setParseFeedback(null);
+          setShowHint(false);
         }}
+        onFocus={handleTitleFocus}
       />
       <Button
         aria-label={t("parseQuickAdd")}
@@ -543,6 +562,11 @@ export function TaskComposer({
       >
         <Plus />
       </Button>
+      {showHint && (
+        <p className="motion-status col-span-full mt-1 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs text-muted-foreground">
+          {t("quickAddHint")}
+        </p>
+      )}
       {submitError && (
         <p className="motion-status col-span-full text-xs text-destructive">{submitError}</p>
       )}

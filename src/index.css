@@ -267,6 +267,7 @@ textarea {
 
 .motion-list > * {
   animation: motion-list-item-in 140ms var(--ease-out-quint) both;
+  animation-delay: calc(min(var(--motion-index, 0), 10) * 40ms);
 }
 
 .motion-surface {
@@ -363,6 +364,7 @@ select:focus-visible {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;

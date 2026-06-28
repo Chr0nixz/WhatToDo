@@ -1,5 +1,6 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
+import * as Dialog from "@radix-ui/react-dialog";
 import { Check, FolderOpen, PanelRightClose, Plus, Repeat2, Trash2, X } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { Ref } from "react";
@@ -28,6 +29,12 @@ type TaskDetailPaneProps = {
 const priorities: TaskPriority[] = ["low", "medium", "high"];
 const recurrenceOptions: RecurrenceFrequency[] = ["daily", "weekly", "monthly", "yearly"];
 const reminderOffsetOptions = [10, 30, 60, 1440];
+
+const describeError = (err: unknown): string => {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.length > 120 ? `${message.slice(0, 117)}...` : message;
+};
+
 const recurrenceLabelKeys: Record<RecurrenceFrequency, string> = {
   daily: "repeatDaily",
   weekly: "repeatWeekly",
@@ -175,10 +182,10 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
     }
   };
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     if (!task || !title.trim()) {
       setSaveState("error");
-      return;
+      return false;
     }
 
     setIsSaving(true);
@@ -203,13 +210,37 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
       }
       await actions.updateTaskReminder(task.id, useReminder ? reminderOffset : null);
       setSaveState("saved");
-    } catch {
-      setSaveErrorMessage(t("taskUpdateFailed"));
+      return true;
+    } catch (err) {
+      setSaveErrorMessage(`${t("taskUpdateFailed")}: ${describeError(err)}`);
       setSaveState("error");
+      return false;
     } finally {
       setIsSaving(false);
     }
   };
+
+  // Cmd/Ctrl+S saves the current task. Suppressed while the unsaved-changes
+  // dialog is open (it has its own Save button), while a save is in flight,
+  // or when the pane is not dirty.
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const saveShortcutStateRef = useRef({ isDirty, isSaving, dialogOpen: pendingClose || pendingDelete || pendingSwitch });
+  saveShortcutStateRef.current = { isDirty, isSaving, dialogOpen: pendingClose || pendingDelete || pendingSwitch };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const isSaveShortcut =
+        (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "s";
+      if (!isSaveShortcut) return;
+      const state = saveShortcutStateRef.current;
+      if (!state.isDirty || state.isSaving || state.dialogOpen) return;
+      event.preventDefault();
+      void saveRef.current();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const addTag = () => {
     const value = tagInput.trim();
@@ -269,8 +300,8 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
         endDate: recurrenceEndDate || null,
       });
       setFutureSaveState("saved");
-    } catch {
-      setSaveErrorMessage(t("taskUpdateFailed"));
+    } catch (err) {
+      setSaveErrorMessage(`${t("taskUpdateFailed")}: ${describeError(err)}`);
       setFutureSaveState("error");
     } finally {
       setIsSavingFuture(false);
@@ -289,8 +320,8 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
     try {
       await actions.disableRecurringTaskTemplate(recurringTemplate.id);
       setFutureSaveState("disabled");
-    } catch {
-      setSaveErrorMessage(t("taskUpdateFailed"));
+    } catch (err) {
+      setSaveErrorMessage(`${t("taskUpdateFailed")}: ${describeError(err)}`);
       setFutureSaveState("error");
     } finally {
       setIsSavingFuture(false);
@@ -322,20 +353,22 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
     try {
       await actions.deleteTask(task.id);
       onClose();
-    } catch {
-      setSaveErrorMessage(t("taskDeleteFailed"));
+    } catch (err) {
+      setSaveErrorMessage(`${t("taskDeleteFailed")}: ${describeError(err)}`);
       setDeleteState("error");
     }
   };
 
   const saveAndClose = async () => {
-    await save();
+    const ok = await save();
+    if (!ok) return;
     setPendingClose(false);
     onClose();
   };
 
   const saveAndDelete = async () => {
-    await save();
+    const ok = await save();
+    if (!ok) return;
     setPendingDelete(false);
     void runDelete();
   };
@@ -348,13 +381,14 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
   };
 
   const saveAndSwitch = async () => {
-    await save();
+    const ok = await save();
+    if (!ok) return;
     commitSwitch();
   };
 
   return (
     <aside
-      aria-label={t("projectTask")}
+      aria-label={t("taskDetail")}
       className={cn(
         "min-h-0 shrink-0 overflow-hidden border-l border-border bg-card/60 transition-[background-color,border-color] duration-150 ease-[var(--ease-out-quart)] max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-40 max-md:shadow-xl max-sm:bottom-14",
         task ? "w-[360px] max-xl:w-[332px] max-md:w-[min(360px,calc(100vw-56px))] max-sm:w-full" : "w-0",
@@ -364,7 +398,7 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
         <div key={task.id} className="motion-pane-content flex h-full min-w-[320px] flex-col max-sm:min-w-0">
           <div className="flex h-14 items-center justify-between border-b border-border px-4">
             <div className="min-w-0">
-              <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t("projectTask")}</p>
+              <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t("taskDetail")}</p>
               <h2 className="truncate text-sm font-semibold">
                 {project?.name ?? t("loose")}
                 {isDirty && (
@@ -624,7 +658,7 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
                 </div>
               )}
             </div>
-            <div className="mt-4 grid gap-2 rounded-md border border-border bg-background/45 p-3 text-xs text-muted-foreground">
+            <div className="mt-4 grid gap-2 rounded-md border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
               <div className="flex items-center justify-between gap-2">
                 <span>{t("attachments")}</span>
                 <span className="text-muted-foreground">{taskAttachments.length}</span>
@@ -685,7 +719,7 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
               </div>
             </div>
             {recurringTemplate && (
-              <div className="mt-4 grid gap-3 rounded-md border border-border bg-background/45 p-3">
+              <div className="mt-4 grid gap-3 rounded-md border border-border bg-muted/35 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
                     <Repeat2 className="size-4 text-primary" />
@@ -835,35 +869,58 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
         </div>
       )}
 
-      {(pendingClose || pendingDelete || pendingSwitch) && (
-        <div className="motion-dialog-overlay fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-[2px]" role="dialog" aria-modal="true" aria-labelledby="dirty-guard-title">
-          <div className="motion-dialog-content fixed left-1/2 top-1/2 w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-popover p-4 shadow-xl">
-            <h3 id="dirty-guard-title" className="text-sm font-semibold">{t("unsavedChangesTitle")}</h3>
-            <p className="mt-1.5 text-sm text-muted-foreground">{t("discardChanges")}</p>
+      <Dialog.Root
+        open={pendingClose || pendingDelete || pendingSwitch}
+        onOpenChange={(open) => {
+          if (open) return;
+          setPendingClose(false);
+          setPendingDelete(false);
+          setPendingSwitch(false);
+          pendingSwitchRef.current = null;
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="motion-dialog-overlay fixed inset-0 z-50 bg-background/65 backdrop-blur-[2px]" />
+          <Dialog.Content className="motion-dialog-content fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-xl outline-none">
+            <Dialog.Title className="text-sm font-semibold">{t("unsavedChangesTitle")}</Dialog.Title>
+            <Dialog.Description className="mt-1.5 text-sm text-muted-foreground">
+              {saveState === "error" && saveErrorMessage ? saveErrorMessage : t("discardChanges")}
+            </Dialog.Description>
             <div className="mt-4 flex justify-end gap-2">
-              <Button size="sm" type="button" variant="ghost" onClick={() => { setPendingClose(false); setPendingDelete(false); setPendingSwitch(false); pendingSwitchRef.current = null; }}>
-                {t("keepEditing")}
-              </Button>
-              <Button size="sm" type="button" variant="destructive" onClick={() => {
-                if (pendingClose) onClose();
-                if (pendingDelete) void runDelete();
-                if (pendingSwitch) commitSwitch();
-                setPendingClose(false);
-                setPendingDelete(false);
-              }}>
+              <Dialog.Close asChild>
+                <Button size="sm" type="button" variant="ghost">{t("keepEditing")}</Button>
+              </Dialog.Close>
+              <Button
+                size="sm"
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  if (pendingClose) onClose();
+                  if (pendingDelete) void runDelete();
+                  if (pendingSwitch) commitSwitch();
+                  setPendingClose(false);
+                  setPendingDelete(false);
+                }}
+              >
                 {t("discard")}
               </Button>
-              <Button size="sm" type="button" disabled={isSaving} onClick={() => {
-                if (pendingClose) void saveAndClose();
-                else if (pendingDelete) void saveAndDelete();
-                else if (pendingSwitch) void saveAndSwitch();
-              }}>
-                {isSaving ? t("saving") : t("saveAnyway")}
+              <Button
+                size="sm"
+                type="button"
+                variant={saveState === "error" ? "secondary" : "default"}
+                disabled={isSaving}
+                onClick={() => {
+                  if (pendingClose) void saveAndClose();
+                  else if (pendingDelete) void saveAndDelete();
+                  else if (pendingSwitch) void saveAndSwitch();
+                }}
+              >
+                {isSaving ? t("saving") : saveState === "error" ? t("retrySave") : t("saveAnyway")}
               </Button>
             </div>
-          </div>
-        </div>
-      )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </aside>
   );
 });

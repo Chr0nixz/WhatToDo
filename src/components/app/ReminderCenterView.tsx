@@ -3,6 +3,7 @@ import { isPermissionGranted, requestPermission, sendNotification } from "@tauri
 import type { CSSProperties } from "react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Popover } from "radix-ui";
 
 import { Button } from "@/components/ui/button";
 import { formatReminderDateTime } from "@/data/dateFormat";
@@ -43,6 +44,7 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [menuReminderId, setMenuReminderId] = useState<string | null>(null);
+  const [batchPending, setBatchPending] = useState(false);
   // Subscribe only to the slices this view needs. Thanks to applyRepositoryPatch
   // preserving slice references, this view will NOT re-render when unrelated
   // data (e.g. settings, projects) changes.
@@ -72,6 +74,26 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
       () => actions.snoozeReminder(item.reminder.id, getSnoozeUntil(option)),
       t("reminderSnoozed"),
     );
+
+  const handleSnoozeAllMissed = async () => {
+    const items = groups.missed;
+    if (items.length === 0 || batchPending) return;
+    setBatchPending(true);
+    setError(null);
+    setFeedback(null);
+    const untilIso = getSnoozeUntil("tomorrowMorning");
+    const results = await Promise.allSettled(items.map((item) => actions.snoozeReminder(item.reminder.id, untilIso)));
+    const fulfilled = results.filter((result) => result.status === "fulfilled").length;
+    const rejected = results.length - fulfilled;
+    if (rejected === 0) {
+      setFeedback(t("reminderSnoozed"));
+    } else if (fulfilled === 0) {
+      setError(t("reminderActionFailed"));
+    } else {
+      setFeedback(t("snoozeAllPartialSuccess", { fulfilled, total: results.length, rejected }));
+    }
+    setBatchPending(false);
+  };
 
   const handleDisable = (item: ReminderCenterItem) =>
     runReminderAction(item.reminder.id, () => actions.disableReminder(item.reminder.id), t("reminderDisabled"));
@@ -138,9 +160,23 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
               <section key={group} className="grid gap-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold">{t(`${group}Reminders`)}</h3>
-                  <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", groupClasses[group])}>
-                    {groups[group].length}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {group === "missed" && groups.missed.length > 0 && (
+                      <Button
+                        disabled={batchPending}
+                        size="xs"
+                        type="button"
+                        variant="secondary"
+                        onClick={() => void handleSnoozeAllMissed()}
+                      >
+                        <Clock3 />
+                        {t("snoozeAllMissed")}
+                      </Button>
+                    )}
+                    <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", groupClasses[group])}>
+                      {groups[group].length}
+                    </span>
+                  </div>
                 </div>
                 {groups[group].length === 0 ? (
                   <div className="motion-status rounded-lg border border-dashed border-border bg-card/30 px-4 py-5 text-sm text-muted-foreground">
@@ -207,23 +243,31 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
                                 {t("retry")}
                               </Button>
                             )}
-                            <div className="relative ml-auto">
-                              <Button
-                                aria-expanded={menuReminderId === item.reminder.id}
-                                aria-label={t("moreActions")}
-                                disabled={pendingId === item.reminder.id}
-                                size="xs"
-                                type="button"
-                                variant="outline"
-                                title={t("moreActions")}
-                                onClick={() => setMenuReminderId((current) => (current === item.reminder.id ? null : item.reminder.id))}
-                              >
-                                <RotateCcw />
-                                {t("snooze")}
-                                <ChevronDown />
-                              </Button>
-                              {menuReminderId === item.reminder.id && (
-                                <span className="absolute right-0 top-[calc(100%+4px)] z-10 grid min-w-40 gap-0.5 rounded-md border border-border bg-popover p-1 shadow-md">
+                            <Popover.Root
+                              open={menuReminderId === item.reminder.id}
+                              onOpenChange={(open) => setMenuReminderId(open ? item.reminder.id : null)}
+                            >
+                              <Popover.Trigger asChild>
+                                <Button
+                                  aria-label={t("moreActions")}
+                                  className="ml-auto"
+                                  disabled={pendingId === item.reminder.id || batchPending}
+                                  size="xs"
+                                  type="button"
+                                  variant="outline"
+                                  title={t("moreActions")}
+                                >
+                                  <RotateCcw />
+                                  {t("snooze")}
+                                  <ChevronDown />
+                                </Button>
+                              </Popover.Trigger>
+                              <Popover.Portal>
+                                <Popover.Content
+                                  align="end"
+                                  sideOffset={4}
+                                  className="z-10 grid min-w-40 gap-0.5 rounded-md border border-border bg-popover p-1 shadow-md"
+                                >
                                   {snoozeOptions.map((option) => (
                                     <button
                                       key={option.id}
@@ -250,9 +294,9 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
                                     <CircleSlash className="size-3" />
                                     {t("disableReminder")}
                                   </button>
-                                </span>
-                              )}
-                            </div>
+                                </Popover.Content>
+                              </Popover.Portal>
+                            </Popover.Root>
                           </div>
                         )}
                       </article>
