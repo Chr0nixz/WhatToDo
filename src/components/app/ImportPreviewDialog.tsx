@@ -5,13 +5,14 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { parseBackupPayload, type BackupSchemaResult } from "@/data/backupSchema";
-import type { BackupPayload } from "@/data/types";
+import type { BackupPayload, ImportBackupMode } from "@/data/types";
+import { cn } from "@/lib/utils";
 
 type ImportPreviewDialogProps = {
   open: boolean;
   rawPayload: unknown;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (payload: BackupPayload) => void;
+  onConfirm: (payload: BackupPayload, mode: ImportBackupMode) => void;
 };
 
 type PreviewCounts = {
@@ -38,10 +39,12 @@ export function ImportPreviewDialog({ open, rawPayload, onOpenChange, onConfirm 
   const { t } = useTranslation();
   const [validation, setValidation] = useState<BackupSchemaResult>({ success: false, error: "—" });
   const [isImporting, setIsImporting] = useState(false);
+  const [mode, setMode] = useState<ImportBackupMode>("replace");
 
   useEffect(() => {
     if (!open) {
       setIsImporting(false);
+      setMode("replace");
       return;
     }
     setValidation(parseBackupPayload(rawPayload));
@@ -65,7 +68,7 @@ export function ImportPreviewDialog({ open, rawPayload, onOpenChange, onConfirm 
       return;
     }
     setIsImporting(true);
-    onConfirm(data as BackupPayload);
+    onConfirm(data as BackupPayload, mode);
   };
 
   const summaryRows: Array<{ label: string; value: number }> = [
@@ -122,12 +125,54 @@ export function ImportPreviewDialog({ open, rawPayload, onOpenChange, onConfirm 
                 </dl>
               </div>
 
+              <fieldset className="grid gap-2">
+                <legend className="text-xs font-medium text-muted-foreground">{t("importModeLabel")}</legend>
+                <label
+                  className={cn(
+                    "flex cursor-pointer items-start gap-2 rounded-md border border-border px-3 py-2 text-sm",
+                    mode === "replace" && "border-ring bg-accent/40",
+                  )}
+                >
+                  <input
+                    checked={mode === "replace"}
+                    className="mt-0.5"
+                    name="import-mode"
+                    type="radio"
+                    value="replace"
+                    onChange={() => setMode("replace")}
+                  />
+                  <span>
+                    <span className="font-medium">{t("importModeReplace")}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{t("importModeReplaceHint")}</span>
+                  </span>
+                </label>
+                <label
+                  className={cn(
+                    "flex cursor-pointer items-start gap-2 rounded-md border border-border px-3 py-2 text-sm",
+                    mode === "merge" && "border-ring bg-accent/40",
+                  )}
+                >
+                  <input
+                    checked={mode === "merge"}
+                    className="mt-0.5"
+                    name="import-mode"
+                    type="radio"
+                    value="merge"
+                    onChange={() => setMode("merge")}
+                  />
+                  <span>
+                    <span className="font-medium">{t("importModeMerge")}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{t("importModeMergeHint")}</span>
+                  </span>
+                </label>
+              </fieldset>
+
               <div className="flex justify-end gap-2 pt-1">
                 <Button size="lg" type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={isImporting}>
                   {t("importPreviewCancel")}
                 </Button>
                 <Button size="lg" type="button" variant="default" onClick={confirm} disabled={isImporting}>
-                  {t("importPreviewConfirm")}
+                  {mode === "replace" ? t("importPreviewConfirmReplace") : t("importPreviewConfirmMerge")}
                 </Button>
               </div>
             </div>

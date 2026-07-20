@@ -154,6 +154,19 @@ export type Reminder = {
   enabled: boolean;
 };
 
+export type ReminderEventType = "fired" | "failed" | "snoozed" | "disabled" | "retry";
+
+export type ReminderEvent = {
+  id: string;
+  reminderId: string;
+  taskId: string;
+  eventType: ReminderEventType;
+  detail: string | null;
+  createdAt: string;
+};
+
+export type ImportBackupMode = "replace" | "merge";
+
 export type TaskViewFilters = {
   scope: "open" | "completed" | "cancelled" | "all";
   priority: TaskPriority | "all";
@@ -235,6 +248,9 @@ export type TaskPageInput = {
   dateRange?: TaskViewFilters["dateRange"];
   referenceDate?: string;
   query?: string;
+  tags?: string[];
+  tagMatch?: TaskViewFilters["tagMatch"];
+  advancedFilter?: FilterGroup | null;
   limit: number;
   offset: number;
   sort: TaskPageSort;
@@ -328,6 +344,7 @@ export type BackupPayload = {
   settingsByWorkspace: Record<string, Settings>;
   savedViews: SavedTaskView[];
   recurringTaskTemplates?: RecurringTaskTemplate[];
+  reminderEvents?: ReminderEvent[];
 } | {
   whattodoBackupVersion: 2;
   exportedAt: string;
@@ -341,6 +358,7 @@ export type BackupPayload = {
   savedViews: SavedTaskView[];
   recurringTaskTemplates: RecurringTaskTemplate[];
   attachments?: Attachment[];
+  reminderEvents?: ReminderEvent[];
 };
 
 export type AppDataKey = keyof AppData;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { TaskPageInput, TaskPageResult } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
@@ -8,10 +8,12 @@ type UseTaskPageOptions = {
   enabled?: boolean;
   input: Omit<TaskPageInput, "limit" | "offset">;
   pageSize?: number;
+  /** When this changes (e.g. tasksRevision), refetch while preserving loaded window depth. */
   reloadKey?: unknown;
 };
 
 const DEFAULT_PAGE_SIZE = 150;
+const EMPTY_PAGE: TaskPageResult = { tasks: [], total: 0, reminders: [] };
 
 export function useTaskPage({
   actions,
@@ -20,39 +22,55 @@ export function useTaskPage({
   pageSize = DEFAULT_PAGE_SIZE,
   reloadKey,
 }: UseTaskPageOptions) {
-  const [result, setResult] = useState<TaskPageResult>({ tasks: [], total: 0, reminders: [] });
+  const [result, setResult] = useState<TaskPageResult>(EMPTY_PAGE);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputKey = useMemo(() => JSON.stringify(input), [input]);
+  const loadedCountRef = useRef(0);
+  const prevInputKeyRef = useRef<string | null>(null);
+  const inputRef = useRef(input);
+  const actionsRef = useRef(actions);
+  inputRef.current = input;
+  actionsRef.current = actions;
 
-  const loadPage = useCallback(
-    (offset: number) => actions.loadTaskPage({ ...input, limit: pageSize, offset }),
-    [actions, input, pageSize],
-  );
+  const loadPage = useCallback((offset: number, limit: number) => {
+    return actionsRef.current.loadTaskPage({ ...inputRef.current, limit, offset });
+  }, []);
 
   useEffect(() => {
     if (!enabled) {
-      setResult({ tasks: [], total: 0, reminders: [] });
+      setResult(EMPTY_PAGE);
       setIsLoading(false);
       setError(null);
+      loadedCountRef.current = 0;
+      prevInputKeyRef.current = null;
       return;
     }
+
+    const inputChanged = prevInputKeyRef.current !== inputKey;
+    prevInputKeyRef.current = inputKey;
+
+    // Filters / workspace / query changed: reset to first page.
+    // tasksRevision (reloadKey) or other effect re-runs: keep loaded depth.
+    const limit = inputChanged ? pageSize : Math.max(pageSize, loadedCountRef.current || pageSize);
 
     let active = true;
     setIsLoading(true);
     setError(null);
 
-    loadPage(0)
+    loadPage(0, limit)
       .then((next) => {
         if (active) {
           setResult(next);
+          loadedCountRef.current = next.tasks.length;
         }
       })
       .catch((err: unknown) => {
         if (active) {
           setError(err instanceof Error ? err.message : String(err));
-          setResult({ tasks: [], total: 0, reminders: [] });
+          setResult(EMPTY_PAGE);
+          loadedCountRef.current = 0;
         }
       })
       .finally(() => {
@@ -64,7 +82,7 @@ export function useTaskPage({
     return () => {
       active = false;
     };
-  }, [enabled, inputKey, loadPage, reloadKey]);
+  }, [enabled, inputKey, loadPage, pageSize, reloadKey]);
 
   const loadMore = useCallback(async () => {
     if (!enabled || isLoading || isLoadingMore || result.tasks.length >= result.total) {
@@ -75,7 +93,7 @@ export function useTaskPage({
     setError(null);
 
     try {
-      const next = await loadPage(result.tasks.length);
+      const next = await loadPage(result.tasks.length, pageSize);
       setResult((current) => {
         const seenTaskIds = new Set(current.tasks.map((task) => task.id));
         const seenReminderIds = new Set(current.reminders.map((reminder) => reminder.id));
@@ -85,6 +103,7 @@ export function useTaskPage({
           ...next.reminders.filter((reminder) => !seenReminderIds.has(reminder.id)),
         ];
 
+        loadedCountRef.current = tasks.length;
         return {
           tasks,
           reminders,
@@ -96,7 +115,7 @@ export function useTaskPage({
     } finally {
       setIsLoadingMore(false);
     }
-  }, [enabled, isLoading, isLoadingMore, loadPage, result.tasks.length, result.total]);
+  }, [enabled, isLoading, isLoadingMore, loadPage, pageSize, result.tasks.length, result.total]);
 
   return {
     tasks: result.tasks,

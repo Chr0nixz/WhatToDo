@@ -100,6 +100,12 @@ export function TaskComposer({
     setProjectId(result.draft.projectId ?? "none");
     setUseReminder(result.draft.reminderOffset !== null);
     setReminderOffset(result.draft.reminderOffset ?? settings.defaultReminderOffset);
+    const recurrenceMatch = result.matches.find((match) => match.kind === "recurrence");
+    if (recurrenceMatch && recurrenceMatch.kind === "recurrence") {
+      setRecurrenceFrequency(recurrenceMatch.frequency);
+      setRecurrenceInterval(recurrenceMatch.interval);
+      setRecurrenceByWeekday(recurrenceMatch.byWeekday ?? []);
+    }
     setQuickAddMatches(result.matches);
     setParseFeedback(t("quickAddApplied"));
   };
@@ -116,6 +122,9 @@ export function TaskComposer({
     }
     if (match.kind === "priority") {
       return `${t("quickAddMatchPriority")}: ${t(match.value)}`;
+    }
+    if (match.kind === "recurrence") {
+      return `${t("quickAddMatchRecurrence")}: ${match.label}`;
     }
 
     return `${t("quickAddMatchReminder")}: ${match.value === null ? t("none") : t("reminderOffsetMinutes", { minutes: match.value })}`;

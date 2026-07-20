@@ -1,16 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { filterCommandItems, isEditableTarget, matchesShortcut, type CommandItem } from "@/data/commandPalette";
+import {
+  filterCommandItems,
+  isEditableTarget,
+  loadCommandRecent,
+  matchesShortcut,
+  orderCommandsWithRecent,
+  recentTasksAsCommandItems,
+  recordRecentCommand,
+  recordRecentTask,
+  type CommandItem,
+} from "@/data/commandPalette";
 
 export type CommandPaletteMode = "commands" | "tasks";
 
 type UseCommandPaletteOptions = {
   buildItems: () => CommandItem[];
   searchTasks: (query: string) => Promise<CommandItem[]>;
+  onOpenTask: (taskId: string) => void;
   onClose?: () => void;
 };
 
-export const useCommandPalette = ({ buildItems, searchTasks, onClose }: UseCommandPaletteOptions) => {
+export const useCommandPalette = ({ buildItems, searchTasks, onOpenTask, onClose }: UseCommandPaletteOptions) => {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<CommandPaletteMode>("commands");
   const [query, setQuery] = useState("");
@@ -18,8 +29,27 @@ export const useCommandPalette = ({ buildItems, searchTasks, onClose }: UseComma
   const [taskItems, setTaskItems] = useState<CommandItem[]>([]);
   const [isSearchingTasks, setIsSearchingTasks] = useState(false);
   const [taskSearchError, setTaskSearchError] = useState<string | null>(null);
+  const [recentTick, setRecentTick] = useState(0);
 
-  const commandItems = useMemo(() => filterCommandItems(buildItems(), query), [buildItems, query]);
+  const recentStore = useMemo(() => {
+    void recentTick;
+    return loadCommandRecent();
+  }, [recentTick, open]);
+
+  const builtItems = useMemo(() => buildItems(), [buildItems, open]);
+
+  const commandItems = useMemo(() => {
+    const filtered = filterCommandItems(builtItems, query);
+    if (query.trim()) {
+      return filtered;
+    }
+    return orderCommandsWithRecent(builtItems, recentStore.commands);
+  }, [builtItems, query, recentStore.commands]);
+
+  const recentTaskItems = useMemo(
+    () => recentTasksAsCommandItems(recentStore.tasks, onOpenTask),
+    [onOpenTask, recentStore.tasks],
+  );
 
   const visibleItems = mode === "tasks" ? taskItems : commandItems;
 
@@ -27,10 +57,15 @@ export const useCommandPalette = ({ buildItems, searchTasks, onClose }: UseComma
     setMode(nextMode);
     setQuery("");
     setActiveIndex(0);
-    setTaskItems([]);
     setTaskSearchError(null);
+    setRecentTick((value) => value + 1);
+    if (nextMode === "tasks") {
+      setTaskItems(recentTasksAsCommandItems(loadCommandRecent().tasks, onOpenTask));
+    } else {
+      setTaskItems([]);
+    }
     setOpen(true);
-  }, []);
+  }, [onOpenTask]);
 
   const closePalette = useCallback(() => {
     setOpen(false);
@@ -53,15 +88,29 @@ export const useCommandPalette = ({ buildItems, searchTasks, onClose }: UseComma
     openPalette("tasks");
   }, [openPalette]);
 
+  const runItem = useCallback(
+    async (item: CommandItem) => {
+      if (item.id.startsWith("recent-task:")) {
+        recordRecentTask({ id: item.id.slice("recent-task:".length), title: item.label });
+      } else if (item.id.startsWith("task-result:")) {
+        recordRecentTask({ id: item.id.slice("task-result:".length), title: item.label });
+      } else if (mode === "commands") {
+        recordRecentCommand(item.id);
+      }
+      setRecentTick((value) => value + 1);
+      closePalette();
+      await item.run();
+    },
+    [closePalette, mode],
+  );
+
   const runActiveItem = useCallback(async () => {
     const item = visibleItems[activeIndex];
     if (!item) {
       return;
     }
-
-    closePalette();
-    await item.run();
-  }, [activeIndex, closePalette, visibleItems]);
+    await runItem(item);
+  }, [activeIndex, runItem, visibleItems]);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -74,7 +123,7 @@ export const useCommandPalette = ({ buildItems, searchTasks, onClose }: UseComma
 
     const trimmed = query.trim();
     if (!trimmed) {
-      setTaskItems([]);
+      setTaskItems(recentTaskItems);
       setTaskSearchError(null);
       setIsSearchingTasks(false);
       return;
@@ -97,7 +146,7 @@ export const useCommandPalette = ({ buildItems, searchTasks, onClose }: UseComma
     }, 180);
 
     return () => window.clearTimeout(timer);
-  }, [mode, open, query, searchTasks]);
+  }, [mode, open, query, recentTaskItems, searchTasks]);
 
   useEffect(() => {
     if (!open) {
@@ -105,9 +154,6 @@ export const useCommandPalette = ({ buildItems, searchTasks, onClose }: UseComma
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
-      // Ignore keystrokes while the user is composing with an IME (e.g. typing
-      // Chinese pinyin). Without this guard, pressing Enter to confirm an IME
-      // candidate would also trigger command execution.
       if (event.isComposing || event.keyCode === 229) {
         return;
       }
@@ -189,5 +235,6 @@ export const useCommandPalette = ({ buildItems, searchTasks, onClose }: UseComma
     togglePalette,
     openTaskSearch,
     runActiveItem,
+    runItem,
   };
 };

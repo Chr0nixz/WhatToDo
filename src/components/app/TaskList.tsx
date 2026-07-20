@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { formatTaskDate } from "@/data/dateFormat";
+import { TASK_DRAG_MIME } from "@/data/taskDrag";
 import { cn } from "@/lib/utils";
 import type { Project, Reminder, Task, TaskStatus } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
@@ -33,6 +34,8 @@ type TaskListProps = {
   onLoadMore?: () => void;
   /** Enable multi-select mode with bulk action toolbar. Floating windows should omit this. */
   selectionEnabled?: boolean;
+  /** Allow dragging tasks (e.g. Home calendar reschedule). */
+  draggableTasks?: boolean;
 };
 
 const priorityClasses = {
@@ -72,6 +75,7 @@ type TaskRowProps = {
   selectionMode?: boolean;
   isChecked?: boolean;
   onToggleCheck?: (taskId: string) => void;
+  draggableTasks?: boolean;
 };
 
 const TaskRow = React.memo(function TaskRow({
@@ -91,6 +95,7 @@ const TaskRow = React.memo(function TaskRow({
   selectionMode = false,
   isChecked = false,
   onToggleCheck,
+  draggableTasks = false,
 }: TaskRowProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const DeleteIcon = deleteMode === "hide" ? EyeOff : Trash2;
@@ -99,14 +104,25 @@ const TaskRow = React.memo(function TaskRow({
     <div style={style}>
       <article
         data-task-id={task.id}
+        draggable={draggableTasks}
         className={cn(
           "motion-surface group grid items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-2 shadow-sm hover:border-ring/70",
           selectionMode ? "grid-cols-[24px_32px_minmax(0,1fr)_auto]" : "grid-cols-[32px_minmax(0,1fr)_auto]",
           isSelected && "border-ring bg-accent/80",
           (task.status === "completed" || task.status === "cancelled") && "opacity-60",
           isCompact && "py-1.5",
+          draggableTasks && "cursor-grab active:cursor-grabbing",
         )}
         style={{ "--motion-index": index } as CSSProperties}
+        onDragStart={
+          draggableTasks
+            ? (event) => {
+                event.dataTransfer.setData(TASK_DRAG_MIME, task.id);
+                event.dataTransfer.setData("text/plain", task.id);
+                event.dataTransfer.effectAllowed = "move";
+              }
+            : undefined
+        }
       >
         {selectionMode && (
           <button
@@ -243,6 +259,7 @@ function TaskListImpl({
   loadError = null,
   onLoadMore,
   selectionEnabled = false,
+  draggableTasks = false,
 }: TaskListProps) {
   const { i18n, t } = useTranslation();
   const [visibleCount, setVisibleCount] = useState(windowSize ?? tasks.length);
@@ -471,6 +488,7 @@ function TaskListImpl({
               {t("bulkCancel")}
             </Button>
             <select
+              aria-label={t("bulkMoveToProject")}
               className="h-8 rounded-md border border-input bg-background px-2 text-xs outline-none focus:border-ring"
               disabled={isBulkProcessing || checkedIds.size === 0 || projects.filter((p) => p.deletedAt === null && p.status !== "archived").length === 0}
               value=""
@@ -550,6 +568,7 @@ function TaskListImpl({
                     selectionMode={selectionMode}
                     isChecked={checkedIds.has(task.id)}
                     onToggleCheck={toggleCheck}
+                    draggableTasks={draggableTasks}
                   />
                 </div>
               );
@@ -629,6 +648,7 @@ function TaskListImpl({
               selectionMode={selectionMode}
               isChecked={checkedIds.has(task.id)}
               onToggleCheck={toggleCheck}
+              draggableTasks={draggableTasks}
             />
           );
         })}

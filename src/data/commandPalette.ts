@@ -1,6 +1,6 @@
 import type { AppData, AppView, SavedTaskView } from "./types";
 
-export type CommandGroup = "navigation" | "tasks" | "workspaces" | "folders" | "savedViews" | "manage";
+export type CommandGroup = "recent" | "navigation" | "tasks" | "workspaces" | "folders" | "savedViews" | "manage";
 
 export type CommandItem = {
   id: string;
@@ -193,6 +193,93 @@ export const filterCommandItems = (items: CommandItem[], query: string) => {
     .sort((a, b) => a.label.localeCompare(b.label));
 };
 
+export const COMMAND_RECENT_KEY = "whattodo:command-recent";
+export const COMMAND_RECENT_LIMIT = 8;
+
+export type CommandRecentTask = { id: string; title: string };
+
+export type CommandRecentStore = {
+  commands: string[];
+  tasks: CommandRecentTask[];
+};
+
+const emptyRecentStore = (): CommandRecentStore => ({ commands: [], tasks: [] });
+
+export const loadCommandRecent = (): CommandRecentStore => {
+  try {
+    const raw = localStorage.getItem(COMMAND_RECENT_KEY);
+    if (!raw) {
+      return emptyRecentStore();
+    }
+    const parsed = JSON.parse(raw) as Partial<CommandRecentStore>;
+    return {
+      commands: Array.isArray(parsed.commands) ? parsed.commands.filter((id) => typeof id === "string") : [],
+      tasks: Array.isArray(parsed.tasks)
+        ? parsed.tasks
+            .filter((task): task is CommandRecentTask => !!task && typeof task.id === "string" && typeof task.title === "string")
+            .slice(0, COMMAND_RECENT_LIMIT)
+        : [],
+    };
+  } catch {
+    return emptyRecentStore();
+  }
+};
+
+export const saveCommandRecent = (store: CommandRecentStore) => {
+  localStorage.setItem(COMMAND_RECENT_KEY, JSON.stringify(store));
+};
+
+export const pushRecentId = (ids: string[], id: string, limit = COMMAND_RECENT_LIMIT) => {
+  const next = [id, ...ids.filter((item) => item !== id)];
+  return next.slice(0, limit);
+};
+
+export const pushRecentTask = (tasks: CommandRecentTask[], entry: CommandRecentTask, limit = COMMAND_RECENT_LIMIT) => {
+  const next = [entry, ...tasks.filter((task) => task.id !== entry.id)];
+  return next.slice(0, limit);
+};
+
+export const recordRecentCommand = (commandId: string) => {
+  const store = loadCommandRecent();
+  saveCommandRecent({ ...store, commands: pushRecentId(store.commands, commandId) });
+};
+
+export const recordRecentTask = (task: CommandRecentTask) => {
+  const store = loadCommandRecent();
+  saveCommandRecent({ ...store, tasks: pushRecentTask(store.tasks, task) });
+};
+
+/** Empty-query ordering: recent matches first (group recent), then remaining alphabetically. */
+export const orderCommandsWithRecent = (items: CommandItem[], recentIds: string[]) => {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const recent: CommandItem[] = [];
+  const seen = new Set<string>();
+  for (const id of recentIds) {
+    const item = byId.get(id);
+    if (!item || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    recent.push({ ...item, group: "recent" });
+  }
+  const rest = items
+    .filter((item) => !seen.has(item.id))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  return [...recent, ...rest];
+};
+
+export const recentTasksAsCommandItems = (
+  tasks: CommandRecentTask[],
+  onOpenTask: (taskId: string) => void,
+): CommandItem[] =>
+  tasks.map((task) => ({
+    id: `recent-task:${task.id}`,
+    group: "recent" as const,
+    label: task.title,
+    keywords: ["recent", "task", task.title],
+    run: () => onOpenTask(task.id),
+  }));
+
 export const groupCommandItems = (items: CommandItem[]) => {
   const groups = new Map<CommandGroup, CommandItem[]>();
   for (const item of items) {
@@ -204,6 +291,7 @@ export const groupCommandItems = (items: CommandItem[]) => {
 };
 
 export const COMMAND_GROUP_LABEL_KEYS: Record<CommandGroup, string> = {
+  recent: "commandGroupRecent",
   navigation: "commandGroupNavigation",
   tasks: "commandGroupTasks",
   workspaces: "commandGroupWorkspaces",

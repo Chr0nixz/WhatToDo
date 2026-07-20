@@ -200,6 +200,25 @@ describe("LocalRepository", () => {
     expect(result.reminders.map((reminder) => reminder.taskId)).toEqual([data.tasks.find((task) => task.title === "Alpha task")?.id]);
   });
 
+  it("aggregates due date counts for a visible range", async () => {
+    const repository = new LocalRepository();
+    await repository.load();
+    await repository.createTask({ title: "Day1-a", dueDate: "2026-06-01" });
+    await repository.createTask({ title: "Day1-b", dueDate: "2026-06-01" });
+    await repository.createTask({ title: "Day2", dueDate: "2026-06-02" });
+    await repository.createTask({ title: "Outside", dueDate: "2026-06-10" });
+
+    const counts = await repository.loadDueDateCounts({
+      from: "2026-06-01",
+      to: "2026-06-02",
+    });
+
+    expect(counts).toEqual({
+      "2026-06-01": 2,
+      "2026-06-02": 1,
+    });
+  });
+
   it("snoozes and disables reminders", async () => {
     const repository = new LocalRepository();
     let data = await repository.load();
@@ -214,6 +233,8 @@ describe("LocalRepository", () => {
 
     data = (await repository.markReminderFired(reminderId)).data;
     expect(data.reminders[0].firedAt).not.toBeNull();
+    let events = await repository.loadReminderEvents(reminderId);
+    expect(events.map((event) => event.eventType)).toEqual(["fired"]);
 
     data = (await repository.snoozeReminder(reminderId, "2026-06-01T09:45:00.000Z")).data;
     expect(data.reminders[0].snoozedUntil).toBe("2026-06-01T09:45:00.000Z");
@@ -221,6 +242,27 @@ describe("LocalRepository", () => {
 
     data = (await repository.disableReminder(reminderId)).data;
     expect(data.reminders[0].enabled).toBe(false);
+    events = await repository.loadReminderEvents(reminderId);
+    expect(events.map((event) => event.eventType)).toEqual(["disabled", "snoozed", "fired"]);
+  });
+
+  it("merges backup by id without wiping local-only rows", async () => {
+    const repository = new LocalRepository();
+    await repository.load();
+    const seed = (await repository.createTask({ title: "Shared original", dueDate: "2026-06-02" })).data;
+    const sharedId = seed.tasks[0].id;
+    const withLocal = (await repository.createTask({ title: "Local only", dueDate: "2026-06-01" })).data;
+    const localOnlyId = withLocal.tasks.find((task) => task.title === "Local only")!.id;
+
+    const backup = await repository.exportBackup();
+    backup.tasks = backup.tasks
+      .filter((task) => task.id === sharedId)
+      .map((task) => ({ ...task, title: "Shared updated" }));
+    backup.reminders = [];
+
+    const merged = (await repository.importBackup(backup, "merge")).data;
+    expect(merged.tasks.find((task) => task.id === sharedId)?.title).toBe("Shared updated");
+    expect(merged.tasks.find((task) => task.id === localOnlyId)?.title).toBe("Local only");
   });
 
   it("stores saved views and imports exported backups", async () => {
@@ -323,6 +365,82 @@ describe("LocalRepository", () => {
     data = (await repository.disableRecurringTaskTemplate(data.recurringTaskTemplates[0].id)).data;
     data = (await repository.toggleTask(disabledTaskId)).data;
     expect(data.tasks.filter((task) => task.title === "Disabled")).toHaveLength(1);
+  });
+
+  it("updates open future instances when updateRecurringSeries mode is openFuture", async () => {
+    const repository = new LocalRepository();
+    let data = await repository.load();
+    data = (
+      await repository.createRecurringTask({
+        title: "Standup",
+        dueDate: "2026-06-01",
+        frequency: "daily",
+        reminderOffset: 10,
+      })
+    ).data;
+    const template = data.recurringTaskTemplates[0];
+    const first = data.tasks[0];
+    data = (await repository.toggleTask(first.id)).data;
+    const openFuture = data.tasks.find(
+      (task) => task.recurrenceTemplateId === template.id && task.status === "todo",
+    );
+    expect(openFuture).toBeTruthy();
+
+    data = (
+      await repository.updateRecurringSeries(
+        template.id,
+        { title: "Renamed standup", reminderOffset: null },
+        "openFuture",
+      )
+    ).data;
+    const synced = data.tasks.find((task) => task.id === openFuture!.id);
+    expect(synced?.title).toBe("Renamed standup");
+    expect(data.tasks.find((task) => task.id === first.id)?.title).toBe("Standup");
+    expect(data.reminders.some((reminder) => reminder.taskId === openFuture!.id)).toBe(false);
+    expect(data.recurringTaskTemplates[0].title).toBe("Renamed standup");
+  });
+
+  it("updateRecurringSeries template mode does not rewrite open instances", async () => {
+    const repository = new LocalRepository();
+    let data = await repository.load();
+    data = (
+      await repository.createRecurringTask({
+        title: "Standup",
+        dueDate: "2026-06-01",
+        frequency: "daily",
+      })
+    ).data;
+    const template = data.recurringTaskTemplates[0];
+    const first = data.tasks[0];
+    data = (await repository.toggleTask(first.id)).data;
+    const openFuture = data.tasks.find(
+      (task) => task.recurrenceTemplateId === template.id && task.status === "todo",
+    )!;
+
+    data = (await repository.updateRecurringSeries(template.id, { title: "Template only" }, "template")).data;
+    expect(data.recurringTaskTemplates[0].title).toBe("Template only");
+    expect(data.tasks.find((task) => task.id === openFuture.id)?.title).toBe("Standup");
+  });
+
+  it("loads task pages with tag filters", async () => {
+    const repository = new LocalRepository();
+    let data = await repository.load();
+    data = (await repository.createTask({ title: "Alpha", dueDate: "2026-06-01" })).data;
+    const alpha = data.tasks[0];
+    data = (await repository.createTask({ title: "Beta", dueDate: "2026-06-02" })).data;
+    const beta = data.tasks.find((task) => task.title === "Beta")!;
+    await repository.updateTask(alpha.id, { tags: ["work"] });
+    await repository.updateTask(beta.id, { tags: ["home"] });
+
+    const page = await repository.loadTaskPage({
+      scope: "all",
+      tags: ["work"],
+      tagMatch: "any",
+      limit: 50,
+      offset: 0,
+      sort: "overview",
+    });
+    expect(page.tasks.map((task) => task.id)).toEqual([alpha.id]);
   });
 
   it("sets task status to in_progress and cancelled via setTaskStatus", async () => {
@@ -471,7 +589,11 @@ describe("SqlRepository", () => {
     );
     expect(db.execute).toHaveBeenCalledWith("UPDATE reminders SET enabled = ? WHERE id = ?", [0, "reminder_a"]);
     expect(db.select).toHaveBeenCalledWith(
-      "SELECT * FROM tasks WHERE workspace_id != ? AND deleted_at IS NULL ORDER BY created_at DESC",
+      expect.stringMatching(/^SELECT id, workspace_id.*FROM tasks WHERE workspace_id != \? AND deleted_at IS NULL/),
+      ["local-workspace"],
+    );
+    expect(db.select).toHaveBeenCalledWith(
+      expect.stringMatching(/^SELECT id, workspace_id.*FROM tasks WHERE workspace_id = \? AND deleted_at IS NOT NULL/),
       ["local-workspace"],
     );
   });
@@ -547,7 +669,11 @@ describe("SqlRepository", () => {
 
     expect(result.total).toBe(1);
     expect(result.tasks[0].id).toBe("task_a");
+    expect(result.tasks[0].notes).toBe("");
     expect(result.reminders[0].id).toBe("reminder_a");
+    const pageSelect = db.select.mock.calls.find((call: unknown[]) => String(call[0]).includes("LIMIT ? OFFSET ?"));
+    expect(pageSelect?.[0]).toEqual(expect.stringContaining("SELECT id, workspace_id"));
+    expect(pageSelect?.[0]).not.toEqual(expect.stringMatching(/^SELECT \* FROM tasks/));
     // "open" scope now matches both "todo" and "in_progress" (active tasks)
     expect(db.select).toHaveBeenCalledWith(expect.stringContaining("LIMIT ? OFFSET ?"), [
       "local-workspace",
@@ -566,7 +692,41 @@ describe("SqlRepository", () => {
     ]);
   });
 
-  it("returns full patch for SqlRepository mutations", async () => {
+  it("returns targeted reminder patch for SqlRepository snooze without full readAll", async () => {
+    const reminderRow = {
+      id: "reminder_a",
+      task_id: "task_a",
+      remind_at: "2026-06-01T09:00:00.000Z",
+      offset_minutes: 10,
+      snoozed_until: null,
+      fired_at: null,
+      failed_at: null,
+      last_error: null,
+      last_attempted_at: null,
+      enabled: 1,
+    };
+    const taskRow = {
+      id: "task_a",
+      workspace_id: "local-workspace",
+      project_id: null,
+      working_folder: null,
+      title: "A",
+      notes: "",
+      due_date: "2026-06-01",
+      due_time: "09:10",
+      timezone: "UTC",
+      priority: "medium",
+      status: "todo",
+      completed_at: null,
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      deleted_at: null,
+      recurrence_template_id: null,
+      recurrence_instance_date: null,
+      parent_id: null,
+      tags: "[]",
+    };
+    let settingsSelectCount = 0;
     const db = {
       execute: vi.fn().mockResolvedValue(undefined),
       select: vi.fn(async (query: string) => {
@@ -583,15 +743,16 @@ describe("SqlRepository", () => {
           ];
         }
 
-        if (query.includes("FROM tasks")) {
-          return [];
+        if (query.includes("FROM tasks") && query.includes("deleted_at IS NULL") && !query.includes("INNER JOIN")) {
+          return [taskRow];
         }
 
-        if (query.includes("FROM reminders")) {
-          return [];
+        if (query.includes("FROM reminders") || query.includes("reminders.*")) {
+          return [reminderRow];
         }
 
         if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
           return [];
         }
 
@@ -602,8 +763,76 @@ describe("SqlRepository", () => {
 
     const repository = new SqlRepository();
     await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+
     const result = await repository.snoozeReminder("reminder_a", "2026-06-01T09:45:00.000Z");
-    expect(result.patch.affectedKeys.length).toBeGreaterThan(10);
+    expect(result.patch.affectedKeys).toEqual(["reminders"]);
+    expect(result.data.reminders[0]?.snoozedUntil).toBe("2026-06-01T09:45:00.000Z");
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+    expect(db.execute).toHaveBeenCalled();
+  });
+
+  it("returns targeted tasks patch for SqlRepository toggleTask without full readAll", async () => {
+    const taskRow = {
+      id: "task_a",
+      workspace_id: "local-workspace",
+      project_id: null,
+      working_folder: null,
+      title: "A",
+      notes: "",
+      due_date: "2026-06-01",
+      due_time: null,
+      timezone: "UTC",
+      priority: "medium",
+      status: "todo",
+      completed_at: null,
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      deleted_at: null,
+      recurrence_template_id: null,
+      recurrence_instance_date: null,
+      parent_id: null,
+      tags: "[]",
+    };
+    let settingsSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+
+        if (query.includes("FROM tasks") && query.includes("deleted_at IS NULL")) {
+          return [taskRow];
+        }
+
+        if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
+          return [];
+        }
+
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+
+    const result = await repository.toggleTask("task_a");
+    expect(result.patch.affectedKeys).toEqual(["tasks"]);
+    expect(result.data.tasks[0]?.status).toBe("completed");
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
   });
 
   it("creates a workspace with INSERT sql", async () => {
@@ -875,6 +1104,74 @@ describe("SqlRepository", () => {
     );
   });
 
+  it("updateRecurringSeries openFuture updates open task rows", async () => {
+    const templateRow = {
+      id: "template_a",
+      workspace_id: "local-workspace",
+      title: "Standup",
+      notes: "",
+      project_id: null,
+      working_folder: null,
+      due_time: "09:00",
+      timezone: "Asia/Shanghai",
+      priority: "medium",
+      reminder_offset: 15,
+      frequency: "daily",
+      interval: 1,
+      by_weekday: null,
+      anchor_date: "2026-06-01",
+      end_date: null,
+      enabled: 1,
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      deleted_at: null,
+    };
+    const openTask = {
+      ...makeTaskRow("task_open", "todo", null),
+      recurrence_template_id: "template_a",
+      recurrence_instance_date: "2026-06-02",
+      tags: "[]",
+    };
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM recurring_task_templates")) {
+          return [templateRow];
+        }
+        if (query.includes("FROM tasks")) {
+          return [openTask];
+        }
+        if (query.includes("FROM reminders") || query.includes("reminders.*")) {
+          return [];
+        }
+        if (query.includes("FROM settings")) {
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+    const repository = new SqlRepository();
+    await repository.load();
+    await repository.updateRecurringSeries("template_a", { title: "Synced" }, "openFuture");
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.stringMatching(/UPDATE\s+tasks\s+SET/i),
+      expect.arrayContaining(["Synced", "task_open"]),
+    );
+  });
+
   it("saves per-workspace settings", async () => {
     const db = makeEmptySqlDb();
     vi.mocked(Database.load).mockResolvedValue(db as never);
@@ -946,6 +1243,94 @@ describe("SqlRepository", () => {
     expect(executeCalls.some((sql) => sql.includes("INSERT INTO workspaces"))).toBe(true);
   });
 
+  it("merge import upserts without deleting task tables", async () => {
+    const db = makeEmptySqlDbWithSettings();
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+    const repository = new SqlRepository();
+    await repository.load();
+
+    const backup = await repository.exportBackup();
+    db.execute.mockClear();
+    await repository.importBackup(backup, "merge");
+
+    const executeCalls = db.execute.mock.calls.map((call) => String(call[0]));
+    expect(executeCalls).toContain("BEGIN TRANSACTION");
+    expect(executeCalls).toContain("COMMIT");
+    expect(executeCalls.some((sql) => sql === "DELETE FROM tasks")).toBe(false);
+    expect(executeCalls.some((sql) => sql.includes("ON CONFLICT(id) DO UPDATE"))).toBe(true);
+  });
+
+  it("writes reminder events when marking fired or failed", async () => {
+    const reminderRow = {
+      id: "reminder_a",
+      task_id: "task_a",
+      remind_at: "2026-06-01T09:30:00.000Z",
+      offset_minutes: 30,
+      snoozed_until: null,
+      fired_at: null,
+      failed_at: null,
+      last_error: null,
+      last_attempted_at: null,
+      enabled: 1,
+    };
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM reminders") && query.includes("INNER JOIN")) {
+          return [reminderRow];
+        }
+        if (query.includes("FROM reminders")) {
+          return [reminderRow];
+        }
+        if (query.includes("FROM reminder_events")) {
+          return [
+            {
+              id: "event_1",
+              reminder_id: "reminder_a",
+              task_id: "task_a",
+              event_type: "failed",
+              detail: "boom",
+              created_at: "2026-06-01T10:00:00.000Z",
+            },
+          ];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+    const repository = new SqlRepository();
+    await repository.load();
+    await repository.markReminderFailed("reminder_a", "boom");
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO reminder_events"),
+      expect.arrayContaining(["reminder_a", "task_a", "failed", "boom"]),
+    );
+
+    const events = await repository.loadReminderEvents("reminder_a");
+    expect(events).toEqual([
+      {
+        id: "event_1",
+        reminderId: "reminder_a",
+        taskId: "task_a",
+        eventType: "failed",
+        detail: "boom",
+        createdAt: "2026-06-01T10:00:00.000Z",
+      },
+    ]);
+  });
+
   it("importBackup reads normalized backup settings not payload", async () => {
     const db = makeEmptySqlDbWithSettings();
     vi.mocked(Database.load).mockResolvedValue(db as never);
@@ -1002,6 +1387,222 @@ describe("SqlRepository", () => {
     await repository.load();
     const recovery = await repository.loadRecoveryItems();
     expect(recovery.deletedTasks.length).toBeGreaterThan(0);
+  });
+
+  it("restores a soft-deleted task", async () => {
+    const db = makeSqlDbWithTasks([makeTaskRow("task_a", "todo", "2026-06-02T00:00:00.000Z")]);
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+    const repository = new SqlRepository();
+    await repository.load();
+    await repository.restoreTask("task_a");
+    expect(db.execute).toHaveBeenCalledWith(
+      "UPDATE tasks SET deleted_at = NULL, updated_at = ? WHERE id = ?",
+      expect.arrayContaining(["task_a"]),
+    );
+  });
+
+  it("marks reminders fired and failed with targeted patches", async () => {
+    const reminderRow = {
+      id: "reminder_a",
+      task_id: "task_a",
+      remind_at: "2026-06-01T09:00:00.000Z",
+      offset_minutes: 10,
+      snoozed_until: null,
+      fired_at: null,
+      failed_at: null,
+      last_error: null,
+      last_attempted_at: null,
+      enabled: 1,
+    };
+    const taskRow = { ...makeTaskRow("task_a", "todo", null), tags: "[]" };
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM tasks")) {
+          return [taskRow];
+        }
+        if (query.includes("FROM reminders") || query.includes("reminders.*")) {
+          return [reminderRow];
+        }
+        if (query.includes("FROM settings")) {
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+    const repository = new SqlRepository();
+    await repository.load();
+
+    const fired = await repository.markReminderFired("reminder_a");
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE reminders SET fired_at = ?"),
+      expect.arrayContaining(["reminder_a"]),
+    );
+    expect(fired.patch.affectedKeys).toEqual(["reminders"]);
+
+    const failed = await repository.markReminderFailed("reminder_a", "notify failed");
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE reminders SET failed_at = ?"),
+      expect.arrayContaining(["notify failed", "reminder_a"]),
+    );
+    expect(failed.patch.affectedKeys).toEqual(["reminders"]);
+  });
+
+  it("inserts the next recurring instance when completing a recurring task", async () => {
+    const templateRow = {
+      id: "template_a",
+      workspace_id: "local-workspace",
+      title: "Standup",
+      notes: "",
+      project_id: null,
+      working_folder: null,
+      due_time: "09:00",
+      timezone: "Asia/Shanghai",
+      priority: "medium",
+      reminder_offset: null,
+      frequency: "daily",
+      interval: 1,
+      by_weekday: null,
+      anchor_date: "2026-06-01",
+      end_date: null,
+      enabled: 1,
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      deleted_at: null,
+    };
+    const taskRow = {
+      ...makeTaskRow("task_a", "todo", null),
+      recurrence_template_id: "template_a",
+      recurrence_instance_date: "2026-06-01",
+      tags: "[]",
+    };
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM recurring_task_templates")) {
+          return [templateRow];
+        }
+        if (query.includes("recurrence_template_id") && query.includes("recurrence_instance_date")) {
+          return [];
+        }
+        if (query.includes("FROM tasks")) {
+          return [taskRow];
+        }
+        if (query.includes("FROM reminders") || query.includes("reminders.*")) {
+          return [];
+        }
+        if (query.includes("FROM settings")) {
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+    const repository = new SqlRepository();
+    await repository.load();
+    await repository.toggleTask("task_a");
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO tasks"),
+      expect.arrayContaining(["2026-06-02", "template_a"]),
+    );
+  });
+
+  it("does not insert a next instance after the recurring template is disabled", async () => {
+    const templateRow = {
+      id: "template_a",
+      workspace_id: "local-workspace",
+      title: "Standup",
+      notes: "",
+      project_id: null,
+      working_folder: null,
+      due_time: "09:00",
+      timezone: "Asia/Shanghai",
+      priority: "medium",
+      reminder_offset: null,
+      frequency: "daily",
+      interval: 1,
+      by_weekday: null,
+      anchor_date: "2026-06-01",
+      end_date: null,
+      enabled: 0,
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      deleted_at: null,
+    };
+    const taskRow = {
+      ...makeTaskRow("task_a", "todo", null),
+      recurrence_template_id: "template_a",
+      recurrence_instance_date: "2026-06-01",
+      tags: "[]",
+    };
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM recurring_task_templates") && query.includes("enabled = 1")) {
+          return [];
+        }
+        if (query.includes("FROM recurring_task_templates")) {
+          return [templateRow];
+        }
+        if (query.includes("FROM tasks")) {
+          return [taskRow];
+        }
+        if (query.includes("FROM reminders") || query.includes("reminders.*")) {
+          return [];
+        }
+        if (query.includes("FROM settings")) {
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+    const repository = new SqlRepository();
+    await repository.load();
+    await repository.disableRecurringTaskTemplate("template_a");
+    db.execute.mockClear();
+    await repository.toggleTask("task_a");
+    const insertCalls = db.execute.mock.calls.filter((call: unknown[]) =>
+      String(call[0]).includes("INSERT INTO tasks"),
+    );
+    expect(insertCalls).toHaveLength(0);
   });
 });
 

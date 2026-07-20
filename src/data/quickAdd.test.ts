@@ -75,4 +75,55 @@ describe("parseQuickAdd", () => {
       expect(result.draft.dueDate).toBe(expectedDue);
     }
   });
+
+  it("parses recurrence phrases into recurring drafts", () => {
+    const referenceDate = new Date("2026-06-01T00:00:00.000Z"); // Monday
+    const weekly = parseQuickAdd({
+      input: "每周一站会",
+      referenceDate,
+      projects: [project],
+      defaultReminderOffset: 15,
+    });
+    expect(weekly.draft.title).toBe("站会");
+    expect(weekly.draft.dueDate).toBe("2026-06-01");
+    expect(weekly.matched.recurrence).toBe(true);
+    expect(weekly.matches.find((match) => match.kind === "recurrence")).toMatchObject({
+      frequency: "weekly",
+      interval: 1,
+      byWeekday: [1],
+    });
+
+    const biweekly = parseQuickAdd({
+      input: "每两周同步",
+      referenceDate,
+      projects: [project],
+      defaultReminderOffset: 15,
+    });
+    expect(biweekly.matches.find((match) => match.kind === "recurrence")).toMatchObject({
+      frequency: "weekly",
+      interval: 2,
+    });
+
+    const daily = parseQuickAdd({
+      input: "每天运动",
+      referenceDate,
+      projects: [project],
+      defaultReminderOffset: 15,
+    });
+    expect(daily.matches.find((match) => match.kind === "recurrence")).toMatchObject({
+      frequency: "daily",
+      interval: 1,
+    });
+
+    const english = parseQuickAdd({
+      input: "standup every monday",
+      referenceDate,
+      projects: [project],
+      defaultReminderOffset: 15,
+    });
+    expect(english.matches.find((match) => match.kind === "recurrence")).toMatchObject({
+      frequency: "weekly",
+      byWeekday: [1],
+    });
+  });
 });

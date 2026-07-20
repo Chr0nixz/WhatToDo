@@ -10,6 +10,7 @@ import { formatTaskDate } from "@/data/dateFormat";
 import { NO_PROJECT_ID, getProjectProgress, visibleProjects } from "@/data/project";
 import type { AppData } from "@/data/types";
 import { useTaskPage } from "@/hooks/useTaskPage";
+import { useTasksRevision } from "@/hooks/useTodoStore";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +39,7 @@ export function ProjectsView({
   onRequestEditProject,
 }: ProjectsViewProps) {
   const { i18n, t } = useTranslation();
+  const tasksRevision = useTasksRevision();
   const projects = useMemo(() => visibleProjects(data.projects), [data.projects]);
   const tasksByProjectId = useMemo(() => {
     const grouped = new Map<string, typeof data.tasks>();
@@ -89,7 +91,7 @@ export function ProjectsView({
   const taskPage = useTaskPage({
     actions,
     input: taskPageInput,
-    reloadKey: data.tasks,
+    reloadKey: tasksRevision,
   });
 
   useEffect(() => {

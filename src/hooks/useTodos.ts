@@ -14,8 +14,10 @@ import type {
   CreateTaskInput,
   CreateWorkspaceFolderInput,
   CreateWorkspaceInput,
+  ImportBackupMode,
   Project,
   RecoveryItems,
+  ReminderEvent,
   RepositoryPatch,
   RepositoryResult,
   Settings,
@@ -51,6 +53,7 @@ export type TodoActions = {
   loadAvailableTasks: (workspaceId?: string) => Promise<Task[]>;
   loadRecoveryItems: () => Promise<RecoveryItems>;
   loadTaskPage: (input: TaskPageInput) => Promise<TaskPageResult>;
+  loadDueDateCounts: (input: { workspaceId?: string; from: string; to: string }) => Promise<Record<string, number>>;
   createWorkspace: (input: CreateWorkspaceInput) => Promise<AppData>;
   updateWorkspace: (id: string, patch: UpdateWorkspaceInput) => Promise<AppData>;
   deleteWorkspace: (id: string) => Promise<AppData>;
@@ -69,6 +72,11 @@ export type TodoActions = {
   createTask: (input: CreateTaskInput) => Promise<AppData>;
   createRecurringTask: (input: CreateRecurringTaskInput) => Promise<AppData>;
   updateRecurringTaskTemplate: (id: string, patch: UpdateRecurringTaskTemplateInput) => Promise<AppData>;
+  updateRecurringSeries: (
+    id: string,
+    patch: UpdateRecurringTaskTemplateInput,
+    mode: "template" | "openFuture",
+  ) => Promise<AppData>;
   disableRecurringTaskTemplate: (id: string) => Promise<AppData>;
   updateTask: (
     id: string,
@@ -95,7 +103,8 @@ export type TodoActions = {
   updateSavedView: (id: string, input: CreateSavedTaskViewInput) => Promise<AppData>;
   deleteSavedView: (id: string) => Promise<AppData>;
   exportBackup: () => Promise<BackupPayload>;
-  importBackup: (payload: BackupPayload) => Promise<AppData>;
+  importBackup: (payload: BackupPayload, mode?: ImportBackupMode) => Promise<AppData>;
+  loadReminderEvents: (reminderId: string) => Promise<ReminderEvent[]>;
   exportCurrentWorkspaceCsv: () => Promise<string>;
   exportCurrentWorkspaceIcs: () => Promise<string>;
   saveSettings: (settings: Settings) => Promise<AppData>;
@@ -119,9 +128,11 @@ export const useTodos = () => {
         return next;
       }
       lastAppliedSeqRef.current = seq;
+      const touchesTaskData = patch.affectedKeys.some((key) => key === "tasks" || key === "reminders");
       useTodoStore.setState((state) => ({
         data: state.data ? applyRepositoryPatch(state.data, next, patch) : next,
         error: null,
+        ...(touchesTaskData ? { tasksRevision: state.tasksRevision + 1 } : {}),
       }));
       return next;
     } catch (err) {
@@ -186,6 +197,8 @@ export const useTodos = () => {
         measureDevAsync("repository.loadAvailableTasks", () => repository.loadAvailableTasks(workspaceId)),
       loadRecoveryItems: () => measureDevAsync("repository.loadRecoveryItems", () => repository.loadRecoveryItems()),
       loadTaskPage: (input: TaskPageInput) => measureDevAsync("repository.loadTaskPage", () => repository.loadTaskPage(input)),
+      loadDueDateCounts: (input: { workspaceId?: string; from: string; to: string }) =>
+        repository.loadDueDateCounts(input),
       createWorkspace: (input: CreateWorkspaceInput) => runMutation(() => repository.createWorkspace(input)),
       updateWorkspace: (id: string, patch: UpdateWorkspaceInput) => runMutation(() => repository.updateWorkspace(id, patch)),
       deleteWorkspace: (id: string) => runMutation(() => repository.deleteWorkspace(id)),
@@ -206,6 +219,11 @@ export const useTodos = () => {
       createRecurringTask: (input: CreateRecurringTaskInput) => runMutation(() => repository.createRecurringTask(input)),
       updateRecurringTaskTemplate: (id: string, patch: UpdateRecurringTaskTemplateInput) =>
         runMutation(() => repository.updateRecurringTaskTemplate(id, patch)),
+      updateRecurringSeries: (
+        id: string,
+        patch: UpdateRecurringTaskTemplateInput,
+        mode: "template" | "openFuture",
+      ) => runMutation(() => repository.updateRecurringSeries(id, patch, mode)),
       disableRecurringTaskTemplate: (id: string) => runMutation(() => repository.disableRecurringTaskTemplate(id)),
       updateTask: (
         id: string,
@@ -237,7 +255,9 @@ export const useTodos = () => {
       updateSavedView: (id: string, input: CreateSavedTaskViewInput) => runMutation(() => repository.updateSavedView(id, input)),
       deleteSavedView: (id: string) => runMutation(() => repository.deleteSavedView(id)),
       exportBackup: () => repository.exportBackup(),
-      importBackup: (payload: BackupPayload) => runMutation(() => repository.importBackup(payload)),
+      importBackup: (payload: BackupPayload, mode?: ImportBackupMode) =>
+        runMutation(() => repository.importBackup(payload, mode)),
+      loadReminderEvents: (reminderId: string) => repository.loadReminderEvents(reminderId),
       exportCurrentWorkspaceCsv: () => repository.exportCurrentWorkspaceCsv(),
       exportCurrentWorkspaceIcs: () => repository.exportCurrentWorkspaceIcs(),
       saveSettings: (settings: Settings) => runMutation(() => repository.saveSettings(settings)),

@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { accentSwatches } from "@/data/accentSwatches";
-import type { AccentColor, AppData, BackupPayload, Language, RecoveryItems, Settings, ThemeMode } from "@/data/types";
+import type { AccentColor, AppData, BackupPayload, ImportBackupMode, Language, RecoveryItems, Settings, ThemeMode } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 import { loadAutoBackupConfig, saveAutoBackupConfig, type AutoBackupConfig } from "@/hooks/useAutoBackup";
 import { cn } from "@/lib/utils";
@@ -236,9 +236,9 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
     }
   };
 
-  const confirmImportBackup = async (payload: BackupPayload) => {
+  const confirmImportBackup = async (payload: BackupPayload, mode: ImportBackupMode) => {
     try {
-      await actions.importBackup(payload);
+      await actions.importBackup(payload, mode);
       setImportPreview({ open: false, payload: null });
       setDataState("saved");
     } catch (err) {
@@ -715,7 +715,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
         open={importPreview.open}
         rawPayload={importPreview.payload}
         onOpenChange={(open) => setImportPreview((prev) => ({ ...prev, open }))}
-        onConfirm={(payload) => void confirmImportBackup(payload)}
+        onConfirm={(payload, mode) => void confirmImportBackup(payload, mode)}
       />
     </main>
   );

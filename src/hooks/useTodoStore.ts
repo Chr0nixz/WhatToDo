@@ -8,17 +8,24 @@ type TodoStoreState = {
   data: AppData | null;
   isLoading: boolean;
   error: string | null;
+  /** Bumped when repository patches touch tasks or reminders (drives paged list refresh). */
+  tasksRevision: number;
 };
 
 export const useTodoStore = create<TodoStoreState>(() => ({
   data: null,
   isLoading: true,
   error: null,
+  tasksRevision: 0,
 }));
 
 export const setTodoData = (next: AppData | null) => useTodoStore.setState({ data: next });
 export const setTodoLoading = (isLoading: boolean) => useTodoStore.setState({ isLoading });
 export const setTodoError = (error: string | null) => useTodoStore.setState({ error });
+export const bumpTasksRevision = () =>
+  useTodoStore.setState((state) => ({ tasksRevision: state.tasksRevision + 1 }));
+
+export const useTasksRevision = (): number => useStore(useTodoStore, (state) => state.tasksRevision);
 
 /**
  * Subscribe to a specific slice of AppData by key. Thanks to the

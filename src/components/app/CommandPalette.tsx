@@ -27,7 +27,7 @@ type CommandPaletteProps = {
   onRunItem: (item: CommandItem) => void;
 };
 
-const GROUP_ORDER: CommandGroup[] = ["navigation", "tasks", "workspaces", "folders", "savedViews", "manage"];
+const GROUP_ORDER: CommandGroup[] = ["recent", "navigation", "tasks", "workspaces", "folders", "savedViews", "manage"];
 
 function Kbd({ children }: { children: ReactNode }) {
   return (
@@ -116,10 +116,14 @@ export function CommandPalette({
 
   const renderSections =
     mode === "tasks"
-      ? [{ group: "tasks" as const, items: visibleItems }]
+      ? query.trim()
+        ? [{ group: "tasks" as const, items: visibleItems }]
+        : GROUP_ORDER.map((group) => ({ group, items: groupedItems.get(group) ?? [] })).filter(
+            (section) => section.items.length > 0,
+          )
       : GROUP_ORDER.map((group) => ({ group, items: groupedItems.get(group) ?? [] })).filter((section) => section.items.length > 0);
 
-  const showEmptyHint = mode === "tasks" && !query.trim();
+  const showEmptyHint = mode === "tasks" && !query.trim() && visibleItems.length === 0;
   const showLoading = mode === "tasks" && isSearchingTasks;
   const showError = Boolean(taskSearchError);
   const showNoResults = !isSearchingTasks && visibleItems.length === 0 && query.trim();
@@ -176,7 +180,7 @@ export function CommandPalette({
               <div className="motion-list space-y-2">
                 {renderSections.map(({ group, items }) => (
                   <section key={group}>
-                    {mode === "commands" && (
+                    {(mode === "commands" || group === "recent") && (
                       <p className="px-2 pb-1 pt-0.5 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
                         {t(COMMAND_GROUP_LABEL_KEYS[group])}
                       </p>

@@ -276,7 +276,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
     [appActions, data.workspaceId, onOpenTask],
   );
 
-  const palette = useCommandPalette({ buildItems, searchTasks });
+  const palette = useCommandPalette({ buildItems, searchTasks, onOpenTask });
   openTaskSearchRef.current = palette.openTaskSearch;
 
   useGlobalShortcuts({
@@ -535,7 +535,6 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
               {view === "home" && (
                 <HomeView
                   actions={appActions}
-                  appIndexes={appIndexes}
                   data={data}
                   searchQuery={searchQuery}
                   selectedDate={selectedDate}
@@ -543,6 +542,11 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
                   setSearchQuery={setSearchQuery}
                   setSelectedDate={setSelectedDate}
                   setSelectedTaskId={safeSetSelectedTaskId}
+                  onRescheduleSuccess={(message, undo) => showUndo(message, undo)}
+                  onRescheduleError={(message) => {
+                    setNoticeToast(message);
+                    window.setTimeout(() => setNoticeToast(null), 5000);
+                  }}
                 />
               )}
               {view === "overview" && (
@@ -668,8 +672,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
         }}
         onQueryChange={palette.setQuery}
         onRunItem={(item) => {
-          palette.closePalette();
-          void item.run();
+          void palette.runItem(item);
         }}
       />
 

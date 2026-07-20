@@ -7,7 +7,7 @@ export const accentSwatches = [
   { id: "violet", labelKey: "accentViolet", value: "oklch(0.58 0.15 292)" },
 ] as const;
 
-export const defaultAccentSwatch = accentSwatches[0].value;
+export const defaultAccentSwatch: string = accentSwatches[0].value;
 
 /** Map older hex seeds to the shared OKLCH swatches so pickers stay selected. */
 const legacyHexToOklch: Record<string, string> = {

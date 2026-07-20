@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { accentSwatches, defaultAccentSwatch } from "@/data/accentSwatches";
 import type { AppData, Task } from "@/data/types";
 import { useTaskPage } from "@/hooks/useTaskPage";
+import { useTasksRevision } from "@/hooks/useTodoStore";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +34,7 @@ const folderNameFromPath = (path: string) => {
 
 export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskId, onEditWorkspace }: WorkspacesViewProps) {
   const { t } = useTranslation();
+  const tasksRevision = useTasksRevision();
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceColor, setWorkspaceColor] = useState(defaultAccentSwatch);
   const [folderName, setFolderName] = useState("");
@@ -65,7 +67,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
   const taskPage = useTaskPage({
     actions,
     input: taskPageInput,
-    reloadKey: data.tasks,
+    reloadKey: tasksRevision,
   });
   const loadAvailableTasks = async () => {
     if (!currentWorkspace) {

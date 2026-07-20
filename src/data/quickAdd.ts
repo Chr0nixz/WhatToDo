@@ -1,6 +1,6 @@
 import { addDays, format, parse } from "date-fns";
 
-import type { CreateTaskInput, Project, TaskPriority } from "./types";
+import type { CreateTaskInput, Project, RecurrenceFrequency, TaskPriority } from "./types";
 
 const weekdayMap: Record<string, number> = {
   "一": 1,
@@ -36,6 +36,13 @@ const nextWeekdayDate = (referenceDate: Date, targetDay: number, weekOffset = 0)
   return addDays(referenceDate, diff + weekOffset * 7);
 };
 
+/** Recurrence first instance may start today when the weekday matches. */
+const nextRecurrenceWeekdayDate = (referenceDate: Date, targetDay: number): Date => {
+  const currentDay = referenceDate.getDay();
+  const diff = (targetDay - currentDay + 7) % 7;
+  return addDays(referenceDate, diff);
+};
+
 const endOfMonthDate = (referenceDate: Date): Date =>
   new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0);
 
@@ -67,6 +74,7 @@ export type QuickAddResult = {
     project: boolean;
     priority: boolean;
     reminder: boolean;
+    recurrence: boolean;
   };
 };
 
@@ -75,7 +83,14 @@ export type QuickAddMatch =
   | { kind: "time"; value: string }
   | { kind: "project"; value: string; projectId: string }
   | { kind: "priority"; value: TaskPriority }
-  | { kind: "reminder"; value: number | null };
+  | { kind: "reminder"; value: number | null }
+  | {
+      kind: "recurrence";
+      frequency: RecurrenceFrequency;
+      interval: number;
+      byWeekday: number[] | null;
+      label: string;
+    };
 
 const priorityAliases: Record<string, TaskPriority> = {
   高: "high",
@@ -158,8 +173,22 @@ export const parseQuickAdd = ({
   let projectId: string | null = null;
   let priority: TaskPriority = "medium";
   let reminderOffset: number | null = defaultReminderOffset;
-  const matched = { date: false, time: false, project: false, priority: false, reminder: false };
+  const matched = { date: false, time: false, project: false, priority: false, reminder: false, recurrence: false };
   const matches: QuickAddMatch[] = [];
+
+  const applyRecurrence = (
+    frequency: RecurrenceFrequency,
+    interval: number,
+    byWeekday: number[] | null,
+    label: string,
+    firstDue: string,
+  ) => {
+    dueDate = firstDue;
+    matched.date = true;
+    matched.recurrence = true;
+    matches.push({ kind: "date", value: firstDue });
+    matches.push({ kind: "recurrence", frequency, interval, byWeekday, label });
+  };
 
   const remove = (pattern: RegExp, handler: (match: RegExpMatchArray) => void) => {
     const match = title.match(pattern);
@@ -226,6 +255,70 @@ export const parseQuickAdd = ({
     dueDate = toDateKey(addDays(referenceDate, 2));
     matched.date = true;
     matches.push({ kind: "date", value: dueDate });
+  });
+
+  // Recurrence phrases must run before bare 「周X」 so 「每周一」 is not eaten as 「周一」.
+  remove(/每两周/, () => {
+    applyRecurrence("weekly", 2, null, "每两周", toDateKey(addDays(referenceDate, 14)));
+  });
+  remove(/\bevery\s*2\s*weeks?\b/i, () => {
+    applyRecurrence("weekly", 2, null, "every 2 weeks", toDateKey(addDays(referenceDate, 14)));
+  });
+  remove(/每周([一二三四五六日天])/, (match) => {
+    const target = weekdayMap[match[1]];
+    if (target !== undefined) {
+      applyRecurrence(
+        "weekly",
+        1,
+        [target],
+        `每周${match[1]}`,
+        toDateKey(nextRecurrenceWeekdayDate(referenceDate, target)),
+      );
+    }
+  });
+  remove(/\bevery\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i, (match) => {
+    const englishWeekday: Record<string, number> = {
+      sunday: 0,
+      monday: 1,
+      tuesday: 2,
+      wednesday: 3,
+      thursday: 4,
+      friday: 5,
+      saturday: 6,
+    };
+    const target = englishWeekday[match[1].toLowerCase()];
+    if (target !== undefined) {
+      applyRecurrence(
+        "weekly",
+        1,
+        [target],
+        `every ${match[1].toLowerCase()}`,
+        toDateKey(nextRecurrenceWeekdayDate(referenceDate, target)),
+      );
+    }
+  });
+  remove(/(每天|每日)/, () => {
+    applyRecurrence("daily", 1, null, "每天", toDateKey(referenceDate));
+  });
+  remove(/\b(every\s+day|daily)\b/i, () => {
+    applyRecurrence("daily", 1, null, "daily", toDateKey(referenceDate));
+  });
+  remove(/每月(\d{1,2})[日号]/, (match) => {
+    const day = Number(match[1]);
+    if (day >= 1 && day <= 31) {
+      dueDate = toDateKey(nextMonthSameDay(referenceDate, day));
+      matched.date = true;
+      matches.push({ kind: "date", value: dueDate });
+    }
+  });
+  remove(/每月/, () => {
+    applyRecurrence("monthly", 1, null, "每月", toDateKey(referenceDate));
+  });
+  remove(/\b(every\s+month|monthly)\b/i, () => {
+    applyRecurrence("monthly", 1, null, "monthly", toDateKey(referenceDate));
+  });
+  remove(/\bevery\s+week\b/i, () => {
+    applyRecurrence("weekly", 1, null, "every week", toDateKey(addDays(referenceDate, 7)));
   });
 
   // 扩展中文日期解析（按长模式优先排序，避免短模式吞掉长模式）
@@ -355,26 +448,6 @@ export const parseQuickAdd = ({
     dueDate = toDateKey(nextMonthSameDay(referenceDate));
     matched.date = true;
     matches.push({ kind: "date", value: dueDate });
-  });
-
-  // 每月X日（单次任务，非循环）
-  remove(/每月(\d{1,2})[日号]/, (match) => {
-    const day = Number(match[1]);
-    if (day >= 1 && day <= 31) {
-      dueDate = toDateKey(nextMonthSameDay(referenceDate, day));
-      matched.date = true;
-      matches.push({ kind: "date", value: dueDate });
-    }
-  });
-
-  // 每周X（单次任务，非循环）
-  remove(/每周([一二三四五六日天])/, (match) => {
-    const target = weekdayMap[match[1]];
-    if (target !== undefined) {
-      dueDate = toDateKey(nextWeekdayDate(referenceDate, target, 1));
-      matched.date = true;
-      matches.push({ kind: "date", value: dueDate });
-    }
   });
 
   remove(/\b(\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?|\d{1,2}[-/.月]\d{1,2}日?)\b/, (match) => {

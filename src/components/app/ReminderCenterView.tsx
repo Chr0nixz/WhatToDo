@@ -1,7 +1,7 @@
 import { Bell, Check, ChevronDown, CircleSlash, Clock3, ExternalLink, RefreshCw, RotateCcw } from "lucide-react";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import type { CSSProperties } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Popover } from "radix-ui";
 
@@ -14,6 +14,7 @@ import {
   type ReminderCenterItem,
   type SnoozeOption,
 } from "@/data/reminderCenter";
+import type { ReminderEvent, ReminderEventType } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 import { useReminders, useTasks } from "@/hooks/useTodoStore";
 import { cn } from "@/lib/utils";
@@ -38,6 +39,14 @@ const snoozeOptions: { id: SnoozeOption; labelKey: string }[] = [
   { id: "tomorrowMorning", labelKey: "snoozeTomorrow" },
 ];
 
+const eventLabelKey: Record<ReminderEventType, string> = {
+  fired: "reminderEventFired",
+  failed: "reminderEventFailed",
+  snoozed: "reminderEventSnoozed",
+  disabled: "reminderEventDisabled",
+  retry: "reminderEventRetry",
+};
+
 export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewProps) {
   const { i18n, t } = useTranslation();
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -45,6 +54,9 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
   const [error, setError] = useState<string | null>(null);
   const [menuReminderId, setMenuReminderId] = useState<string | null>(null);
   const [batchPending, setBatchPending] = useState(false);
+  const [expandedReminderId, setExpandedReminderId] = useState<string | null>(null);
+  const [eventsByReminder, setEventsByReminder] = useState<Record<string, ReminderEvent[]>>({});
+  const [eventsLoadingId, setEventsLoadingId] = useState<string | null>(null);
   // Subscribe only to the slices this view needs. Thanks to applyRepositoryPatch
   // preserving slice references, this view will NOT re-render when unrelated
   // data (e.g. settings, projects) changes.
@@ -52,6 +64,34 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
   const tasks = useTasks();
   const groups = useMemo(() => groupReminderCenterItems({ tasks, reminders }), [tasks, reminders]);
   const total = groupOrder.reduce((sum, group) => sum + groups[group].length, 0);
+
+  useEffect(() => {
+    if (!expandedReminderId) {
+      return;
+    }
+    let active = true;
+    setEventsLoadingId(expandedReminderId);
+    void actions
+      .loadReminderEvents(expandedReminderId)
+      .then((events) => {
+        if (active) {
+          setEventsByReminder((prev) => ({ ...prev, [expandedReminderId]: events }));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setEventsByReminder((prev) => ({ ...prev, [expandedReminderId]: [] }));
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setEventsLoadingId(null);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [actions, expandedReminderId]);
 
   const runReminderAction = async (reminderId: string, operation: () => Promise<unknown>, successMessage: string) => {
     setPendingId(reminderId);
@@ -61,6 +101,10 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
     try {
       await operation();
       setFeedback(successMessage);
+      if (expandedReminderId === reminderId) {
+        const events = await actions.loadReminderEvents(reminderId);
+        setEventsByReminder((prev) => ({ ...prev, [reminderId]: events }));
+      }
     } catch {
       setError(t("reminderActionFailed"));
     } finally {
@@ -184,123 +228,167 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
                   </div>
                 ) : (
                   <div className="motion-list grid gap-2">
-                    {groups[group].map((item, index) => (
-                      <article
-                        key={item.reminder.id}
-                        className="motion-surface grid gap-3 rounded-lg border border-border bg-card/80 px-3 py-3 shadow-sm hover:border-ring/70"
-                        style={{ "--motion-index": index } as CSSProperties}
-                      >
-                        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <span className={cn("size-2 shrink-0 rounded-full", groupClasses[group])} />
-                              <h4 className="truncate text-sm font-medium">{item.task.title}</h4>
+                    {groups[group].map((item, index) => {
+                      const expanded = expandedReminderId === item.reminder.id;
+                      const events = eventsByReminder[item.reminder.id] ?? [];
+                      return (
+                        <article
+                          key={item.reminder.id}
+                          className="motion-surface grid gap-3 rounded-lg border border-border bg-card/80 px-3 py-3 shadow-sm hover:border-ring/70"
+                          style={{ "--motion-index": index } as CSSProperties}
+                        >
+                          <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className={cn("size-2 shrink-0 rounded-full", groupClasses[group])} />
+                                <h4 className="truncate text-sm font-medium">{item.task.title}</h4>
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                <span className="inline-flex items-center gap-1">
+                                  <Clock3 className="size-3" />
+                                  {formatReminderDateTime(item.effectiveAt, i18n.language)}
+                                </span>
+                                {item.reminder.snoozedUntil && <span>{t("snoozed")}</span>}
+                                {item.reminder.firedAt && <span>{t("fired")}</span>}
+                                {item.reminder.failedAt && <span>{t("failed")}</span>}
+                              </div>
+                              {item.group === "failed" && item.reminder.lastError && (
+                                <p className="mt-1 line-clamp-2 text-xs text-destructive">{item.reminder.lastError}</p>
+                              )}
                             </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                              <span className="inline-flex items-center gap-1">
-                                <Clock3 className="size-3" />
-                                {formatReminderDateTime(item.effectiveAt, i18n.language)}
-                              </span>
-                              {item.reminder.snoozedUntil && <span>{t("snoozed")}</span>}
-                              {item.reminder.firedAt && <span>{t("fired")}</span>}
-                              {item.reminder.failedAt && <span>{t("failed")}</span>}
-                            </div>
-                            {item.group === "failed" && item.reminder.lastError && (
-                              <p className="mt-1 line-clamp-2 text-xs text-destructive">{item.reminder.lastError}</p>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap justify-end gap-1.5">
-                            <Button size="sm" type="button" variant="outline" onClick={() => onOpenTask(item.task.id)}>
-                              <ExternalLink />
-                              {t("openTask")}
-                            </Button>
-                            {item.task.status !== "completed" && item.task.status !== "cancelled" && (
-                              <Button
-                                disabled={pendingId === item.reminder.id}
-                                size="sm"
-                                type="button"
-                                variant="secondary"
-                                onClick={() => void handleComplete(item)}
-                              >
-                                <Check />
-                                {t("completeTask")}
+                            <div className="flex flex-wrap justify-end gap-1.5">
+                              <Button size="sm" type="button" variant="outline" onClick={() => onOpenTask(item.task.id)}>
+                                <ExternalLink />
+                                {t("openTask")}
                               </Button>
-                            )}
-                          </div>
-                        </div>
-
-                        {item.group !== "fired" && (
-                          <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
-                            {item.group === "failed" && (
-                              <Button
-                                disabled={pendingId === item.reminder.id}
-                                size="xs"
-                                type="button"
-                                variant="secondary"
-                                onClick={() => void handleRetry(item)}
-                              >
-                                <RefreshCw />
-                                {t("retry")}
-                              </Button>
-                            )}
-                            <Popover.Root
-                              open={menuReminderId === item.reminder.id}
-                              onOpenChange={(open) => setMenuReminderId(open ? item.reminder.id : null)}
-                            >
-                              <Popover.Trigger asChild>
+                              {item.task.status !== "completed" && item.task.status !== "cancelled" && (
                                 <Button
-                                  aria-label={t("moreActions")}
-                                  className="ml-auto"
-                                  disabled={pendingId === item.reminder.id || batchPending}
+                                  disabled={pendingId === item.reminder.id}
+                                  size="sm"
+                                  type="button"
+                                  variant="secondary"
+                                  onClick={() => void handleComplete(item)}
+                                >
+                                  <Check />
+                                  {t("completeTask")}
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+
+                          {item.group !== "fired" && (
+                            <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
+                              {item.group === "failed" && (
+                                <Button
+                                  disabled={pendingId === item.reminder.id}
                                   size="xs"
                                   type="button"
-                                  variant="outline"
-                                  title={t("moreActions")}
+                                  variant="secondary"
+                                  onClick={() => void handleRetry(item)}
                                 >
-                                  <RotateCcw />
-                                  {t("snooze")}
-                                  <ChevronDown />
+                                  <RefreshCw />
+                                  {t("retry")}
                                 </Button>
-                              </Popover.Trigger>
-                              <Popover.Portal>
-                                <Popover.Content
-                                  align="end"
-                                  sideOffset={4}
-                                  className="z-10 grid min-w-40 gap-0.5 rounded-md border border-border bg-popover p-1 shadow-md"
-                                >
-                                  {snoozeOptions.map((option) => (
+                              )}
+                              <Popover.Root
+                                open={menuReminderId === item.reminder.id}
+                                onOpenChange={(open) => setMenuReminderId(open ? item.reminder.id : null)}
+                              >
+                                <Popover.Trigger asChild>
+                                  <Button
+                                    aria-label={t("moreActions")}
+                                    className="ml-auto"
+                                    disabled={pendingId === item.reminder.id || batchPending}
+                                    size="xs"
+                                    type="button"
+                                    variant="outline"
+                                    title={t("moreActions")}
+                                  >
+                                    <RotateCcw />
+                                    {t("snooze")}
+                                    <ChevronDown />
+                                  </Button>
+                                </Popover.Trigger>
+                                <Popover.Portal>
+                                  <Popover.Content
+                                    align="end"
+                                    sideOffset={4}
+                                    className="z-10 grid min-w-40 gap-0.5 rounded-md border border-border bg-popover p-1 shadow-md"
+                                  >
+                                    {snoozeOptions.map((option) => (
+                                      <button
+                                        key={option.id}
+                                        className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs hover:bg-accent"
+                                        type="button"
+                                        onClick={() => {
+                                          setMenuReminderId(null);
+                                          void handleSnooze(item, option.id);
+                                        }}
+                                      >
+                                        <RotateCcw className="size-3" />
+                                        {t(option.labelKey)}
+                                      </button>
+                                    ))}
+                                    <span className="my-0.5 h-px bg-border" />
                                     <button
-                                      key={option.id}
-                                      className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs hover:bg-accent"
+                                      className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10"
                                       type="button"
                                       onClick={() => {
                                         setMenuReminderId(null);
-                                        void handleSnooze(item, option.id);
+                                        void handleDisable(item);
                                       }}
                                     >
-                                      <RotateCcw className="size-3" />
-                                      {t(option.labelKey)}
+                                      <CircleSlash className="size-3" />
+                                      {t("disableReminder")}
                                     </button>
-                                  ))}
-                                  <span className="my-0.5 h-px bg-border" />
-                                  <button
-                                    className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs text-destructive hover:bg-destructive/10"
-                                    type="button"
-                                    onClick={() => {
-                                      setMenuReminderId(null);
-                                      void handleDisable(item);
-                                    }}
-                                  >
-                                    <CircleSlash className="size-3" />
-                                    {t("disableReminder")}
-                                  </button>
-                                </Popover.Content>
-                              </Popover.Portal>
-                            </Popover.Root>
+                                  </Popover.Content>
+                                </Popover.Portal>
+                              </Popover.Root>
+                            </div>
+                          )}
+
+                          <div className={cn("border-t border-border pt-2", item.group === "fired" && "border-t")}>
+                            <Button
+                              size="xs"
+                              type="button"
+                              variant="ghost"
+                              onClick={() =>
+                                setExpandedReminderId((current) => (current === item.reminder.id ? null : item.reminder.id))
+                              }
+                            >
+                              {expanded ? t("hideReminderEvents") : t("showReminderEvents")}
+                            </Button>
+                            {expanded && (
+                              <div className="mt-2 grid gap-1.5">
+                                <p className="text-xs font-medium text-muted-foreground">{t("reminderEventTimeline")}</p>
+                                {eventsLoadingId === item.reminder.id ? (
+                                  <p className="text-xs text-muted-foreground">{t("loadingView")}</p>
+                                ) : events.length === 0 ? (
+                                  <p className="text-xs text-muted-foreground">{t("reminderEventEmpty")}</p>
+                                ) : (
+                                  <ul className="grid gap-1">
+                                    {events.map((event) => (
+                                      <li
+                                        key={event.id}
+                                        className="flex flex-wrap items-baseline justify-between gap-2 rounded border border-border/70 bg-background/50 px-2 py-1.5 text-xs"
+                                      >
+                                        <span className="font-medium">{t(eventLabelKey[event.eventType])}</span>
+                                        <span className="text-muted-foreground">
+                                          {formatReminderDateTime(event.createdAt, i18n.language)}
+                                        </span>
+                                        {event.detail && (
+                                          <span className="w-full text-muted-foreground">{event.detail}</span>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </article>
-                    ))}
+                        </article>
+                      );
+                    })}
                   </div>
                 )}
               </section>

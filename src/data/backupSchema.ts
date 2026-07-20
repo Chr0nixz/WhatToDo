@@ -165,6 +165,15 @@ const settingsSchema = z.object({
   closeToTray: z.boolean(),
 });
 
+const reminderEventSchema = z.object({
+  id: z.string(),
+  reminderId: z.string(),
+  taskId: z.string(),
+  eventType: z.enum(["fired", "failed", "snoozed", "disabled", "retry"]),
+  detail: z.string().nullable(),
+  createdAt: z.string(),
+});
+
 const baseBackupFields = {
   exportedAt: z.string(),
   workspaceId: z.string(),
@@ -175,6 +184,7 @@ const baseBackupFields = {
   reminders: z.array(reminderSchema),
   settingsByWorkspace: z.record(z.string(), settingsSchema),
   savedViews: z.array(savedTaskViewSchema),
+  reminderEvents: z.array(reminderEventSchema).optional(),
 };
 
 export const backupPayloadSchema = z.discriminatedUnion("whattodoBackupVersion", [

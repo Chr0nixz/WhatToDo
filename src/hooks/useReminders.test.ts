@@ -1,8 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppData, Reminder, Task } from "@/data/types";
 
-import { dueRemindersForData } from "./useReminders";
+import { dueRemindersForData, useReminders } from "./useReminders";
+
+const sendNotification = vi.fn();
+const isPermissionGranted = vi.fn();
+const requestPermission = vi.fn();
+
+vi.mock("@tauri-apps/plugin-notification", () => ({
+  isPermissionGranted: (...args: unknown[]) => isPermissionGranted(...args),
+  requestPermission: (...args: unknown[]) => requestPermission(...args),
+  sendNotification: (...args: unknown[]) => sendNotification(...args),
+}));
 
 const makeTask = (patch: Partial<Task>): Task => ({
   id: patch.id ?? "task",
@@ -102,5 +113,36 @@ describe("dueRemindersForData", () => {
     expect(dueRemindersForData(data, new Date("2026-06-01T00:02:00.000Z").getTime()).map((item) => item.id)).toEqual([
       "due",
     ]);
+  });
+});
+
+describe("useReminders notification failure", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
+    isPermissionGranted.mockResolvedValue(true);
+    requestPermission.mockResolvedValue("granted");
+    sendNotification.mockReset();
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+  });
+
+  it("marks a reminder failed when sendNotification throws", async () => {
+    sendNotification.mockRejectedValue(new Error("notify boom"));
+    const markReminderFired = vi.fn(async () => makeData([], []));
+    const markReminderFailed = vi.fn(async () => makeData([], []));
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const data = makeData(
+      [makeTask({ id: "task-a", title: "Alpha" })],
+      [makeReminder({ id: "reminder-a", taskId: "task-a", remindAt: past })],
+    );
+
+    renderHook(() => useReminders(data, markReminderFired, markReminderFailed, vi.fn()));
+
+    await waitFor(() => {
+      expect(markReminderFailed).toHaveBeenCalledWith("reminder-a", "notify boom");
+    });
+    expect(markReminderFired).not.toHaveBeenCalled();
   });
 });

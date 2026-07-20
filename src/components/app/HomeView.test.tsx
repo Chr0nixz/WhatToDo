@@ -1,9 +1,8 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "@/i18n";
-import { buildAppIndexes } from "@/data/appIndexes";
-import type { AppData, Task } from "@/data/types";
+import type { AppData, Task, TaskPageResult } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 
 import { HomeView } from "./HomeView";
@@ -65,19 +64,40 @@ const makeData = (tasks: Task[]): AppData => ({
   settingsByWorkspace: {},
 });
 
-const actions = {} as TodoActions;
+function makeActions(dayTasks: Task[]): TodoActions {
+  const pageSize = 150;
+  return {
+    loadTaskPage: vi.fn(async (input) => {
+      if (input.dateRange === "overdue") {
+        return { tasks: [], total: 0, reminders: [] } satisfies TaskPageResult;
+      }
+      const query = (input.query ?? "").trim().toLowerCase();
+      const filtered = dayTasks.filter((task) => (query ? task.title.toLowerCase().includes(query) : true));
+      const offset = input.offset ?? 0;
+      const limit = input.limit ?? pageSize;
+      return {
+        tasks: filtered.slice(offset, offset + limit),
+        total: filtered.length,
+        reminders: [],
+      } satisfies TaskPageResult;
+    }),
+    loadDueDateCounts: vi.fn(async () => ({ "2026-06-01": dayTasks.length })),
+  } as unknown as TodoActions;
+}
 
 describe("HomeView performance list behavior", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("renders selected-day tasks in a 150 item window", () => {
-    const data = makeData(Array.from({ length: 160 }, (_, index) => makeTask(index + 1)));
+  it("renders selected-day tasks in a 150 item window", async () => {
+    const dayTasks = Array.from({ length: 160 }, (_, index) => makeTask(index + 1));
+    const data = makeData(dayTasks);
+    const actions = makeActions(dayTasks);
+
     render(
       <HomeView
         actions={actions}
-        appIndexes={buildAppIndexes(data)}
         data={data}
         searchQuery=""
         selectedDate="2026-06-01"
@@ -88,17 +108,22 @@ describe("HomeView performance list behavior", () => {
       />,
     );
 
+    await waitFor(() => {
+      expect(screen.getByText("Task 1")).toBeInTheDocument();
+    });
     expect(screen.queryByText("Task 151")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
-    expect(screen.getByText("Task 151")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Task 151")).toBeInTheDocument();
+    });
   });
 
-  it("debounces search filtering", () => {
-    vi.useFakeTimers();
-    const data = makeData(Array.from({ length: 160 }, (_, index) => makeTask(index + 1)));
+  it("debounces search filtering", async () => {
+    const dayTasks = Array.from({ length: 160 }, (_, index) => makeTask(index + 1));
+    const data = makeData(dayTasks);
+    const actions = makeActions(dayTasks);
     const props = {
       actions,
-      appIndexes: buildAppIndexes(data),
       data,
       selectedDate: "2026-06-01",
       selectedTaskId: null,
@@ -108,15 +133,23 @@ describe("HomeView performance list behavior", () => {
     };
     const { rerender } = render(<HomeView {...props} searchQuery="" />);
 
+    await waitFor(() => {
+      expect(screen.getByText("Task 1")).toBeInTheDocument();
+    });
+
+    vi.useFakeTimers();
     rerender(<HomeView {...props} searchQuery="Task 151" />);
     expect(screen.getByText("Task 1")).toBeInTheDocument();
     expect(screen.queryByText("Task 151")).not.toBeInTheDocument();
 
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(200);
     });
+    vi.useRealTimers();
 
-    expect(screen.queryByText("Task 1")).not.toBeInTheDocument();
-    expect(screen.getByText("Task 151")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("Task 1")).not.toBeInTheDocument();
+      expect(screen.getByText("Task 151")).toBeInTheDocument();
+    });
   });
 });

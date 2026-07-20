@@ -215,6 +215,19 @@ CREATE TABLE IF NOT EXISTS attachments (
 CREATE INDEX IF NOT EXISTS idx_attachments_task_id ON attachments(task_id);
 "#;
 
+const ADD_REMINDER_EVENTS_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS reminder_events (
+    id TEXT PRIMARY KEY,
+    reminder_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    detail TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_reminder_events_reminder ON reminder_events(reminder_id, created_at DESC);
+"#;
+
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -715,6 +728,7 @@ fn bootstrap_migration_tracking(conn: &Connection, applied: &[i64]) -> Result<()
         (11, "add_recurring_by_weekday"),
         (12, "add_task_tags_and_parent"),
         (13, "add_attachments"),
+        (14, "add_reminder_events"),
     ];
 
     conn.execute_batch(
@@ -859,6 +873,7 @@ pub fn run() {
         (11, "add_recurring_by_weekday", ADD_RECURRING_BY_WEEKDAY_SQL),
         (12, "add_task_tags_and_parent", ADD_TASK_TAGS_AND_PARENT_SQL),
         (13, "add_attachments", ADD_ATTACHMENTS_SQL),
+        (14, "add_reminder_events", ADD_REMINDER_EVENTS_SQL),
     ];
 
     let db_reset = match init_database(&migrations) {

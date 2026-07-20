@@ -77,6 +77,8 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
   const [pendingDelete, setPendingDelete] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [futureUpdateOpen, setFutureUpdateOpen] = useState(false);
+  const [futureUpdateMode, setFutureUpdateMode] = useState<"template" | "openFuture">("template");
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const pendingSwitchRef = useRef<{ nextTaskId: string | null } | null>(null);
@@ -287,7 +289,7 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
     setNewAttachmentPath("");
   };
 
-  const updateFutureRepeats = async () => {
+  const updateFutureRepeats = async (mode: "template" | "openFuture") => {
     if (!task || !recurringTemplate || !title.trim()) {
       setFutureSaveState("error");
       return;
@@ -298,20 +300,25 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
     setSaveErrorMessage(null);
 
     try {
-      await actions.updateRecurringTaskTemplate(recurringTemplate.id, {
-        title: title.trim(),
-        notes,
-        projectId: projectId === "none" ? null : projectId,
-        workingFolder: workingFolder.trim() || null,
-        dueTime: dueTime || null,
-        priority,
-        reminderOffset: useReminder ? reminderOffset : null,
-        frequency: recurrenceFrequency,
-        interval: recurrenceInterval,
-        byWeekday: recurrenceFrequency === "weekly" && recurrenceByWeekday.length > 0 ? recurrenceByWeekday : null,
-        endDate: recurrenceEndDate || null,
-      });
+      await actions.updateRecurringSeries(
+        recurringTemplate.id,
+        {
+          title: title.trim(),
+          notes,
+          projectId: projectId === "none" ? null : projectId,
+          workingFolder: workingFolder.trim() || null,
+          dueTime: dueTime || null,
+          priority,
+          reminderOffset: useReminder ? reminderOffset : null,
+          frequency: recurrenceFrequency,
+          interval: recurrenceInterval,
+          byWeekday: recurrenceFrequency === "weekly" && recurrenceByWeekday.length > 0 ? recurrenceByWeekday : null,
+          endDate: recurrenceEndDate || null,
+        },
+        mode,
+      );
       setFutureSaveState("saved");
+      setFutureUpdateOpen(false);
     } catch (err) {
       setSaveErrorMessage(`${t("taskUpdateFailed")}: ${describeError(err)}`);
       setFutureSaveState("error");
@@ -909,7 +916,16 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
                           : t("repeatReminderInherited")}
                       </p>
                       <div className="flex flex-wrap gap-2">
-                        <Button disabled={isSavingFuture} size="sm" type="button" variant="secondary" onClick={() => void updateFutureRepeats()}>
+                        <Button
+                          disabled={isSavingFuture}
+                          size="sm"
+                          type="button"
+                          variant="secondary"
+                          onClick={() => {
+                            setFutureUpdateMode("template");
+                            setFutureUpdateOpen(true);
+                          }}
+                        >
                           {isSavingFuture ? t("saving") : t("updateFutureRepeats")}
                         </Button>
                         <Button disabled={isSavingFuture || !recurringTemplate.enabled} size="sm" type="button" variant="ghost" onClick={() => void disableFutureRepeats()}>
@@ -1037,6 +1053,55 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
                     : pendingDelete
                       ? t("saveAndDelete")
                       : t("saveAnyway")}
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root open={futureUpdateOpen} onOpenChange={setFutureUpdateOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="motion-dialog-overlay fixed inset-0 z-50 bg-background/65 backdrop-blur-[2px]" />
+          <Dialog.Content className="motion-dialog-content fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-xl outline-none">
+            <Dialog.Title className="text-sm font-semibold">{t("updateFutureRepeats")}</Dialog.Title>
+            <Dialog.Description className="mt-1.5 text-sm text-muted-foreground">
+              {t("updateFutureRepeatsHint")}
+            </Dialog.Description>
+            <div className="mt-3 grid gap-2">
+              <label className="flex items-start gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                <input
+                  checked={futureUpdateMode === "template"}
+                  className="mt-0.5"
+                  name="future-update-mode"
+                  type="radio"
+                  onChange={() => setFutureUpdateMode("template")}
+                />
+                <span>{t("updateTemplateOnly")}</span>
+              </label>
+              <label className="flex items-start gap-2 rounded-md border border-border px-3 py-2 text-sm">
+                <input
+                  checked={futureUpdateMode === "openFuture"}
+                  className="mt-0.5"
+                  name="future-update-mode"
+                  type="radio"
+                  onChange={() => setFutureUpdateMode("openFuture")}
+                />
+                <span>{t("updateTemplateAndOpenFuture")}</span>
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <Dialog.Close asChild>
+                <Button disabled={isSavingFuture} size="sm" type="button" variant="ghost">
+                  {t("dismiss")}
+                </Button>
+              </Dialog.Close>
+              <Button
+                disabled={isSavingFuture}
+                size="sm"
+                type="button"
+                onClick={() => void updateFutureRepeats(futureUpdateMode)}
+              >
+                {isSavingFuture ? t("saving") : t("applyFutureRepeats")}
               </Button>
             </div>
           </Dialog.Content>

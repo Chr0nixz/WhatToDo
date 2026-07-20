@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.2
+
+- Improves large-list performance with targeted repository patches, `tasksRevision`-aware pagination, and list-column projection for task pages, available tasks, and recovery lists.
+- Pushes Home calendar counts and day lists to query APIs (`loadDueDateCounts`, `loadTaskPage`) instead of scanning the full in-memory task set.
+- Adds backup import merge mode alongside replace, with preview mode selection in Settings.
+- Adds reminder event history (SQLite migration v14) with an expandable timeline in Reminder Center.
+- Extends Overview filters (tags / advanced) through `loadTaskPage`, recurring series update modes, and related Sql semantics tests.
+- Adds Home drag-and-drop reschedule onto calendar days with undo support.
+- Parses quick-add recurrence phrases (e.g. 每周一 / every monday) into recurring drafts in Task Composer.
+- Remembers recent command palette commands and tasks in localStorage for empty-query shortcuts.
+
 ## 0.2.1
 
 - Hardens accessibility for multi-select task rows, reminder center landmarks, and confirm dialogs.

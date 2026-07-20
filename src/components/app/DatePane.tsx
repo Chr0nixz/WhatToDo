@@ -1,35 +1,73 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { format, isSameMonth } from "date-fns";
-import type { CSSProperties } from "react";
-import { useMemo, useState } from "react";
+import type { CSSProperties, DragEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import {
-  getMonthDays,
-  getWeekDays,
-  isToday,
-  shiftMonth,
-  taskCountsByDate,
-  toDateKey,
-} from "@/data/date";
+import { getMonthDays, getWeekDays, isToday, shiftMonth, toDateKey } from "@/data/date";
 import { formatMonthTitle, formatWeekDate, formatWeekday } from "@/data/dateFormat";
-import type { Task } from "@/data/types";
+import { TASK_DRAG_MIME } from "@/data/taskDrag";
 import { cn } from "@/lib/utils";
 
 type DatePaneProps = {
   selectedDate: string;
   setSelectedDate: (date: string) => void;
-  tasks: Task[];
+  counts: Record<string, number>;
+  onVisibleRangeChange: (from: string, to: string) => void;
+  onDropTask?: (taskId: string, dateKey: string) => void;
 };
 
-export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps) {
+export function DatePane({
+  selectedDate,
+  setSelectedDate,
+  counts,
+  onVisibleRangeChange,
+  onDropTask,
+}: DatePaneProps) {
   const { i18n, t } = useTranslation();
   const [mode, setMode] = useState<"calendar" | "week">("calendar");
   const [monthCursor, setMonthCursor] = useState(selectedDate);
-  const counts = useMemo(() => taskCountsByDate(tasks), [tasks]);
-  const monthDays = getMonthDays(monthCursor);
-  const weekDays = getWeekDays(selectedDate);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const monthDays = useMemo(() => getMonthDays(monthCursor), [monthCursor]);
+  const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
+
+  useEffect(() => {
+    if (mode === "calendar") {
+      const first = monthDays[0];
+      const last = monthDays[monthDays.length - 1];
+      if (first && last) {
+        onVisibleRangeChange(toDateKey(first), toDateKey(last));
+      }
+      return;
+    }
+    const first = weekDays[0];
+    const last = weekDays[weekDays.length - 1];
+    if (first && last) {
+      onVisibleRangeChange(toDateKey(first), toDateKey(last));
+    }
+  }, [mode, monthDays, onVisibleRangeChange, weekDays]);
+
+  const handleDragOver = (event: DragEvent, key: string) => {
+    if (!onDropTask) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverKey(key);
+  };
+
+  const handleDrop = (event: DragEvent, key: string) => {
+    if (!onDropTask) {
+      return;
+    }
+    event.preventDefault();
+    setDragOverKey(null);
+    const taskId = event.dataTransfer.getData(TASK_DRAG_MIME) || event.dataTransfer.getData("text/plain");
+    if (taskId) {
+      onDropTask(taskId, key);
+    }
+  };
 
   return (
     <aside
@@ -111,10 +149,14 @@ export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps
                       !isSameMonth(day, new Date(`${monthCursor}T00:00:00`)) && "text-muted-foreground",
                       key === selectedDate && "bg-primary text-primary-foreground hover:bg-primary",
                       isToday(day) && key !== selectedDate && "text-primary",
+                      dragOverKey === key && "ring-2 ring-ring",
                     )}
                     style={{ "--motion-index": index } as CSSProperties}
                     type="button"
                     onClick={() => setSelectedDate(key)}
+                    onDragOver={(event) => handleDragOver(event, key)}
+                    onDragLeave={() => setDragOverKey((current) => (current === key ? null : current))}
+                    onDrop={(event) => handleDrop(event, key)}
                   >
                     {format(day, "d")}
                     {count > 0 && <span className="motion-status absolute bottom-1 h-1 w-4 rounded-full bg-current opacity-70" />}
@@ -137,16 +179,17 @@ export function DatePane({ selectedDate, setSelectedDate, tasks }: DatePaneProps
                   className={cn(
                     "motion-surface flex w-full items-center justify-between rounded-lg border border-transparent px-3 py-3 text-left text-sm hover:bg-accent",
                     selectedDate === key && "border-ring bg-accent text-accent-foreground",
+                    dragOverKey === key && "ring-2 ring-ring",
                   )}
                   style={{ "--motion-index": index } as CSSProperties}
                   type="button"
                   onClick={() => setSelectedDate(key)}
+                  onDragOver={(event) => handleDragOver(event, key)}
+                  onDragLeave={() => setDragOverKey((current) => (current === key ? null : current))}
+                  onDrop={(event) => handleDrop(event, key)}
                 >
-                  <span>
-                    <span className="block text-xs text-muted-foreground">{formatWeekday(day, i18n.language)}</span>
-                    <span className="block text-lg font-semibold">{formatWeekDate(day, i18n.language)}</span>
-                  </span>
-                  <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{count}</span>
+                  <span>{formatWeekDate(day, i18n.language)}</span>
+                  <span className="text-xs text-muted-foreground">{count}</span>
                 </button>
               );
             })}

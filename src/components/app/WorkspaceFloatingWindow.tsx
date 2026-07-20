@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { openTasks } from "@/data/date";
 import type { AppData } from "@/data/types";
 import { useTaskPage } from "@/hooks/useTaskPage";
+import { useTasksRevision } from "@/hooks/useTodoStore";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,7 @@ const FLOATING_MIN_WIDTH = 320;
 
 export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWindowProps) {
   const { t } = useTranslation();
+  const tasksRevision = useTasksRevision();
   const workspace = data.workspaces.find((item) => item.id === data.workspaceId) ?? data.workspaces[0] ?? null;
   const [hiddenTaskIds, setHiddenTaskIds] = useState<Set<string>>(() => new Set());
   const taskPageInput = useMemo(
@@ -39,7 +41,7 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
   const taskPage = useTaskPage({
     actions,
     input: taskPageInput,
-    reloadKey: data.tasks,
+    reloadKey: tasksRevision,
   });
   const tasks = useMemo(() => taskPage.tasks.filter((task) => !hiddenTaskIds.has(task.id)), [hiddenTaskIds, taskPage.tasks]);
   const openTaskCount = useMemo(
