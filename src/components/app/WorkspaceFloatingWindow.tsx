@@ -1,7 +1,7 @@
 import { openPath } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
-import { ChevronDown, ChevronUp, FolderOpen, GripHorizontal, MonitorUp, Pin, PinOff, X } from "lucide-react";
+import { ChevronDown, ChevronUp, FolderOpen, GripHorizontal, Pin, PinOff, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -150,19 +150,17 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
   return (
     <main
       className={cn(
-        "flex h-screen flex-col overflow-hidden bg-background/78 text-foreground shadow-2xl backdrop-blur-md transition-[background-color,box-shadow] duration-200 ease-[var(--ease-out-quart)]",
+        "flex h-screen flex-col overflow-hidden bg-background text-foreground shadow-xl transition-[background-color,box-shadow] duration-200 ease-[var(--ease-out-quart)]",
         isCollapsed ? "min-h-[96px]" : "min-h-[420px]",
       )}
     >
-      <header className="shrink-0 border-b border-border/70 bg-card/50 px-3 py-3">
+      <header className="shrink-0 border-b border-border bg-card/50 px-3 py-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1 select-none" onMouseDown={startDragging}>
-            <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
-              <MonitorUp className="size-3" />
-              {t("floatingWindow")}
-              <GripHorizontal className="size-3" />
-            </p>
-            <h1 className="mt-1 truncate text-lg font-semibold">{workspace?.name ?? t("workspaces")}</h1>
+            <h1 className="flex items-center gap-1.5 truncate text-lg font-semibold">
+              <GripHorizontal className="size-3.5 shrink-0 text-muted-foreground" />
+              {workspace?.name ?? t("workspaces")}
+            </h1>
             <p className="text-xs text-muted-foreground">
               {t("workspaceSummary", {
                 tasks: openTaskCount,
@@ -202,7 +200,7 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
 
       {!isCollapsed && (
         <div className="motion-pane-content flex min-h-0 flex-1 flex-col">
-          <section className="shrink-0 border-b border-border/75 bg-background/35 px-3 py-2">
+          <section className="shrink-0 border-b border-border bg-background/35 px-3 py-2">
             {error && <p className="motion-status mb-2 text-xs text-destructive">{error}</p>}
             {data.workspaceFolders.length === 0 ? (
               <p className="motion-status py-2 text-sm text-muted-foreground">{t("emptyFolders")}</p>
@@ -218,7 +216,7 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
             )}
           </section>
 
-          <section className="min-h-0 flex-1 overflow-auto bg-background/25 p-3">
+          <section className="min-h-0 flex-1 overflow-auto bg-background/35 p-3">
             {taskPage.isLoading ? (
               <div className="motion-status flex min-h-28 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-4 text-center text-sm text-muted-foreground">
                 {t("loadingTasks")}

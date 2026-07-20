@@ -31,7 +31,7 @@ const GROUP_ORDER: CommandGroup[] = ["navigation", "tasks", "workspaces", "folde
 
 function Kbd({ children }: { children: ReactNode }) {
   return (
-    <kbd className="inline-flex min-h-[18px] min-w-[18px] items-center justify-center rounded border border-border bg-secondary/80 px-1 font-sans text-[10px] font-medium leading-none text-muted-foreground">
+    <kbd className="inline-flex min-h-[18px] min-w-[18px] items-center justify-center rounded border border-border bg-secondary/80 px-1 font-sans text-xs font-medium leading-none text-muted-foreground">
       {children}
     </kbd>
   );
@@ -48,7 +48,7 @@ function PaletteModeToggle({
 
   return (
     <div
-      className="inline-grid shrink-0 grid-flow-col gap-0.5 rounded-md border border-border bg-background/55 p-0.5"
+      className="inline-grid shrink-0 grid-flow-col gap-0.5 rounded-md border border-border bg-background/50 p-0.5"
       role="tablist"
       aria-label={t("commandPalette")}
     >
@@ -73,7 +73,7 @@ function PaletteModeToggle({
 
 function StatusPanel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="motion-status mx-1 flex min-h-[9rem] items-center justify-center rounded-lg border border-dashed border-border bg-background/45 px-4 text-center text-sm text-muted-foreground">
+    <p className="motion-status mx-1 flex min-h-[9rem] items-center justify-center rounded-lg border border-dashed border-border bg-background/50 px-4 text-center text-sm text-muted-foreground">
       {children}
     </p>
   );
@@ -137,7 +137,7 @@ export function CommandPalette({
 
           <div className="border-b border-border px-3 py-3">
             <div className="flex items-center gap-2.5">
-              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-background/70 px-2.5 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/35">
+              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-background/65 px-2.5 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/35">
                 <Search aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
                 <label className="sr-only" htmlFor="command-palette-input">
                   {mode === "tasks" ? t("commandSearchTasksPlaceholder") : t("commandPalettePlaceholder")}
@@ -204,7 +204,7 @@ export function CommandPalette({
                             >
                               <span className="min-w-0 truncate">{item.label}</span>
                               {item.shortcut && (
-                                <span className="shrink-0 rounded-md border border-border bg-secondary/70 px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">
+                                <span className="shrink-0 rounded-md border border-border bg-secondary/70 px-1.5 py-0.5 text-xs font-medium leading-none text-muted-foreground">
                                   {item.shortcut}
                                 </span>
                               )}
@@ -219,7 +219,7 @@ export function CommandPalette({
             )}
           </div>
 
-          <div className="flex items-center justify-center gap-2 border-t border-border bg-muted/25 px-3 py-2 text-[11px] text-muted-foreground">
+          <div className="flex items-center justify-center gap-2 border-t border-border bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1">
               <Kbd>↑</Kbd>
               <Kbd>↓</Kbd>

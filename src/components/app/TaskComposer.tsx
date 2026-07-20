@@ -242,7 +242,7 @@ export function TaskComposer({
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div className="grid gap-1 text-xs text-muted-foreground">
             <span>{t("priority")}</span>
-            <div aria-label={t("priority")} className="inline-grid grid-cols-3 gap-1 rounded-lg border border-border bg-background/55 p-1" role="group">
+            <div aria-label={t("priority")} className="inline-grid grid-cols-3 gap-1 rounded-lg border border-border bg-background/50 p-1" role="group">
               {priorityOptions.map((option) => (
                 <button
                   key={option}
@@ -263,7 +263,7 @@ export function TaskComposer({
           <Button
             aria-label={t("reminder")}
             aria-pressed={useReminder}
-            className={cn("h-9 gap-2 px-3", useReminder && "border-amber-500/30 bg-amber-500/12 text-amber-700 hover:bg-amber-500/18 dark:text-amber-300")}
+            className={cn("h-9 gap-2 px-3", useReminder && "border-warning/30 bg-warning/12 text-warning-foreground hover:bg-warning/18 dark:text-warning")}
             disabled={isSubmitting}
             size="sm"
             title={t("reminder")}
@@ -446,7 +446,7 @@ export function TaskComposer({
 
   return (
     <form
-      className="grid grid-cols-[minmax(150px,1fr)_36px_128px_96px_82px_112px_112px_36px] gap-1.5 rounded-lg border border-border bg-card/75 p-2 shadow-sm max-xl:grid-cols-[minmax(150px,1fr)_36px_128px_92px_82px_112px_36px] max-lg:grid-cols-2 max-sm:grid-cols-1"
+      className="grid grid-cols-[minmax(150px,1fr)_36px_128px_96px_82px_112px_112px_36px] gap-1.5 rounded-lg border border-border bg-card/80 p-2 shadow-sm max-xl:grid-cols-[minmax(150px,1fr)_36px_128px_92px_82px_112px_36px] max-lg:grid-cols-2 max-sm:grid-cols-1"
       onSubmit={handleSubmit}
     >
       <label className="sr-only" htmlFor="task-title">

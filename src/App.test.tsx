@@ -50,7 +50,8 @@ describe("App", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByText("WhatToDo")).toBeInTheDocument());
-    expect(screen.getAllByText("每日 DDL").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "今天" })).toBeInTheDocument();
+    expect(screen.getAllByText("本地任务").length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "项目" }));
     await waitFor(() => expect(screen.getAllByText("新建项目").length).toBeGreaterThan(0));

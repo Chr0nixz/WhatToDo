@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "@/i18n";
+import { buildAppIndexes } from "@/data/appIndexes";
 import type { AppData, Task } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 
@@ -72,10 +73,12 @@ describe("HomeView performance list behavior", () => {
   });
 
   it("renders selected-day tasks in a 150 item window", () => {
+    const data = makeData(Array.from({ length: 160 }, (_, index) => makeTask(index + 1)));
     render(
       <HomeView
         actions={actions}
-        data={makeData(Array.from({ length: 160 }, (_, index) => makeTask(index + 1)))}
+        appIndexes={buildAppIndexes(data)}
+        data={data}
         searchQuery=""
         selectedDate="2026-06-01"
         selectedTaskId={null}
@@ -92,9 +95,11 @@ describe("HomeView performance list behavior", () => {
 
   it("debounces search filtering", () => {
     vi.useFakeTimers();
+    const data = makeData(Array.from({ length: 160 }, (_, index) => makeTask(index + 1)));
     const props = {
       actions,
-      data: makeData(Array.from({ length: 160 }, (_, index) => makeTask(index + 1))),
+      appIndexes: buildAppIndexes(data),
+      data,
       selectedDate: "2026-06-01",
       selectedTaskId: null,
       setSearchQuery: vi.fn(),

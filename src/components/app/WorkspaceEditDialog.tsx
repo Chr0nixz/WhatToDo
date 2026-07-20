@@ -4,17 +4,12 @@ import { FormEvent, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { accentSwatches, defaultAccentSwatch, normalizeAccentSwatch } from "@/data/accentSwatches";
 import type { Workspace } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
-const workspaceColors = [
-  { labelKey: "accentBlue", value: "#4fb8d8" },
-  { labelKey: "accentEmerald", value: "#6cc083" },
-  { labelKey: "accentAmber", value: "#d7a742" },
-  { labelKey: "accentRose", value: "#ec6f5d" },
-  { labelKey: "accentViolet", value: "#8b7cf6" },
-];
+const workspaceColors = accentSwatches;
 
 type WorkspaceEditDialogProps = {
   workspace: Workspace | null;
@@ -27,7 +22,7 @@ type WorkspaceEditDialogProps = {
 export function WorkspaceEditDialog({ workspace, open, onOpenChange, actions, onDelete }: WorkspaceEditDialogProps) {
   const { t } = useTranslation();
   const [name, setName] = useState("");
-  const [color, setColor] = useState(workspaceColors[0].value);
+  const [color, setColor] = useState(defaultAccentSwatch);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +33,7 @@ export function WorkspaceEditDialog({ workspace, open, onOpenChange, actions, on
     }
 
     setName(workspace.name);
-    setColor(workspace.color);
+    setColor(normalizeAccentSwatch(workspace.color));
     setError(null);
   }, [open, workspace]);
 

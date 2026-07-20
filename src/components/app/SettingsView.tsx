@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { accentSwatches } from "@/data/accentSwatches";
 import type { AccentColor, AppData, BackupPayload, Language, RecoveryItems, Settings, ThemeMode } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 import { loadAutoBackupConfig, saveAutoBackupConfig, type AutoBackupConfig } from "@/hooks/useAutoBackup";
@@ -19,13 +20,11 @@ type SettingsViewProps = {
   actions: TodoActions;
 };
 
-const accentOptions = [
-  { value: "blue", labelKey: "accentBlue", swatch: "oklch(0.61 0.125 210)" },
-  { value: "emerald", labelKey: "accentEmerald", swatch: "oklch(0.56 0.13 155)" },
-  { value: "amber", labelKey: "accentAmber", swatch: "oklch(0.66 0.13 84)" },
-  { value: "rose", labelKey: "accentRose", swatch: "oklch(0.59 0.15 16)" },
-  { value: "violet", labelKey: "accentViolet", swatch: "oklch(0.58 0.15 292)" },
-] satisfies { value: AccentColor; labelKey: string; swatch: string }[];
+const accentOptions = accentSwatches.map((swatch) => ({
+  value: swatch.id,
+  labelKey: swatch.labelKey,
+  swatch: swatch.value,
+})) satisfies { value: AccentColor; labelKey: string; swatch: string }[];
 
 const LANGUAGE_STORAGE_KEY = "whattodo:language";
 const isTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -314,7 +313,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
 
   return (
     <main className="mx-auto grid w-full max-w-4xl gap-4">
-      <section className="motion-surface rounded-lg border border-border bg-card/70 p-4 shadow-sm">
+      <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
             <Moon className="size-4" />
@@ -335,7 +334,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             value={settings.theme}
             onChange={(value) => void saveSettings({ theme: value as ThemeMode })}
           />
-          <div className="grid gap-2 rounded-md bg-background/45 px-3 py-3">
+          <div className="grid gap-2 rounded-md bg-background/50 px-3 py-3">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Palette className="size-4 text-muted-foreground" />
               {t("accentColor")}
@@ -358,7 +357,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
                     onClick={() => void saveSettings({ accentColor: option.value })}
                   >
                     <span
-                      className="flex size-4 items-center justify-center rounded-full border border-border/60"
+                      className="flex size-4 items-center justify-center rounded-full border border-border"
                       style={{ backgroundColor: option.swatch }}
                     >
                       {isSelected && <Check className="motion-status size-3 text-primary-foreground" />}
@@ -372,7 +371,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
         </div>
       </section>
 
-      <section className="motion-surface rounded-lg border border-border bg-card/70 p-4 shadow-sm">
+      <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
             <Languages className="size-4" />
@@ -393,7 +392,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
         />
       </section>
 
-      <section className="motion-surface rounded-lg border border-border bg-card/70 p-4 shadow-sm">
+      <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
             <Bell className="size-4" />
@@ -416,7 +415,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             label={t("closeToTray")}
             onClick={() => void saveSettings({ closeToTray: !settings.closeToTray })}
           />
-          <label className="grid grid-cols-[1fr_160px] items-center gap-3 rounded-md bg-background/45 px-3 py-2 text-sm">
+          <label className="grid grid-cols-[1fr_160px] items-center gap-3 rounded-md bg-background/50 px-3 py-2 text-sm">
             <span>
               <span className="block font-medium">{t("defaultReminder")}</span>
               <span className="text-xs text-muted-foreground">{t("minutes")}</span>
@@ -438,7 +437,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
         </div>
       </section>
 
-      <section className="motion-surface rounded-lg border border-border bg-card/70 p-4 shadow-sm">
+      <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
             <FolderOpen className="size-4" />
@@ -485,13 +484,13 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
           </Button>
         </div>
         {saveState !== "idle" && (
-          <p className={cn("motion-status mt-3 text-xs", saveState === "saved" ? "text-emerald-600" : "text-destructive")}>
+          <p className={cn("motion-status mt-3 text-xs", saveState === "saved" ? "text-success" : "text-destructive")}>
             {saveState === "saved" ? t("saved") : t("operationFailed")}
           </p>
         )}
       </section>
 
-      <section className="motion-surface rounded-lg border border-border bg-card/70 p-4 shadow-sm">
+      <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
             <ArchiveRestore className="size-4" />
@@ -502,7 +501,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
           </div>
         </div>
         {recoveryState === "loading" ? (
-          <p className="motion-status rounded-md border border-dashed border-border bg-background/45 p-3 text-sm text-muted-foreground">
+          <p className="motion-status rounded-md border border-dashed border-border bg-background/50 p-3 text-sm text-muted-foreground">
             {t("loadingRecovery")}
           </p>
         ) : recoveryState === "error" ? (
@@ -551,7 +550,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
         )}
       </section>
 
-      <section className="motion-surface rounded-lg border border-border bg-card/70 p-4 shadow-sm">
+      <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
             <Database className="size-4" />
@@ -580,13 +579,13 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
           </Button>
         </div>
         {dataState !== "idle" && (
-          <p className={cn("motion-status mt-3 text-xs", dataState === "saved" ? "text-emerald-600" : "text-destructive")}>
+          <p className={cn("motion-status mt-3 text-xs", dataState === "saved" ? "text-success" : "text-destructive")}>
             {dataState === "saved" ? t("dataOperationDone") : dataError ?? t("operationFailed")}
           </p>
         )}
       </section>
 
-      <section className="motion-surface rounded-lg border border-border bg-card/70 p-4 shadow-sm">
+      <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
             <RotateCw className="size-4" />
@@ -602,7 +601,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             label={t("autoBackupEnabled")}
             onClick={() => updateAutoBackup({ enabled: !autoBackup.enabled })}
           />
-          <label className="grid grid-cols-[1fr_120px] items-center gap-3 rounded-md bg-background/45 px-3 py-2 text-sm">
+          <label className="grid grid-cols-[1fr_120px] items-center gap-3 rounded-md bg-background/50 px-3 py-2 text-sm">
             <span>
               <span className="block font-medium">{t("autoBackupInterval")}</span>
               <span className="text-xs text-muted-foreground">{t("hours")}</span>
@@ -650,14 +649,14 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             </Button>
           </div>
           {autoBackupState !== "idle" && (
-            <p className={cn("motion-status text-xs", autoBackupState === "saved" ? "text-emerald-600" : "text-destructive")}>
+            <p className={cn("motion-status text-xs", autoBackupState === "saved" ? "text-success" : "text-destructive")}>
               {autoBackupState === "saved" ? t("autoBackupDone") : t("autoBackupFailed")}
             </p>
           )}
         </div>
       </section>
 
-      <section className="motion-surface rounded-lg border border-border bg-card/70 p-4 shadow-sm">
+      <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
             <HelpCircle className="size-4" />
@@ -668,7 +667,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-md bg-background/45 p-3">
+          <div className="p-1">
             <div className="mb-2 flex items-center gap-2 text-sm font-medium">
               <Keyboard className="size-4 text-muted-foreground" />
               {t("keyboardShortcuts")}
@@ -688,7 +687,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
               </div>
             </dl>
           </div>
-          <div className="rounded-md bg-background/45 p-3">
+          <div className="p-1">
             <div className="mb-1 flex items-center gap-2 text-sm font-medium">
               <Wand2 className="size-4 text-muted-foreground" />
               {t("quickAddSyntax")}
@@ -736,7 +735,7 @@ function RecoveryGroup({
   const { t } = useTranslation();
 
   return (
-    <div className="rounded-md bg-background/45 p-3">
+    <div className="rounded-md bg-background/50 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">{title}</h3>
         <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">{items.length}</span>
@@ -746,7 +745,7 @@ function RecoveryGroup({
       ) : (
         <div className="grid gap-2">
           {items.map((item) => (
-            <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md bg-card/70 px-3 py-2">
+            <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md bg-card/65 px-3 py-2">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{item.title}</p>
                 <p className="truncate text-xs text-muted-foreground">{item.meta}</p>
@@ -779,7 +778,7 @@ function Segmented({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="inline-grid grid-flow-col gap-1 rounded-lg border border-border bg-background/55 p-1">
+    <div className="inline-grid grid-flow-col gap-1 rounded-lg border border-border bg-background/50 p-1">
       {options.map((option) => (
         <button
           aria-pressed={value === option.value}
@@ -813,7 +812,7 @@ function ToggleRow({
   return (
     <button
       aria-checked={checked}
-      className="motion-surface flex items-center justify-between rounded-md bg-background/45 px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-50"
+      className="motion-surface flex items-center justify-between rounded-md bg-background/50 px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-50"
       disabled={disabled}
       role="switch"
       type="button"

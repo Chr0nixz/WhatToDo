@@ -1,9 +1,10 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { CalendarClock, Check, CheckSquare, Clock, EyeOff, Loader2, Repeat2, Square, Trash2, X, XCircle } from "lucide-react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { formatTaskDate } from "@/data/dateFormat";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,8 @@ type TaskListProps = {
   onDeleteTask?: (taskId: string) => void;
   deleteMode?: "delete" | "hide";
   emptyLabel?: string;
+  emptyHint?: string;
+  emptyAction?: ReactNode;
   totalCount?: number;
   windowSize?: number;
   windowKey?: string;
@@ -33,15 +36,15 @@ type TaskListProps = {
 };
 
 const priorityClasses = {
-  high: "bg-red-500",
-  medium: "bg-amber-500",
-  low: "bg-emerald-500",
+  high: "bg-destructive",
+  medium: "bg-warning",
+  low: "bg-success",
 };
 
 const priorityTextClasses = {
-  high: "text-red-600",
-  medium: "text-amber-600",
-  low: "text-emerald-600",
+  high: "text-destructive",
+  medium: "text-warning-foreground dark:text-warning",
+  low: "text-success-foreground dark:text-success",
 };
 
 const priorityLabelKeys: Record<string, string> = {
@@ -107,7 +110,8 @@ const TaskRow = React.memo(function TaskRow({
       >
         {selectionMode && (
           <button
-            aria-label={isChecked ? t("deselectAll") : t("selectAll")}
+            aria-label={isChecked ? t("deselectTask", { title: task.title }) : t("selectTask", { title: task.title })}
+            aria-pressed={isChecked}
             className="flex size-5 items-center justify-center rounded border transition-colors"
             type="button"
             onClick={() => onToggleCheck?.(task.id)}
@@ -122,7 +126,7 @@ const TaskRow = React.memo(function TaskRow({
             task.status === "completed"
               ? "border-primary bg-primary text-primary-foreground"
               : task.status === "in_progress"
-                ? "border-blue-500 bg-blue-500/10 text-blue-500"
+                ? "border-info bg-info/10 text-info"
                 : task.status === "cancelled"
                   ? "border-muted-foreground bg-muted text-muted-foreground"
                   : "border-input bg-background hover:border-ring",
@@ -149,7 +153,7 @@ const TaskRow = React.memo(function TaskRow({
                 className={cn("size-1.5 rounded-full", priorityClasses[task.priority])}
                 role="img"
               />
-              <span className={cn("text-[10px] font-medium leading-none", priorityTextClasses[task.priority])}>
+              <span className={cn("text-xs font-medium leading-none", priorityTextClasses[task.priority])}>
                 {t(priorityLabelKeys[task.priority])}
               </span>
             </span>
@@ -184,7 +188,7 @@ const TaskRow = React.memo(function TaskRow({
             ) : (
               <span className="rounded-full border border-border px-2 py-0.5">{t("loose")}</span>
             )}
-            {reminder && <span className="rounded-full bg-amber-500/12 px-2 py-0.5 text-amber-600">{t("reminder")}</span>}
+            {reminder && <span className="rounded-full bg-warning/12 px-2 py-0.5 text-warning-foreground dark:text-warning">{t("reminder")}</span>}
             {task.recurrenceTemplateId && (
               <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-primary">
                 <Repeat2 className="size-3" />
@@ -230,6 +234,8 @@ function TaskListImpl({
   onDeleteTask,
   deleteMode = "delete",
   emptyLabel,
+  emptyHint,
+  emptyAction,
   totalCount,
   windowSize,
   windowKey = "",
@@ -244,6 +250,9 @@ function TaskListImpl({
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
+  const [rowDeleteError, setRowDeleteError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const projectsById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const remindersByTaskId = useMemo(() => {
@@ -307,11 +316,36 @@ function TaskListImpl({
     setBulkError(null);
     try {
       await actions.bulkDeleteTasks([...checkedIds]);
+      setPendingBulkDelete(false);
       exitSelectionMode();
     } catch {
       setBulkError(t("operationFailed"));
     } finally {
       setIsBulkProcessing(false);
+    }
+  };
+
+  const requestDeleteTask = (taskId: string) => {
+    if (onDeleteTask) {
+      onDeleteTask(taskId);
+      return;
+    }
+    if (deleteMode === "hide") {
+      return;
+    }
+    setRowDeleteError(null);
+    setPendingDeleteId(taskId);
+  };
+
+  const confirmSingleDelete = async () => {
+    if (!pendingDeleteId) return;
+    const taskId = pendingDeleteId;
+    try {
+      await actions.deleteTask(taskId);
+      setPendingDeleteId(null);
+    } catch {
+      setRowDeleteError(t("taskDeleteFailed"));
+      setPendingDeleteId(null);
     }
   };
 
@@ -352,8 +386,10 @@ function TaskListImpl({
 
   if (tasks.length === 0) {
     return (
-      <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
-        {emptyLabel ?? t("emptyDay")}
+      <div className="motion-status flex min-h-36 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-card/35 px-6 text-center">
+        <p className="text-sm text-muted-foreground">{emptyLabel ?? t("emptyDay")}</p>
+        {emptyHint && <p className="max-w-sm text-xs text-muted-foreground">{emptyHint}</p>}
+        {emptyAction}
       </div>
     );
   }
@@ -401,7 +437,7 @@ function TaskListImpl({
   };
 
   const bulkToolbar = selectionEnabled && (
-    <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card/60 p-2">
+    <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card/65 p-2">
       {!selectionMode ? (
         <Button
           size="sm"
@@ -454,7 +490,7 @@ function TaskListImpl({
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
-            <Button disabled={isBulkProcessing || checkedIds.size === 0} size="sm" type="button" variant="destructive" onClick={() => void runBulkDelete()}>
+            <Button disabled={isBulkProcessing || checkedIds.size === 0} size="sm" type="button" variant="destructive" onClick={() => setPendingBulkDelete(true)}>
               <Trash2 className="size-3.5" />
               {t("bulkDelete")}
             </Button>
@@ -507,7 +543,7 @@ function TaskListImpl({
                     index={virtualItem.index}
                     actions={actions}
                     onSelectTask={onSelectTask}
-                    onDeleteTask={onDeleteTask}
+                    onDeleteTask={onDeleteTask ?? (deleteMode === "delete" ? requestDeleteTask : undefined)}
                     deleteMode={deleteMode}
                     language={i18n.language}
                     t={t}
@@ -540,6 +576,25 @@ function TaskListImpl({
           )}
           {loadError && <p className="motion-status mt-2 text-xs text-destructive">{loadError}</p>}
         </div>
+        {rowDeleteError && <p className="motion-status mt-2 text-xs text-destructive">{rowDeleteError}</p>}
+        <ConfirmDialog
+          open={pendingDeleteId !== null}
+          title={t("confirmDeleteTask")}
+          description={t("confirmDeleteTaskHint")}
+          confirming={isBulkProcessing}
+          onOpenChange={(open) => {
+            if (!open) setPendingDeleteId(null);
+          }}
+          onConfirm={() => void confirmSingleDelete()}
+        />
+        <ConfirmDialog
+          open={pendingBulkDelete}
+          title={t("confirmBulkDeleteTasks", { count: checkedIds.size })}
+          description={t("confirmDeleteTaskHint")}
+          confirming={isBulkProcessing}
+          onOpenChange={setPendingBulkDelete}
+          onConfirm={() => void runBulkDelete()}
+        />
       </div>
     );
   }
@@ -567,7 +622,7 @@ function TaskListImpl({
               index={index}
               actions={actions}
               onSelectTask={onSelectTask}
-              onDeleteTask={onDeleteTask}
+              onDeleteTask={onDeleteTask ?? (deleteMode === "delete" ? requestDeleteTask : undefined)}
               deleteMode={deleteMode}
               language={i18n.language}
               t={t}
@@ -598,6 +653,25 @@ function TaskListImpl({
       )}
       {loadError && <p className="motion-status text-xs text-destructive">{loadError}</p>}
       </div>
+      {rowDeleteError && <p className="motion-status mt-2 text-xs text-destructive">{rowDeleteError}</p>}
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title={t("confirmDeleteTask")}
+        description={t("confirmDeleteTaskHint")}
+        confirming={isBulkProcessing}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteId(null);
+        }}
+        onConfirm={() => void confirmSingleDelete()}
+      />
+      <ConfirmDialog
+        open={pendingBulkDelete}
+        title={t("confirmBulkDeleteTasks", { count: checkedIds.size })}
+        description={t("confirmDeleteTaskHint")}
+        confirming={isBulkProcessing}
+        onOpenChange={setPendingBulkDelete}
+        onConfirm={() => void runBulkDelete()}
+      />
     </div>
   );
 }

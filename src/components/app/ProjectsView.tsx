@@ -5,7 +5,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { Metric } from "@/components/ui/metric";
+import { accentSwatches, defaultAccentSwatch } from "@/data/accentSwatches";
 import { formatTaskDate } from "@/data/dateFormat";
 import { NO_PROJECT_ID, getProjectProgress, visibleProjects } from "@/data/project";
 import type { AppData } from "@/data/types";
@@ -26,13 +26,7 @@ type ProjectsViewProps = {
   onRequestEditProject?: (projectId: string) => void;
 };
 
-const projectColors = [
-  { labelKey: "accentBlue", value: "#4fb8d8" },
-  { labelKey: "accentViolet", value: "#8b7cf6" },
-  { labelKey: "accentRose", value: "#ec6f5d" },
-  { labelKey: "accentEmerald", value: "#6cc083" },
-  { labelKey: "accentAmber", value: "#d7a742" },
-];
+const projectColors = accentSwatches;
 
 export function ProjectsView({
   data,
@@ -72,7 +66,7 @@ export function ProjectsView({
   const [dueDate, setDueDate] = useState("");
   const [workingFolder, setWorkingFolder] = useState("");
   const [selectedWorkingFolder, setSelectedWorkingFolder] = useState("");
-  const [color, setColor] = useState(projectColors[0].value);
+  const [color, setColor] = useState(defaultAccentSwatch);
   const [isCreating, setIsCreating] = useState(false);
   const [isSavingFolder, setIsSavingFolder] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -134,7 +128,7 @@ export function ProjectsView({
       setName("");
       setDueDate("");
       setWorkingFolder("");
-      setColor(projectColors[0].value);
+      setColor(defaultAccentSwatch);
     } catch {
       setFormError(t("projectCreateFailed"));
     } finally {
@@ -191,7 +185,7 @@ export function ProjectsView({
     <main className="flex h-full min-h-0 max-md:flex-col max-md:overflow-auto">
       <aside
         aria-label={t("projects")}
-        className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/45 max-lg:w-[292px] max-md:max-h-[360px] max-md:w-full max-md:border-b max-md:border-r-0"
+        className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/50 max-lg:w-[292px] max-md:max-h-[360px] max-md:w-full max-md:border-b max-md:border-r-0"
       >
         <section className="border-b border-border p-3">
           <div className="mb-3 flex items-center justify-between">
@@ -335,11 +329,10 @@ export function ProjectsView({
             </div>
           </div>
           {projectActionError && <p className="motion-status mt-2 text-xs text-destructive">{projectActionError}</p>}
-          <div className="mt-4 grid grid-cols-3 gap-2">
-            <Metric label={t("progress")} value={`${progress.percent}%`} />
-            <Metric label={t("completed")} value={`${progress.completed}/${progress.total}`} />
-            <Metric label={t("openTasks")} value={`${Math.max(progress.total - progress.completed, 0)}`} />
-          </div>
+          <p className="mt-3 text-sm text-muted-foreground">
+            {t("progress")} {progress.percent}% · {t("completed")} {progress.completed}/{progress.total} · {t("openTasks")}{" "}
+            {Math.max(progress.total - progress.completed, 0)}
+          </p>
           {selectedProject && (
             <div className="mt-3 rounded-lg border border-border bg-card/50 p-2">
               <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="selected-project-folder">
@@ -376,7 +369,7 @@ export function ProjectsView({
                 </Button>
               </div>
               {folderSaveState !== "idle" && (
-                <p className={cn("motion-status mt-2 text-xs", folderSaveState === "saved" ? "text-emerald-600" : "text-destructive")}>
+                <p className={cn("motion-status mt-2 text-xs", folderSaveState === "saved" ? "text-success" : "text-destructive")}>
                   {folderSaveState === "saved" ? t("saved") : t("projectUpdateFailed")}
                 </p>
               )}
@@ -397,6 +390,7 @@ export function ProjectsView({
             <TaskList
               actions={actions}
               emptyLabel={t("emptyTaskList")}
+              emptyHint={t("emptyProjectsHint")}
               onSelectTask={setSelectedTaskId}
               projects={data.projects}
               reminders={taskPage.reminders}

@@ -80,7 +80,7 @@ export function WorkspaceTaskPickerDialog({
           </div>
 
           {isLoading ? (
-            <p className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-background/45 px-4 text-center text-sm text-muted-foreground">
+            <p className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-background/50 px-4 text-center text-sm text-muted-foreground">
               {t("loadingTasks")}
             </p>
           ) : error ? (
@@ -88,7 +88,7 @@ export function WorkspaceTaskPickerDialog({
               {error}
             </p>
           ) : sortedTasks.length === 0 ? (
-            <p className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-background/45 px-4 text-center text-sm text-muted-foreground">
+            <p className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-background/50 px-4 text-center text-sm text-muted-foreground">
               {t("noAvailableTasks")}
             </p>
           ) : (
@@ -99,13 +99,13 @@ export function WorkspaceTaskPickerDialog({
                 return (
                   <article
                     key={task.id}
-                    className="motion-surface grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-border bg-background/70 px-3 py-2"
+                    className="motion-surface grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-border bg-background/65 px-3 py-2"
                     style={{ "--motion-index": index } as CSSProperties}
                   >
                     <div className="min-w-0">
                       <div className="flex min-w-0 items-center gap-2">
                         {task.status === "completed" && <Check className="size-3.5 shrink-0 text-muted-foreground" />}
-                        {task.status === "in_progress" && <Loader2 className="size-3.5 shrink-0 text-blue-500" />}
+                        {task.status === "in_progress" && <Loader2 className="size-3.5 shrink-0 text-info" />}
                         {task.status === "cancelled" && <XCircle className="size-3.5 shrink-0 text-muted-foreground" />}
                         <h3 className="truncate text-sm font-medium">{task.title}</h3>
                         <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">

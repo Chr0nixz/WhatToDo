@@ -26,10 +26,10 @@ type ReminderCenterViewProps = {
 const groupOrder: ReminderCenterGroupId[] = ["failed", "missed", "upcoming", "fired"];
 
 const groupClasses = {
-  failed: "bg-red-500/10 text-red-600",
-  missed: "bg-red-500/10 text-red-600",
-  upcoming: "bg-amber-500/12 text-amber-600",
-  fired: "bg-emerald-500/10 text-emerald-600",
+  failed: "bg-destructive/10 text-destructive",
+  missed: "bg-destructive/10 text-destructive",
+  upcoming: "bg-warning/12 text-warning-foreground dark:text-warning",
+  fired: "bg-success/10 text-success",
 };
 
 const snoozeOptions: { id: SnoozeOption; labelKey: string }[] = [
@@ -131,28 +131,28 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
     );
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <main className="flex h-full flex-col overflow-hidden">
       <header className="shrink-0 border-b border-border bg-background px-4 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t("reminderCenter")}</p>
-            <h2 className="mt-1 text-2xl font-semibold tracking-normal">{t("reminders")}</h2>
+            <h1 className="text-xl font-semibold tracking-normal">{t("reminders")}</h1>
           </div>
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-card/70 px-3 py-2 text-sm">
-            <Bell className="size-4 text-amber-600" />
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-card/65 px-3 py-2 text-sm">
+            <Bell className="size-4 text-warning" />
             <span className="text-muted-foreground">{t("activeReminders")}</span>
             <strong>{total}</strong>
           </div>
         </div>
         {(feedback || error) && (
-          <p className={cn("motion-status mt-3 text-sm", error ? "text-destructive" : "text-emerald-600")}>{error ?? feedback}</p>
+          <p className={cn("motion-status mt-3 text-sm", error ? "text-destructive" : "text-success")}>{error ?? feedback}</p>
         )}
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto p-4">
         {total === 0 ? (
-          <div className="motion-status flex min-h-56 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
-            {t("emptyReminders")}
+          <div className="motion-status flex min-h-56 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-card/35 px-6 text-center">
+            <p className="text-sm text-muted-foreground">{t("emptyReminders")}</p>
+            <p className="max-w-sm text-xs text-muted-foreground">{t("emptyRemindersHint")}</p>
           </div>
         ) : (
           <div className="grid gap-4">
@@ -179,7 +179,7 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
                   </div>
                 </div>
                 {groups[group].length === 0 ? (
-                  <div className="motion-status rounded-lg border border-dashed border-border bg-card/30 px-4 py-5 text-sm text-muted-foreground">
+                  <div className="motion-status rounded-lg border border-dashed border-border bg-card/35 px-4 py-5 text-sm text-muted-foreground">
                     {t("emptyReminderGroup")}
                   </div>
                 ) : (
@@ -308,6 +308,6 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
           </div>
         )}
       </div>
-    </div>
+    </main>
   );
 }

@@ -5,18 +5,12 @@ import { FormEvent, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { accentSwatches, defaultAccentSwatch, normalizeAccentSwatch } from "@/data/accentSwatches";
 import type { Project, ProjectStatus } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
-const projectColors = [
-  { labelKey: "accentBlue", value: "#4fb8d8" },
-  { labelKey: "accentViolet", value: "#8b7cf6" },
-  { labelKey: "accentRose", value: "#ec6f5d" },
-  { labelKey: "accentEmerald", value: "#6cc083" },
-  { labelKey: "accentAmber", value: "#d7a742" },
-];
-
+const projectColors = accentSwatches;
 const projectStatuses: ProjectStatus[] = ["active", "paused", "completed"];
 
 type ProjectEditDialogProps = {
@@ -30,7 +24,7 @@ export function ProjectEditDialog({ project, open, onOpenChange, actions }: Proj
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [dueDate, setDueDate] = useState("");
-  const [color, setColor] = useState(projectColors[0].value);
+  const [color, setColor] = useState(defaultAccentSwatch);
   const [status, setStatus] = useState<ProjectStatus>("active");
   const [workingFolder, setWorkingFolder] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -43,7 +37,7 @@ export function ProjectEditDialog({ project, open, onOpenChange, actions }: Proj
 
     setName(project.name);
     setDueDate(project.dueDate ?? "");
-    setColor(project.color);
+    setColor(normalizeAccentSwatch(project.color));
     setStatus(project.status);
     setWorkingFolder(project.workingFolder ?? "");
     setError(null);

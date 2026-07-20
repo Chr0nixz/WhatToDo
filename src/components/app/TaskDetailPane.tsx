@@ -1,11 +1,12 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Check, FolderOpen, PanelRightClose, Plus, Repeat2, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, FolderOpen, PanelRightClose, Plus, Repeat2, Trash2, X } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { Ref } from "react";
 import { useTranslation } from "react-i18next";
 
+import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { formatReminderDateTime } from "@/data/dateFormat";
 import { projectById } from "@/data/project";
@@ -75,6 +76,9 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
   const [pendingClose, setPendingClose] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [remindersOpen, setRemindersOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const pendingSwitchRef = useRef<{ nextTaskId: string | null } | null>(null);
   const recurringTemplate = task?.recurrenceTemplateId
     ? recurringTaskTemplates.find((template) => template.id === task.recurrenceTemplateId) ?? null
@@ -156,6 +160,14 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
     setRecurrenceByWeekday(recurringTemplate?.byWeekday ?? []);
     setRecurrenceEndDate(recurringTemplate?.endDate ?? "");
   }, [recurringTemplate]);
+
+  useEffect(() => {
+    if (!task) return;
+    const extraReminders = reminders.filter((item) => item.taskId === task.id && item.enabled).length > 1;
+    setRemindersOpen(extraReminders);
+    setAdvancedOpen(Boolean(task.parentId) || Boolean(task.recurrenceTemplateId));
+    setConfirmDeleteOpen(false);
+  }, [task?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const chooseFolder = async () => {
     const selected = await openDialog({
@@ -341,7 +353,7 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
       setPendingDelete(true);
       return;
     }
-    void runDelete();
+    setConfirmDeleteOpen(true);
   };
 
   const runDelete = async () => {
@@ -350,6 +362,8 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
     }
     setDeleteState("idle");
     setSaveErrorMessage(null);
+    setConfirmDeleteOpen(false);
+    setPendingDelete(false);
     try {
       await actions.deleteTask(task.id);
       onClose();
@@ -370,7 +384,7 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
     const ok = await save();
     if (!ok) return;
     setPendingDelete(false);
-    void runDelete();
+    await runDelete();
   };
 
   const commitSwitch = () => {
@@ -387,22 +401,30 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
   };
 
   return (
-    <aside
-      aria-label={t("taskDetail")}
-      className={cn(
-        "min-h-0 shrink-0 overflow-hidden border-l border-border bg-card/60 transition-[background-color,border-color] duration-150 ease-[var(--ease-out-quart)] max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-40 max-md:shadow-xl max-sm:bottom-14",
-        task ? "w-[360px] max-xl:w-[332px] max-md:w-[min(360px,calc(100vw-56px))] max-sm:w-full" : "w-0",
-      )}
-    >
+    <>
+      {task ? (
+        <button
+          aria-label={t("close")}
+          className="fixed inset-0 z-30 hidden bg-background/65 max-md:block max-sm:bottom-14"
+          type="button"
+          onClick={requestClose}
+        />
+      ) : null}
+      <aside
+        aria-label={t("taskDetail")}
+        className={cn(
+          "min-h-0 shrink-0 overflow-hidden border-l border-border bg-card/65 transition-[background-color,border-color] duration-150 ease-[var(--ease-out-quart)] max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-40 max-md:shadow-xl max-sm:bottom-14",
+          task ? "w-[360px] max-xl:w-[332px] max-md:w-[min(360px,calc(100vw-56px))] max-sm:w-full" : "w-0",
+        )}
+      >
       {task && (
         <div key={task.id} className="motion-pane-content flex h-full min-w-[320px] flex-col max-sm:min-w-0">
           <div className="flex h-14 items-center justify-between border-b border-border px-4">
             <div className="min-w-0">
-              <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t("taskDetail")}</p>
               <h2 className="truncate text-sm font-semibold">
                 {project?.name ?? t("loose")}
                 {isDirty && (
-                  <span className="ml-1.5 inline-block size-1.5 rounded-full bg-amber-500" title={t("unsavedChanges")} />
+                  <span className="ml-1.5 inline-block size-1.5 rounded-full bg-warning" title={t("unsavedChanges")} />
                 )}
               </h2>
             </div>
@@ -412,231 +434,134 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto p-4">
-            <label className="mb-1 block text-xs text-muted-foreground" htmlFor="detail-title">
-              {t("taskTitle")}
-            </label>
-            <input
-              id="detail-title"
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-medium outline-none transition-colors focus:border-ring"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <label className="text-xs text-muted-foreground" htmlFor="detail-date">
-                {t("dueDate")}
+            <section aria-labelledby="detail-essentials-heading" className="grid gap-3">
+              <h3 id="detail-essentials-heading" className="text-xs font-medium text-muted-foreground">
+                {t("taskDetailEssentials")}
+              </h3>
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground" htmlFor="detail-title">
+                  {t("taskTitle")}
+                </label>
                 <input
-                  id="detail-date"
-                  className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
-                  type="date"
-                  value={dueDate}
-                  onChange={(event) => setDueDate(event.target.value)}
+                  id="detail-title"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-medium outline-none transition-colors focus:border-ring"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
                 />
-              </label>
-              <label className="text-xs text-muted-foreground" htmlFor="detail-time">
-                {t("dueTime")}
-                <input
-                  id="detail-time"
-                  className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
-                  type="time"
-                  value={dueTime}
-                  onChange={(event) => setDueTime(event.target.value)}
-                />
-              </label>
-            </div>
-
-            <label className="mb-1 mt-4 block text-xs text-muted-foreground" htmlFor="detail-project">
-              {t("projects")}
-            </label>
-            <select
-              id="detail-project"
-              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm outline-none transition-colors focus:border-ring"
-              value={projectId}
-              onChange={(event) => setProjectId(event.target.value)}
-            >
-              <option value="none">{t("noProject")}</option>
-              {visibleProjects.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-
-            <label className="mb-1 mt-4 block text-xs text-muted-foreground" htmlFor="detail-folder">
-              {t("taskFolder")}
-            </label>
-            <div className="grid grid-cols-[minmax(0,1fr)_36px] gap-1.5">
-              <input
-                id="detail-folder"
-                className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
-                placeholder={inheritedFolder || t("defaultFolder")}
-                value={workingFolder}
-                onChange={(event) => setWorkingFolder(event.target.value)}
-              />
-              <Button aria-label={t("chooseFolder")} size="icon-lg" title={t("chooseFolder")} type="button" variant="secondary" onClick={() => void chooseFolder()}>
-                <FolderOpen aria-hidden="true" />
-              </Button>
-            </div>
-            <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-border bg-background/45 px-3 py-2 text-xs text-muted-foreground">
-              <span className="min-w-0 truncate">
-                {workingFolder.trim()
-                  ? t("customFolder")
-                  : inheritedFolder
-                    ? `${t("inheritedFolder")}: ${inheritedFolder}`
-                    : t("noFolder")}
-              </span>
-              <Button disabled={!effectiveFolder} size="sm" type="button" variant="ghost" onClick={() => void openFolder()}>
-                {t("openFolder")}
-              </Button>
-            </div>
-
-            <label className="mb-1 mt-4 block text-xs text-muted-foreground" htmlFor="detail-priority">
-              {t("priority")}
-            </label>
-            <select
-              id="detail-priority"
-              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm outline-none transition-colors focus:border-ring"
-              value={priority}
-              onChange={(event) => setPriority(event.target.value as TaskPriority)}
-            >
-              {priorities.map((item) => (
-                <option key={item} value={item}>
-                  {t(item)}
-                </option>
-              ))}
-            </select>
-
-            <label className="mb-1 mt-4 block text-xs text-muted-foreground" htmlFor="detail-parent">
-              {t("parentTask")}
-            </label>
-            <select
-              id="detail-parent"
-              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm outline-none transition-colors focus:border-ring"
-              value={parentId}
-              onChange={(event) => setParentId(event.target.value)}
-            >
-              <option value="none">{t("noParentTask")}</option>
-              {parentTaskOptions.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.title}
-                </option>
-              ))}
-            </select>
-
-            <label className="mb-1 mt-4 block text-xs text-muted-foreground" htmlFor="detail-notes">
-              {t("notes")}
-            </label>
-            <textarea
-              id="detail-notes"
-              className="min-h-32 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-ring"
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-            />
-
-            <label className="mb-1 mt-4 block text-xs text-muted-foreground" htmlFor="detail-tags">
-              {t("tags")}
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="inline-flex items-center gap-1 rounded-md border border-border bg-accent px-2 py-0.5 text-xs text-accent-foreground"
-                >
-                  {tag}
-                  <button
-                    aria-label={t("removeTag")}
-                    className="text-muted-foreground hover:text-foreground"
-                    type="button"
-                    onClick={() => removeTag(tag)}
-                  >
-                    <X className="size-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-            <div className="mt-1.5 flex items-center gap-1.5">
-              <input
-                id="detail-tags"
-                className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
-                placeholder={t("tagPlaceholder")}
-                value={tagInput}
-                onChange={(event) => setTagInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && event.keyCode !== 229 && !event.nativeEvent.isComposing) {
-                    event.preventDefault();
-                    addTag();
-                  }
-                }}
-              />
-              <Button aria-label={t("addTag")} disabled={!tagInput.trim()} size="icon-lg" type="button" variant="secondary" onClick={addTag}>
-                <Plus className="size-4" />
-              </Button>
-            </div>
-
-            <div className="mt-4 grid gap-2 rounded-md border border-border bg-background/45 p-3 text-xs text-muted-foreground">
-              <div className="flex items-center justify-between gap-2">
-                <span>{t("reminder")}</span>
-                <Button
-                  aria-pressed={useReminder}
-                  disabled={isSaving}
-                  size="sm"
-                  type="button"
-                  variant={useReminder ? "secondary" : "ghost"}
-                  onClick={() => setUseReminder((value) => !value)}
-                >
-                  {useReminder ? t("enabled") : t("disabled")}
-                </Button>
               </div>
-              <label className="grid gap-1" htmlFor="detail-reminder-offset">
-                <span>{t("reminderOffset")}</span>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs text-muted-foreground" htmlFor="detail-date">
+                  {t("dueDate")}
+                  <input
+                    id="detail-date"
+                    className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
+                    type="date"
+                    value={dueDate}
+                    onChange={(event) => setDueDate(event.target.value)}
+                  />
+                </label>
+                <label className="text-xs text-muted-foreground" htmlFor="detail-time">
+                  {t("dueTime")}
+                  <input
+                    id="detail-time"
+                    className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
+                    type="time"
+                    value={dueTime}
+                    onChange={(event) => setDueTime(event.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground" htmlFor="detail-project">
+                  {t("projects")}
+                </label>
                 <select
-                  id="detail-reminder-offset"
-                  className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none transition-colors focus:border-ring disabled:opacity-55"
-                  disabled={!useReminder || isSaving}
-                  value={reminderOffset}
-                  onChange={(event) => setReminderOffset(Number(event.target.value))}
+                  id="detail-project"
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm outline-none transition-colors focus:border-ring"
+                  value={projectId}
+                  onChange={(event) => setProjectId(event.target.value)}
                 >
-                  {reminderOffsetOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {t(`reminderOffset${option}`)}
+                  <option value="none">{t("noProject")}</option>
+                  {visibleProjects.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
                     </option>
                   ))}
                 </select>
-              </label>
-              <span>{reminder ? `${t("reminderTime")}: ${formatReminderDateTime(reminder.remindAt, i18n.language)}` : t("none")}</span>
-              {taskReminders.length > 1 && (
-                <div className="grid gap-1">
-                  <span className="font-medium">{t("additionalReminders")}</span>
-                  {taskReminders.slice(1).map((item) => {
-                    const key = `reminderOffset${item.offsetMinutes ?? 30}`;
-                    const label = [10, 30, 60, 1440].includes(item.offsetMinutes ?? 30)
-                      ? t(key)
-                      : t("reminderOffsetMinutes", { minutes: String(item.offsetMinutes ?? 30) });
-                    return (
-                      <div key={item.id} className="flex items-center justify-between gap-2">
-                        <span>
-                          {label}: {formatReminderDateTime(item.remindAt, i18n.language)}
-                        </span>
-                        <Button
-                          disabled={isSaving}
-                          size="sm"
-                          type="button"
-                          variant="ghost"
-                          onClick={() => void actions.deleteReminder(item.id)}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      </div>
-                    );
-                  })}
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground" htmlFor="detail-folder">
+                  {t("taskFolder")}
+                </label>
+                <div className="grid grid-cols-[minmax(0,1fr)_36px] gap-1.5">
+                  <input
+                    id="detail-folder"
+                    className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
+                    placeholder={inheritedFolder || t("defaultFolder")}
+                    value={workingFolder}
+                    onChange={(event) => setWorkingFolder(event.target.value)}
+                  />
+                  <Button aria-label={t("chooseFolder")} size="icon-lg" title={t("chooseFolder")} type="button" variant="secondary" onClick={() => void chooseFolder()}>
+                    <FolderOpen aria-hidden="true" />
+                  </Button>
                 </div>
-              )}
-              {useReminder && (
-                <div className="flex items-center gap-2">
+                <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-border bg-background/50 px-3 py-2 text-xs text-muted-foreground">
+                  <span className="min-w-0 truncate">
+                    {workingFolder.trim()
+                      ? t("customFolder")
+                      : inheritedFolder
+                        ? `${t("inheritedFolder")}: ${inheritedFolder}`
+                        : t("noFolder")}
+                  </span>
+                  <Button disabled={!effectiveFolder} size="sm" type="button" variant="ghost" onClick={() => void openFolder()}>
+                    {t("openFolder")}
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground" htmlFor="detail-priority">
+                  {t("priority")}
+                </label>
+                <select
+                  id="detail-priority"
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm outline-none transition-colors focus:border-ring"
+                  value={priority}
+                  onChange={(event) => setPriority(event.target.value as TaskPriority)}
+                >
+                  {priorities.map((item) => (
+                    <option key={item} value={item}>
+                      {t(item)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid gap-2 rounded-md border border-border bg-background/50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">{t("reminder")}</span>
+                  <Button
+                    aria-pressed={useReminder}
+                    disabled={isSaving}
+                    size="sm"
+                    type="button"
+                    variant={useReminder ? "secondary" : "ghost"}
+                    onClick={() => setUseReminder((value) => !value)}
+                  >
+                    {useReminder ? t("enabled") : t("disabled")}
+                  </Button>
+                </div>
+                <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="detail-reminder-offset">
+                  <span>{t("reminderOffset")}</span>
                   <select
-                    className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:border-ring"
-                    value={newReminderOffset}
-                    onChange={(event) => setNewReminderOffset(Number(event.target.value))}
+                    id="detail-reminder-offset"
+                    className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none transition-colors focus:border-ring disabled:opacity-55"
+                    disabled={!useReminder || isSaving}
+                    value={reminderOffset}
+                    onChange={(event) => setReminderOffset(Number(event.target.value))}
                   >
                     {reminderOffsetOptions.map((option) => (
                       <option key={option} value={option}>
@@ -644,186 +569,370 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
                       </option>
                     ))}
                   </select>
-                  <Button
-                    disabled={isSaving}
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                    onClick={async () => {
-                      await actions.createTaskReminder(task!.id, newReminderOffset);
-                    }}
-                  >
-                    {t("addReminder")}
-                  </Button>
-                </div>
-              )}
-            </div>
-            <div className="mt-4 grid gap-2 rounded-md border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
-              <div className="flex items-center justify-between gap-2">
-                <span>{t("attachments")}</span>
-                <span className="text-muted-foreground">{taskAttachments.length}</span>
+                </label>
+                <span className="text-xs text-muted-foreground">
+                  {reminder ? `${t("reminderTime")}: ${formatReminderDateTime(reminder.remindAt, i18n.language)}` : t("none")}
+                </span>
               </div>
-              {taskAttachments.length > 0 && (
-                <div className="grid gap-1">
-                  {taskAttachments.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between gap-2">
+            </section>
+
+            <section aria-labelledby="detail-notes-heading" className="mt-5 grid gap-3">
+              <h3 id="detail-notes-heading" className="text-xs font-medium text-muted-foreground">
+                {t("taskDetailNotes")}
+              </h3>
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground" htmlFor="detail-notes">
+                  {t("notes")}
+                </label>
+                <textarea
+                  id="detail-notes"
+                  className="min-h-32 w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-ring"
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground" htmlFor="detail-tags">
+                  {t("tags")}
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-1 rounded-md border border-border bg-accent px-2 py-0.5 text-xs text-accent-foreground"
+                    >
+                      {tag}
                       <button
-                        className="min-w-0 truncate text-left text-foreground hover:underline"
+                        aria-label={t("removeTag")}
+                        className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:text-foreground"
                         type="button"
-                        title={item.path}
-                        onClick={() => void openPath(item.path).catch(() => undefined)}
+                        onClick={() => removeTag(tag)}
                       >
-                        {item.filename}
+                        <X className="size-3" />
                       </button>
-                      <Button
-                        aria-label={t("removeAttachment")}
-                        disabled={isSaving}
-                        size="sm"
-                        type="button"
-                        variant="ghost"
-                        onClick={() => void actions.deleteAttachment(item.id)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
+                    </span>
                   ))}
                 </div>
-              )}
-              <div className="grid grid-cols-[minmax(0,1fr)_36px_auto] gap-1.5">
-                <input
-                  className="h-8 min-w-0 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:border-ring"
-                  placeholder={t("attachmentPathPlaceholder")}
-                  value={newAttachmentPath}
-                  onChange={(event) => setNewAttachmentPath(event.target.value)}
-                />
-                <Button
-                  aria-label={t("chooseFile")}
-                  disabled={isSaving}
-                  size="icon-lg"
-                  title={t("chooseFile")}
-                  type="button"
-                  variant="secondary"
-                  onClick={() => void chooseAttachmentFile()}
-                >
-                  <FolderOpen aria-hidden="true" />
-                </Button>
-                <Button
-                  disabled={isSaving || !newAttachmentPath.trim()}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                  onClick={() => void addAttachmentFromPath()}
-                >
-                  {t("addAttachment")}
-                </Button>
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <input
+                    id="detail-tags"
+                    className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
+                    placeholder={t("tagPlaceholder")}
+                    value={tagInput}
+                    onChange={(event) => setTagInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && event.keyCode !== 229 && !event.nativeEvent.isComposing) {
+                        event.preventDefault();
+                        addTag();
+                      }
+                    }}
+                  />
+                  <Button aria-label={t("addTag")} disabled={!tagInput.trim()} size="icon-lg" type="button" variant="secondary" onClick={addTag}>
+                    <Plus className="size-4" />
+                  </Button>
+                </div>
               </div>
-            </div>
-            {recurringTemplate && (
-              <div className="mt-4 grid gap-3 rounded-md border border-border bg-muted/35 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                    <Repeat2 className="size-4 text-primary" />
-                    <span>{t("recurringTask")}</span>
-                  </div>
-                  <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
-                    {recurringTemplate.enabled ? t("enabled") : t("disabled")}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="text-xs text-muted-foreground" htmlFor="detail-repeat">
-                    {t("repeat")}
-                    <select
-                      id="detail-repeat"
-                      className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none transition-colors focus:border-ring"
-                      value={recurrenceFrequency}
-                      onChange={(event) => setRecurrenceFrequency(event.target.value as RecurrenceFrequency)}
-                    >
-                      {recurrenceOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {t(recurrenceLabelKeys[option])}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-xs text-muted-foreground" htmlFor="detail-repeat-interval">
-                    {t("repeatInterval")}
-                    <input
-                      id="detail-repeat-interval"
-                      className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
-                      max={365}
-                      min={1}
-                      type="number"
-                      value={recurrenceInterval}
-                      onChange={(event) => setRecurrenceInterval(Math.max(1, Math.floor(Number(event.target.value) || 1)))}
-                    />
-                  </label>
-                </div>
-                {recurrenceFrequency === "weekly" && (
-                  <div className="grid gap-1 text-xs text-muted-foreground">
-                    <span>{t("repeatWeekdays")}</span>
-                    <div className="flex gap-1">
-                      {weekdayShortKeys.map((key, day) => {
-                        const active = recurrenceByWeekday.includes(day);
+            </section>
+
+            <section className="mt-5">
+              <Button
+                aria-expanded={remindersOpen}
+                className="h-8 w-full justify-between gap-1.5 px-2 text-muted-foreground"
+                size="sm"
+                type="button"
+                variant="ghost"
+                onClick={() => setRemindersOpen((value) => !value)}
+              >
+                <span className="text-xs font-medium">
+                  {t("additionalReminders")}
+                  {taskReminders.length > 1 ? ` · ${taskReminders.length - 1}` : ""}
+                </span>
+                <span className="inline-flex items-center gap-1 text-xs">
+                  {remindersOpen ? t("hideReminders") : t("showReminders")}
+                  <ChevronDown
+                    className={cn(
+                      "size-3.5 transition-transform duration-150 ease-[var(--ease-out-quart)]",
+                      remindersOpen && "rotate-180",
+                    )}
+                  />
+                </span>
+              </Button>
+              {remindersOpen && (
+                <div className="mt-2 grid gap-2 rounded-md border border-border bg-background/50 p-3 text-xs text-muted-foreground">
+                  {taskReminders.length > 1 ? (
+                    <div className="grid gap-1">
+                      {taskReminders.slice(1).map((item) => {
+                        const key = `reminderOffset${item.offsetMinutes ?? 30}`;
+                        const label = [10, 30, 60, 1440].includes(item.offsetMinutes ?? 30)
+                          ? t(key)
+                          : t("reminderOffsetMinutes", { minutes: String(item.offsetMinutes ?? 30) });
                         return (
-                          <button
-                            key={day}
-                            aria-label={t(key)}
-                            aria-pressed={active}
-                            className={cn(
-                              "h-7 w-7 rounded-md border border-input text-xs font-medium transition-colors",
-                              active ? "border-ring bg-accent text-accent-foreground ring-1 ring-ring" : "bg-background hover:bg-accent",
-                            )}
-                            type="button"
-                            onClick={() =>
-                              setRecurrenceByWeekday((prev) =>
-                                prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b),
-                              )
-                            }
-                          >
-                            {t(key)}
-                          </button>
+                          <div key={item.id} className="flex items-center justify-between gap-2">
+                            <span>
+                              {label}: {formatReminderDateTime(item.remindAt, i18n.language)}
+                            </span>
+                            <Button
+                              disabled={isSaving}
+                              size="sm"
+                              type="button"
+                              variant="ghost"
+                              onClick={() => void actions.deleteReminder(item.id)}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
                         );
                       })}
                     </div>
-                  </div>
-                )}
-                <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="detail-repeat-end">
-                  <span>{t("repeatUntil")}</span>
-                  <input
-                    id="detail-repeat-end"
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
-                    min={dueDate}
-                    type="date"
-                    value={recurrenceEndDate}
-                    onChange={(event) => setRecurrenceEndDate(event.target.value)}
-                  />
-                </label>
-                <p className="text-xs text-muted-foreground">
-                  {recurringTemplate.reminderOffset === null
-                    ? t("repeatReminderNotInherited")
-                    : t("repeatReminderInherited")}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <Button disabled={isSavingFuture} size="sm" type="button" variant="secondary" onClick={() => void updateFutureRepeats()}>
-                    {isSavingFuture ? t("saving") : t("updateFutureRepeats")}
-                  </Button>
-                  <Button disabled={isSavingFuture || !recurringTemplate.enabled} size="sm" type="button" variant="ghost" onClick={() => void disableFutureRepeats()}>
-                    {t("disableRepeat")}
-                  </Button>
+                  ) : (
+                    <span>{t("none")}</span>
+                  )}
+                  {useReminder && (
+                    <div className="flex items-center gap-2">
+                      <select
+                        className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:border-ring"
+                        value={newReminderOffset}
+                        onChange={(event) => setNewReminderOffset(Number(event.target.value))}
+                      >
+                        {reminderOffsetOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {t(`reminderOffset${option}`)}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        disabled={isSaving}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={async () => {
+                          await actions.createTaskReminder(task!.id, newReminderOffset);
+                        }}
+                      >
+                        {t("addReminder")}
+                      </Button>
+                    </div>
+                  )}
                 </div>
-                {futureSaveState !== "idle" && (
-                  <p className={cn("motion-status text-xs", futureSaveState === "error" ? "text-destructive" : "text-emerald-600")}>
-                    {futureSaveState === "saved"
-                      ? t("futureRepeatsUpdated")
-                      : futureSaveState === "disabled"
-                        ? t("repeatDisabled")
-                        : saveErrorMessage ?? t("operationFailed")}
-                  </p>
-                )}
-              </div>
-            )}
+              )}
+            </section>
+
+            <section className="mt-3">
+              <Button
+                aria-expanded={advancedOpen}
+                className="h-8 w-full justify-between gap-1.5 px-2 text-muted-foreground"
+                size="sm"
+                type="button"
+                variant="ghost"
+                onClick={() => setAdvancedOpen((value) => !value)}
+              >
+                <span className="text-xs font-medium">
+                  {t("taskDetailAdvanced")}
+                  {taskAttachments.length > 0 ? ` · ${taskAttachments.length}` : ""}
+                  {recurringTemplate ? ` · ${t("recurringTask")}` : ""}
+                </span>
+                <span className="inline-flex items-center gap-1 text-xs">
+                  {advancedOpen ? t("hideAdvanced") : t("showAdvanced")}
+                  <ChevronDown
+                    className={cn(
+                      "size-3.5 transition-transform duration-150 ease-[var(--ease-out-quart)]",
+                      advancedOpen && "rotate-180",
+                    )}
+                  />
+                </span>
+              </Button>
+              {advancedOpen && (
+                <div className="mt-2 grid gap-4">
+                  <div>
+                    <label className="mb-1 block text-xs text-muted-foreground" htmlFor="detail-parent">
+                      {t("parentTask")}
+                    </label>
+                    <select
+                      id="detail-parent"
+                      className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm outline-none transition-colors focus:border-ring"
+                      value={parentId}
+                      onChange={(event) => setParentId(event.target.value)}
+                    >
+                      <option value="none">{t("noParentTask")}</option>
+                      {parentTaskOptions.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid gap-2 rounded-md border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
+                    <div className="flex items-center justify-between gap-2">
+                      <span>{t("attachments")}</span>
+                      <span className="text-muted-foreground">{taskAttachments.length}</span>
+                    </div>
+                    {taskAttachments.length > 0 && (
+                      <div className="grid gap-1">
+                        {taskAttachments.map((item) => (
+                          <div key={item.id} className="flex items-center justify-between gap-2">
+                            <button
+                              className="min-w-0 truncate text-left text-foreground hover:underline"
+                              type="button"
+                              title={item.path}
+                              onClick={() => void openPath(item.path).catch(() => undefined)}
+                            >
+                              {item.filename}
+                            </button>
+                            <Button
+                              aria-label={t("removeAttachment")}
+                              disabled={isSaving}
+                              size="sm"
+                              type="button"
+                              variant="ghost"
+                              onClick={() => void actions.deleteAttachment(item.id)}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-[minmax(0,1fr)_36px_auto] gap-1.5">
+                      <input
+                        className="h-8 min-w-0 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:border-ring"
+                        placeholder={t("attachmentPathPlaceholder")}
+                        value={newAttachmentPath}
+                        onChange={(event) => setNewAttachmentPath(event.target.value)}
+                      />
+                      <Button
+                        aria-label={t("chooseFile")}
+                        disabled={isSaving}
+                        size="icon-lg"
+                        title={t("chooseFile")}
+                        type="button"
+                        variant="secondary"
+                        onClick={() => void chooseAttachmentFile()}
+                      >
+                        <FolderOpen aria-hidden="true" />
+                      </Button>
+                      <Button
+                        disabled={isSaving || !newAttachmentPath.trim()}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={() => void addAttachmentFromPath()}
+                      >
+                        {t("addAttachment")}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {recurringTemplate && (
+                    <div className="grid gap-3 rounded-md border border-border bg-muted/35 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                          <Repeat2 className="size-4 text-primary" />
+                          <span>{t("recurringTask")}</span>
+                        </div>
+                        <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                          {recurringTemplate.enabled ? t("enabled") : t("disabled")}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="text-xs text-muted-foreground" htmlFor="detail-repeat">
+                          {t("repeat")}
+                          <select
+                            id="detail-repeat"
+                            className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none transition-colors focus:border-ring"
+                            value={recurrenceFrequency}
+                            onChange={(event) => setRecurrenceFrequency(event.target.value as RecurrenceFrequency)}
+                          >
+                            {recurrenceOptions.map((option) => (
+                              <option key={option} value={option}>
+                                {t(recurrenceLabelKeys[option])}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="text-xs text-muted-foreground" htmlFor="detail-repeat-interval">
+                          {t("repeatInterval")}
+                          <input
+                            id="detail-repeat-interval"
+                            className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
+                            max={365}
+                            min={1}
+                            type="number"
+                            value={recurrenceInterval}
+                            onChange={(event) => setRecurrenceInterval(Math.max(1, Math.floor(Number(event.target.value) || 1)))}
+                          />
+                        </label>
+                      </div>
+                      {recurrenceFrequency === "weekly" && (
+                        <div className="grid gap-1 text-xs text-muted-foreground">
+                          <span>{t("repeatWeekdays")}</span>
+                          <div className="flex gap-1">
+                            {weekdayShortKeys.map((key, day) => {
+                              const active = recurrenceByWeekday.includes(day);
+                              return (
+                                <button
+                                  key={day}
+                                  aria-label={t(key)}
+                                  aria-pressed={active}
+                                  className={cn(
+                                    "h-7 w-7 rounded-md border border-input text-xs font-medium transition-colors",
+                                    active ? "border-ring bg-accent text-accent-foreground ring-1 ring-ring" : "bg-background hover:bg-accent",
+                                  )}
+                                  type="button"
+                                  onClick={() =>
+                                    setRecurrenceByWeekday((prev) =>
+                                      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b),
+                                    )
+                                  }
+                                >
+                                  {t(key)}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="detail-repeat-end">
+                        <span>{t("repeatUntil")}</span>
+                        <input
+                          id="detail-repeat-end"
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
+                          min={dueDate}
+                          type="date"
+                          value={recurrenceEndDate}
+                          onChange={(event) => setRecurrenceEndDate(event.target.value)}
+                        />
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        {recurringTemplate.reminderOffset === null
+                          ? t("repeatReminderNotInherited")
+                          : t("repeatReminderInherited")}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button disabled={isSavingFuture} size="sm" type="button" variant="secondary" onClick={() => void updateFutureRepeats()}>
+                          {isSavingFuture ? t("saving") : t("updateFutureRepeats")}
+                        </Button>
+                        <Button disabled={isSavingFuture || !recurringTemplate.enabled} size="sm" type="button" variant="ghost" onClick={() => void disableFutureRepeats()}>
+                          {t("disableRepeat")}
+                        </Button>
+                      </div>
+                      {futureSaveState !== "idle" && (
+                        <p className={cn("motion-status text-xs", futureSaveState === "error" ? "text-destructive" : "text-success")}>
+                          {futureSaveState === "saved"
+                            ? t("futureRepeatsUpdated")
+                            : futureSaveState === "disabled"
+                              ? t("repeatDisabled")
+                              : saveErrorMessage ?? t("operationFailed")}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+
             {saveState !== "idle" && (
-              <p className={cn("motion-status mt-3 text-xs", saveState === "saved" ? "text-emerald-600" : "text-destructive")}>
+              <p className={cn("motion-status mt-3 text-xs", saveState === "saved" ? "text-success" : "text-destructive")}>
                 {saveState === "saved" ? t("saved") : saveErrorMessage ?? t("operationFailed")}
               </p>
             )}
@@ -882,9 +991,15 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
         <Dialog.Portal>
           <Dialog.Overlay className="motion-dialog-overlay fixed inset-0 z-50 bg-background/65 backdrop-blur-[2px]" />
           <Dialog.Content className="motion-dialog-content fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-xl outline-none">
-            <Dialog.Title className="text-sm font-semibold">{t("unsavedChangesTitle")}</Dialog.Title>
+            <Dialog.Title className="text-sm font-semibold">
+              {pendingDelete ? t("unsavedDeleteTitle") : t("unsavedChangesTitle")}
+            </Dialog.Title>
             <Dialog.Description className="mt-1.5 text-sm text-muted-foreground">
-              {saveState === "error" && saveErrorMessage ? saveErrorMessage : t("discardChanges")}
+              {saveState === "error" && saveErrorMessage
+                ? saveErrorMessage
+                : pendingDelete
+                  ? t("unsavedDeleteDesc")
+                  : t("discardChanges")}
             </Dialog.Description>
             <div className="mt-4 flex justify-end gap-2">
               <Dialog.Close asChild>
@@ -902,7 +1017,7 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
                   setPendingDelete(false);
                 }}
               >
-                {t("discard")}
+                {pendingDelete ? t("discardAndDelete") : t("discard")}
               </Button>
               <Button
                 size="sm"
@@ -915,12 +1030,27 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
                   else if (pendingSwitch) void saveAndSwitch();
                 }}
               >
-                {isSaving ? t("saving") : saveState === "error" ? t("retrySave") : t("saveAnyway")}
+                {isSaving
+                  ? t("saving")
+                  : saveState === "error"
+                    ? t("retrySave")
+                    : pendingDelete
+                      ? t("saveAndDelete")
+                      : t("saveAnyway")}
               </Button>
             </div>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title={t("confirmDeleteTask")}
+        description={t("confirmDeleteTaskHint")}
+        onOpenChange={setConfirmDeleteOpen}
+        onConfirm={() => void runDelete()}
+      />
     </aside>
+    </>
   );
 });

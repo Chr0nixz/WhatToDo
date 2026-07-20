@@ -74,7 +74,7 @@ export function UpdateSettingsPanel() {
   };
 
   return (
-    <section className="motion-surface rounded-lg border border-border bg-card/70 p-4 shadow-sm">
+    <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
       <div className="mb-4 flex items-center gap-3">
         <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
           <RefreshCw className="size-4" />
@@ -85,7 +85,7 @@ export function UpdateSettingsPanel() {
         </div>
       </div>
 
-      <div className="grid gap-3 rounded-md border border-border bg-background/45 px-3 py-3">
+      <div className="grid gap-3 rounded-md border border-border bg-background/50 px-3 py-3">
         <div className="flex flex-wrap items-center gap-2">
           <button
             className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-secondary px-3 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50"

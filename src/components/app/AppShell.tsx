@@ -5,6 +5,7 @@ import {
   Check,
   Command,
   FolderKanban,
+  HelpCircle,
   Keyboard,
   ListChecks,
   Loader2,
@@ -368,7 +369,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
         )}
       >
         <div className={cn("mb-5 flex items-center gap-3 max-sm:hidden", isRailExpanded ? "px-2" : "justify-center px-0")}>
-          <div className="flex size-9 items-center justify-center rounded-lg border border-sidebar-border bg-background/45 text-sidebar-foreground">
+          <div className="flex size-9 items-center justify-center rounded-lg border border-sidebar-border bg-background/50 text-sidebar-foreground">
             <CalendarDays className="size-4" aria-hidden="true" />
           </div>
           <div className={cn("min-w-0", !isRailExpanded && "hidden")}>
@@ -413,7 +414,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
           >
             {stats.open === 0 && stats.overdue === 0 ? (
               <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-                <Check className="size-3.5 text-emerald-500" aria-hidden="true" />
+                <Check className="size-3.5 text-success" aria-hidden="true" />
                 <span>{t("allClear")}</span>
               </div>
             ) : (
@@ -471,6 +472,18 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
         <header className="flex h-12 shrink-0 items-center justify-end border-b border-border bg-background/80 px-4">
           <div className="flex items-center gap-2">
             <Button
+              aria-label={t("openHelp")}
+              className="border-border px-3 hover:bg-accent hover:text-accent-foreground"
+              size="lg"
+              title={t("openHelp")}
+              type="button"
+              variant="ghost"
+              onClick={() => setHelpOpen(true)}
+            >
+              <HelpCircle aria-hidden="true" className="size-4" />
+              <span className="hidden sm:inline">{t("openHelp")}</span>
+            </Button>
+            <Button
               className="border-border px-3 hover:bg-accent hover:text-accent-foreground"
               size="lg"
               type="button"
@@ -479,7 +492,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
             >
               <Command aria-hidden="true" className="size-4" />
               <span className="hidden sm:inline">{t("commandPalette")}</span>
-              <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">{shortcutHint}</span>
+              <span className="rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground">{shortcutHint}</span>
             </Button>
             {error && (
               <span className="motion-status inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-1 text-xs text-destructive">
@@ -522,6 +535,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
               {view === "home" && (
                 <HomeView
                   actions={appActions}
+                  appIndexes={appIndexes}
                   data={data}
                   searchQuery={searchQuery}
                   selectedDate={selectedDate}
@@ -763,7 +777,7 @@ function HelpDialog({
           </div>
 
           <div className="grid max-h-[60vh] gap-4 overflow-auto">
-            <div className="rounded-md bg-background/45 p-3">
+            <div className="rounded-md bg-background/50 p-3">
               <div className="mb-2 flex items-center gap-2 text-sm font-medium">
                 <Keyboard className="size-4 text-muted-foreground" />
                 {t("keyboardShortcuts")}
@@ -780,7 +794,7 @@ function HelpDialog({
               </dl>
             </div>
 
-            <div className="rounded-md bg-background/45 p-3">
+            <div className="rounded-md bg-background/50 p-3">
               <div className="mb-1 flex items-center gap-2 text-sm font-medium">
                 <Wand2 className="size-4 text-muted-foreground" />
                 {t("quickAddSyntax")}

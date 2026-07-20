@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+- Hardens accessibility for multi-select task rows, reminder center landmarks, and confirm dialogs.
+- Adds a mobile/tablet task-detail backdrop so the pane can be dismissed by tapping outside.
+- Unifies project, workspace, and settings accent swatches on shared OKLCH tokens, with legacy hex normalization.
+- Adds semantic `success` and `info` theme tokens and routes priority, reminder, and status colors through them.
+- Aligns surface opacity usage to the documented `/80` `/65` `/50` `/35` scale and removes the unused Metric component.
+- Shares `appIndexes` from AppShell into HomeView to avoid rebuilding indexes on every home render.
+
 ## 0.2.0
 
 - Adds multi-status tasks (todo, in progress, completed, cancelled) and subtask support via parent-child relationships.

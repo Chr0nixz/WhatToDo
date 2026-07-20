@@ -3,10 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { buildAppIndexes } from "@/data/appIndexes";
 import { overdueTasks, sortTasks, todayKey } from "@/data/date";
 import { formatHeaderDate, selectedDateTaskLabel } from "@/data/dateFormat";
-import type { AppData } from "@/data/types";
+import type { AppData, AppIndexes } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 
 import { DatePane } from "./DatePane";
@@ -15,6 +14,7 @@ import { TaskCreateDialog } from "./TaskCreateDialog";
 
 type HomeViewProps = {
   data: AppData;
+  appIndexes: AppIndexes;
   actions: TodoActions;
   selectedDate: string;
   setSelectedDate: (date: string) => void;
@@ -26,6 +26,7 @@ type HomeViewProps = {
 
 export function HomeView({
   data,
+  appIndexes,
   actions,
   selectedDate,
   setSelectedDate,
@@ -37,7 +38,6 @@ export function HomeView({
   const { i18n, t } = useTranslation();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
-  const appIndexes = useMemo(() => buildAppIndexes(data), [data]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearchQuery(searchQuery), 180);
@@ -71,8 +71,7 @@ export function HomeView({
         <div className="border-b border-border bg-background/65 p-4">
           <div className="mb-3 flex items-center justify-between gap-3 max-sm:flex-col max-sm:items-stretch">
             <div className="min-w-0">
-              <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t("allDeadlines")}</p>
-              <h1 className="truncate text-2xl font-semibold">
+              <h1 className="truncate text-xl font-semibold">
                 {formatHeaderDate(selectedDate, i18n.language)}
               </h1>
             </div>
@@ -132,14 +131,23 @@ export function HomeView({
               })}
             </h2>
             {overdue.length > 0 && (
-              <span className="motion-status rounded-full bg-red-500/12 px-2 py-1 text-xs font-medium text-red-500">
+              <span className="motion-status rounded-full bg-destructive/12 px-2 py-1 text-xs font-medium text-destructive">
                 {t("overdue")} {overdue.length}
               </span>
             )}
           </div>
           <TaskList
             actions={actions}
-            emptyLabel={isFirstRun ? t("firstRunHint") : undefined}
+            emptyLabel={isFirstRun ? t("firstRunHint") : t("emptyDay")}
+            emptyHint={isFirstRun ? undefined : t("emptyDayHint")}
+            emptyAction={
+              <TaskCreateDialog
+                actions={actions}
+                defaultDate={selectedDate}
+                projects={data.projects.filter((project) => project.deletedAt === null && project.status !== "archived")}
+                settings={data.settings}
+              />
+            }
             onSelectTask={setSelectedTaskId}
             projects={data.projects}
             reminders={data.reminders}

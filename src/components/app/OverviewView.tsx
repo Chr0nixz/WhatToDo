@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { Filter, ListChecks, Save, Search, SlidersHorizontal, X } from "lucide-react";
+import { Filter, Save, Search, SlidersHorizontal, X } from "lucide-react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -197,55 +197,10 @@ export function OverviewView({
       <section className="border-b border-border bg-background/65 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="mb-2 flex items-center gap-2">
-              <span className="flex size-9 items-center justify-center rounded-lg border border-border bg-secondary text-secondary-foreground">
-                <ListChecks className="size-4" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t("overview")}</p>
-                <h1 className="truncate text-2xl font-semibold">{t("allTasks")}</h1>
-              </div>
-            </div>
+            <h1 className="truncate text-xl font-semibold">{t("allTasks")}</h1>
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {data.savedViews.length > 0 && (
-              <div className="relative">
-                <label className="sr-only" htmlFor="overview-saved-views">
-                  {t("savedViews")}
-                </label>
-                <select
-                  id="overview-saved-views"
-                  className="h-9 rounded-md border border-input bg-background px-2 text-sm outline-none transition-colors focus:border-ring max-sm:w-40"
-                  value={selectedViewId ?? ""}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (value) {
-                      applySavedView(value);
-                    } else {
-                      setSelectedViewId(null);
-                    }
-                  }}
-                >
-                  <option value="">{t("allTasks")}</option>
-                  {data.savedViews.map((view) => (
-                    <option key={view.id} value={view.id}>
-                      {view.name}
-                      {data.settings.defaultSavedViewId === view.id ? ` · ${t("defaultSavedView")}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <Button
-              className="h-9 gap-1.5 px-3 text-sm font-medium"
-              type="button"
-              variant="outline"
-              onClick={() => setManageOpen(true)}
-            >
-              <SlidersHorizontal className="size-3.5" />
-              {t("manageViews")}
-            </Button>
             <div className="relative">
               <label className="sr-only" htmlFor="overview-search">
                 {t("search")}
@@ -321,7 +276,7 @@ export function OverviewView({
               <Filter className="size-3.5" />
               {t("filters")}
               {activeFilterCount > 0 && (
-                <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
+                <span className="rounded-full bg-primary px-1.5 py-0.5 text-xs font-medium text-primary-foreground">
                   {activeFilterCount}
                 </span>
               )}
@@ -348,40 +303,92 @@ export function OverviewView({
           </div>
         </div>
         {showFilters && (
-          <div className="mt-2 grid grid-cols-[repeat(5,minmax(120px,1fr))] gap-2 max-xl:grid-cols-3 max-md:grid-cols-2">
-            <FilterSelect label={t("priority")} value={filters.priority} onChange={(value) => setFilter("priority", value as TaskViewFilters["priority"])}>
-              <option value="all">{t("allPriorities")}</option>
-              <option value="high">{t("high")}</option>
-              <option value="medium">{t("medium")}</option>
-              <option value="low">{t("low")}</option>
-            </FilterSelect>
-            <FilterSelect label={t("projects")} value={filters.projectId} onChange={(value) => setFilter("projectId", value as TaskViewFilters["projectId"])}>
-              <option value="all">{t("allProjects")}</option>
-              <option value="none">{t("noProject")}</option>
-              {data.projects
-                .filter((project) => project.deletedAt === null && project.status !== "archived")
-                .map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-            </FilterSelect>
-            <FilterSelect label={t("reminder")} value={filters.reminder} onChange={(value) => setFilter("reminder", value as TaskViewFilters["reminder"])}>
-              <option value="all">{t("all")}</option>
-              <option value="with">{t("withReminder")}</option>
-              <option value="without">{t("withoutReminder")}</option>
-            </FilterSelect>
-            <FilterSelect label={t("taskFolder")} value={filters.folder} onChange={(value) => setFilter("folder", value as TaskViewFilters["folder"])}>
-              <option value="all">{t("all")}</option>
-              <option value="with">{t("withFolder")}</option>
-              <option value="without">{t("withoutFolder")}</option>
-            </FilterSelect>
-            <FilterSelect label={t("dateRange")} value={filters.dateRange} onChange={(value) => setFilter("dateRange", value as TaskViewFilters["dateRange"])}>
-              <option value="all">{t("allDates")}</option>
-              <option value="today">{t("today")}</option>
-              <option value="week">{t("thisWeek")}</option>
-              <option value="overdue">{t("overdue")}</option>
-            </FilterSelect>
+          <div className="mt-2 grid gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {data.savedViews.length > 0 && (
+                <div className="relative">
+                  <label className="sr-only" htmlFor="overview-saved-views">
+                    {t("savedViews")}
+                  </label>
+                  <select
+                    id="overview-saved-views"
+                    className="h-9 max-w-[12rem] rounded-md border border-input bg-background px-2 text-sm outline-none transition-colors focus:border-ring"
+                    value={selectedViewId ?? ""}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      if (value) {
+                        applySavedView(value);
+                      } else {
+                        setSelectedViewId(null);
+                      }
+                    }}
+                  >
+                    <option value="">{t("viewsMenu")}</option>
+                    {data.savedViews.map((view) => (
+                      <option key={view.id} value={view.id}>
+                        {view.name}
+                        {data.settings.defaultSavedViewId === view.id ? ` · ${t("defaultSavedView")}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <Button
+                className="h-9 gap-1.5 px-2.5 text-sm"
+                size="sm"
+                type="button"
+                variant="ghost"
+                onClick={() => setManageOpen(true)}
+              >
+                <SlidersHorizontal className="size-3.5" />
+                {t("manageViews")}
+              </Button>
+              <Button
+                className="h-9 gap-1.5 px-2.5 text-sm"
+                size="sm"
+                type="button"
+                variant="outline"
+                onClick={() => setManageOpen(true)}
+              >
+                <Save className="size-3.5" />
+                {t("saveCurrentView")}
+              </Button>
+            </div>
+            <div className="grid grid-cols-[repeat(5,minmax(120px,1fr))] gap-2 max-xl:grid-cols-3 max-md:grid-cols-2">
+              <FilterSelect label={t("priority")} value={filters.priority} onChange={(value) => setFilter("priority", value as TaskViewFilters["priority"])}>
+                <option value="all">{t("allPriorities")}</option>
+                <option value="high">{t("high")}</option>
+                <option value="medium">{t("medium")}</option>
+                <option value="low">{t("low")}</option>
+              </FilterSelect>
+              <FilterSelect label={t("projects")} value={filters.projectId} onChange={(value) => setFilter("projectId", value as TaskViewFilters["projectId"])}>
+                <option value="all">{t("allProjects")}</option>
+                <option value="none">{t("noProject")}</option>
+                {data.projects
+                  .filter((project) => project.deletedAt === null && project.status !== "archived")
+                  .map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+              </FilterSelect>
+              <FilterSelect label={t("reminder")} value={filters.reminder} onChange={(value) => setFilter("reminder", value as TaskViewFilters["reminder"])}>
+                <option value="all">{t("all")}</option>
+                <option value="with">{t("withReminder")}</option>
+                <option value="without">{t("withoutReminder")}</option>
+              </FilterSelect>
+              <FilterSelect label={t("taskFolder")} value={filters.folder} onChange={(value) => setFilter("folder", value as TaskViewFilters["folder"])}>
+                <option value="all">{t("all")}</option>
+                <option value="with">{t("withFolder")}</option>
+                <option value="without">{t("withoutFolder")}</option>
+              </FilterSelect>
+              <FilterSelect label={t("dateRange")} value={filters.dateRange} onChange={(value) => setFilter("dateRange", value as TaskViewFilters["dateRange"])}>
+                <option value="all">{t("allDates")}</option>
+                <option value="today">{t("today")}</option>
+                <option value="week">{t("thisWeek")}</option>
+                <option value="overdue">{t("overdue")}</option>
+              </FilterSelect>
+            </div>
           </div>
         )}
       </section>
@@ -396,8 +403,31 @@ export function OverviewView({
             {taskPage.error}
           </div>
         ) : taskPage.tasks.length === 0 ? (
-          <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
-            {t("noTasks")}
+          <div className="motion-status flex min-h-36 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-card/35 px-6 text-center">
+            <p className="text-sm text-muted-foreground">{t("noTasks")}</p>
+            <p className="max-w-sm text-xs text-muted-foreground">{t("emptyOverviewHint")}</p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {activeFilterCount > 0 && (
+                <Button
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setFilters(defaultTaskViewFilters());
+                    setSelectedViewId(null);
+                    setSearchQuery("");
+                  }}
+                >
+                  {t("clearFilters")}
+                </Button>
+              )}
+              <TaskCreateDialog
+                actions={actions}
+                defaultDate={new Date().toISOString().slice(0, 10)}
+                projects={data.projects.filter((project) => project.deletedAt === null && project.status !== "archived")}
+                settings={data.settings}
+              />
+            </div>
           </div>
         ) : (
           <TaskList
@@ -580,7 +610,7 @@ function ManageViewsDialog({
                           {view.name}
                         </button>
                         {isDefault && (
-                          <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-secondary-foreground">
+                          <span className="rounded bg-secondary px-1.5 py-0.5 text-xs text-secondary-foreground">
                             {t("defaultSavedView")}
                           </span>
                         )}

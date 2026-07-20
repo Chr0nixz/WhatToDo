@@ -7,6 +7,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { accentSwatches, defaultAccentSwatch } from "@/data/accentSwatches";
 import type { AppData, Task } from "@/data/types";
 import { useTaskPage } from "@/hooks/useTaskPage";
 import type { TodoActions } from "@/hooks/useTodos";
@@ -23,13 +24,7 @@ type WorkspacesViewProps = {
   onEditWorkspace?: () => void;
 };
 
-const workspaceColors = [
-  { labelKey: "accentBlue", value: "#4fb8d8" },
-  { labelKey: "accentEmerald", value: "#6cc083" },
-  { labelKey: "accentAmber", value: "#d7a742" },
-  { labelKey: "accentRose", value: "#ec6f5d" },
-  { labelKey: "accentViolet", value: "#8b7cf6" },
-];
+const workspaceColors = accentSwatches;
 
 const folderNameFromPath = (path: string) => {
   const parts = path.split(/[\\/]/).filter(Boolean);
@@ -39,7 +34,7 @@ const folderNameFromPath = (path: string) => {
 export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskId, onEditWorkspace }: WorkspacesViewProps) {
   const { t } = useTranslation();
   const [workspaceName, setWorkspaceName] = useState("");
-  const [workspaceColor, setWorkspaceColor] = useState(workspaceColors[0].value);
+  const [workspaceColor, setWorkspaceColor] = useState(defaultAccentSwatch);
   const [folderName, setFolderName] = useState("");
   const [folderPath, setFolderPath] = useState("");
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
@@ -117,7 +112,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
     try {
       await actions.createWorkspace({ name, color: workspaceColor });
       setWorkspaceName("");
-      setWorkspaceColor(workspaceColors[0].value);
+      setWorkspaceColor(defaultAccentSwatch);
       setSelectedTaskId(null);
     } catch {
       setWorkspaceError(t("workspaceCreateFailed"));
@@ -190,7 +185,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
     <main className="flex h-full min-h-0 max-md:flex-col max-md:overflow-auto">
       <aside
         aria-label={t("workspaces")}
-        className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/45 max-lg:w-[292px] max-md:max-h-[360px] max-md:w-full max-md:border-b max-md:border-r-0"
+        className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/50 max-lg:w-[292px] max-md:max-h-[360px] max-md:w-full max-md:border-b max-md:border-r-0"
       >
         <section className="border-b border-border p-3">
           <div className="mb-3 flex items-center justify-between">
@@ -263,10 +258,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
         <div className="border-b border-border bg-background/65 p-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              {currentWorkspace && (
-                <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{t("currentWorkspace")}</p>
-              )}
-              <div className="mt-1 flex min-w-0 items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 <span
                   className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary"
                   style={{ color: currentWorkspace?.color }}
@@ -274,7 +266,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
                   <FolderPlus className="size-4" />
                 </span>
                 <div className="min-w-0">
-                  <h2 className="truncate text-2xl font-semibold">{currentWorkspace?.name ?? t("workspaces")}</h2>
+                  <h2 className="truncate text-xl font-semibold">{currentWorkspace?.name ?? t("workspaces")}</h2>
                   <p className="text-sm text-muted-foreground">
                     {t("workspaceSummary", {
                       tasks: openTasks.length,
@@ -362,7 +354,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
                 {data.workspaceFolders.map((folder, index) => (
                   <div
                     key={folder.id}
-                    className="motion-surface grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-border bg-card/70 px-3 py-2"
+                    className="motion-surface grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-border bg-card/65 px-3 py-2"
                     style={{ "--motion-index": index } as CSSProperties}
                   >
                     <button className="min-w-0 text-left" type="button" onClick={() => void openWorkspaceFolder(folder.path)}>
@@ -415,6 +407,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
               <TaskList
                 actions={actions}
                 emptyLabel={t("emptyTaskList")}
+                emptyHint={t("emptyWorkspaceTasksHint")}
                 onSelectTask={setSelectedTaskId}
                 projects={data.projects}
                 reminders={taskPage.reminders}
