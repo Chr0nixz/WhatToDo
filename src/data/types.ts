@@ -109,6 +109,14 @@ export type Task = {
   tags: string[];
 };
 
+/** List/page/picker rows omit notes; use getTask(id) for the full Task. */
+export type TaskSummary = Omit<Task, "notes">;
+
+export const toTaskSummary = (task: Task): TaskSummary => {
+  const { notes: _notes, ...summary } = task;
+  return summary;
+};
+
 export type Attachment = {
   id: string;
   task_id: string;
@@ -136,6 +144,8 @@ export type RecurringTaskTemplate = {
   anchorDate: string;
   endDate: string | null;
   enabled: boolean;
+  parentId: string | null;
+  tags: string[];
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -184,6 +194,7 @@ export type SavedTaskView = {
   workspaceId: string;
   name: string;
   filters: TaskViewFilters;
+  pinned: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -204,10 +215,11 @@ export type AppData = {
   workspaces: Workspace[];
   workspaceFolders: WorkspaceFolder[];
   projects: Project[];
-  tasks: Task[];
-  deletedTasks: Task[];
+  /** Workspace task list rows without notes; use getTask(id) for full Task. */
+  tasks: TaskSummary[];
+  deletedTasks: TaskSummary[];
   deletedWorkspaceFolders: WorkspaceFolder[];
-  availableTasks: Task[];
+  availableTasks: TaskSummary[];
   reminders: Reminder[];
   savedViews: SavedTaskView[];
   recurringTaskTemplates: RecurringTaskTemplate[];
@@ -217,7 +229,7 @@ export type AppData = {
 };
 
 export type RecoveryItems = {
-  deletedTasks: Task[];
+  deletedTasks: TaskSummary[];
   deletedWorkspaceFolders: WorkspaceFolder[];
   deletedWorkspaces: Workspace[];
   archivedProjects: Project[];
@@ -225,8 +237,8 @@ export type RecoveryItems = {
 
 export type AppIndexes = {
   projectsById: Map<string, Project>;
-  tasksById: Map<string, Task>;
-  tasksByDate: Map<string, Task[]>;
+  tasksById: Map<string, TaskSummary>;
+  tasksByDate: Map<string, TaskSummary[]>;
   remindersByTaskId: Map<string, Reminder[]>;
   reminderTaskIds: Set<string>;
 };
@@ -239,6 +251,8 @@ export type TaskPageSort = "createdDesc" | "dueAsc" | "overview";
 
 export type TaskPageInput = {
   workspaceId?: string;
+  /** When "all", ignore current workspace filter (still excludes deleted). Default "current". */
+  workspaceScope?: "current" | "all";
   scope: TaskPageScope;
   date?: string | null;
   projectId?: string | "none" | null;
@@ -257,7 +271,7 @@ export type TaskPageInput = {
 };
 
 export type TaskPageResult = {
-  tasks: Task[];
+  tasks: TaskSummary[];
   total: number;
   reminders: Reminder[];
 };
@@ -309,6 +323,8 @@ export type UpdateRecurringTaskTemplateInput = Partial<
     | "interval"
     | "byWeekday"
     | "endDate"
+    | "parentId"
+    | "tags"
   >
 >;
 
@@ -322,14 +338,28 @@ export type CreateProjectInput = {
 export type CreateSavedTaskViewInput = {
   name: string;
   filters: TaskViewFilters;
+  pinned?: boolean;
 };
 
 export type CreateAttachmentInput = {
+  id?: string;
   taskId: string;
   filename: string;
   path: string;
   mimeType?: string | null;
   size?: number | null;
+};
+
+export type BackupAutoBackupPreferences = {
+  enabled: boolean;
+  intervalHours: number;
+  retentionCount: number;
+  retentionDays: number;
+};
+
+/** Device-local paths (e.g. auto-backup folder) are intentionally omitted. */
+export type BackupClientPreferences = {
+  autoBackup?: BackupAutoBackupPreferences;
 };
 
 export type BackupPayload = {
@@ -359,6 +389,22 @@ export type BackupPayload = {
   recurringTaskTemplates: RecurringTaskTemplate[];
   attachments?: Attachment[];
   reminderEvents?: ReminderEvent[];
+} | {
+  whattodoBackupVersion: 3;
+  exportedAt: string;
+  workspaceId: string;
+  workspaces: Workspace[];
+  workspaceFolders: WorkspaceFolder[];
+  projects: Project[];
+  tasks: Task[];
+  reminders: Reminder[];
+  settingsByWorkspace: Record<string, Settings>;
+  savedViews: SavedTaskView[];
+  recurringTaskTemplates: RecurringTaskTemplate[];
+  attachments?: Attachment[];
+  reminderEvents?: ReminderEvent[];
+  attachmentBundle?: "sidecar" | "none";
+  clientPreferences?: BackupClientPreferences;
 };
 
 export type AppDataKey = keyof AppData;
@@ -371,6 +417,16 @@ export type RepositoryPatch = {
 export type RepositoryResult = {
   data: AppData;
   patch: RepositoryPatch;
+};
+
+export type AttachmentMigrateReport = {
+  migrated: number;
+  skipped: number;
+  failed: number;
+};
+
+export type AttachmentMigrateResult = RepositoryResult & {
+  report: AttachmentMigrateReport;
 };
 
 export type TaskDetailPaneHandle = {

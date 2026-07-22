@@ -6,6 +6,7 @@ import { createRepository } from "@/data/repository";
 import type {
   AppData,
   AppDataKey,
+  AttachmentMigrateReport,
   BackupPayload,
   CreateAttachmentInput,
   CreateRecurringTaskInput,
@@ -25,6 +26,7 @@ import type {
   TaskPageInput,
   TaskPageResult,
   TaskStatus,
+  TaskSummary,
   UpdateRecurringTaskTemplateInput,
   UpdateWorkspaceInput,
 } from "@/data/types";
@@ -50,9 +52,10 @@ const applyRepositoryPatch = (prev: AppData, next: AppData, patch: RepositoryPat
 
 export type TodoActions = {
   selectWorkspace: (workspaceId: string) => Promise<AppData>;
-  loadAvailableTasks: (workspaceId?: string) => Promise<Task[]>;
+  loadAvailableTasks: (workspaceId?: string) => Promise<TaskSummary[]>;
   loadRecoveryItems: () => Promise<RecoveryItems>;
   loadTaskPage: (input: TaskPageInput) => Promise<TaskPageResult>;
+  getTask: (id: string) => Promise<Task | null>;
   loadDueDateCounts: (input: { workspaceId?: string; from: string; to: string }) => Promise<Record<string, number>>;
   createWorkspace: (input: CreateWorkspaceInput) => Promise<AppData>;
   updateWorkspace: (id: string, patch: UpdateWorkspaceInput) => Promise<AppData>;
@@ -93,6 +96,8 @@ export type TodoActions = {
   restoreTask: (id: string) => Promise<AppData>;
   addAttachment: (input: CreateAttachmentInput) => Promise<AppData>;
   deleteAttachment: (id: string) => Promise<AppData>;
+  updateAttachmentPath: (id: string, path: string, filename?: string) => Promise<AppData>;
+  migrateExternalAttachments: () => Promise<{ data: AppData; report: AttachmentMigrateReport }>;
   markReminderFired: (id: string) => Promise<AppData>;
   markReminderFailed: (id: string, reason: string) => Promise<AppData>;
   snoozeReminder: (id: string, untilIso: string) => Promise<AppData>;
@@ -197,6 +202,7 @@ export const useTodos = () => {
         measureDevAsync("repository.loadAvailableTasks", () => repository.loadAvailableTasks(workspaceId)),
       loadRecoveryItems: () => measureDevAsync("repository.loadRecoveryItems", () => repository.loadRecoveryItems()),
       loadTaskPage: (input: TaskPageInput) => measureDevAsync("repository.loadTaskPage", () => repository.loadTaskPage(input)),
+      getTask: (id: string) => measureDevAsync("repository.getTask", () => repository.getTask(id)),
       loadDueDateCounts: (input: { workspaceId?: string; from: string; to: string }) =>
         repository.loadDueDateCounts(input),
       createWorkspace: (input: CreateWorkspaceInput) => runMutation(() => repository.createWorkspace(input)),
@@ -244,6 +250,26 @@ export const useTodos = () => {
       restoreTask: (id: string) => runMutation(() => repository.restoreTask(id)),
       addAttachment: (input: CreateAttachmentInput) => runMutation(() => repository.addAttachment(input)),
       deleteAttachment: (id: string) => runMutation(() => repository.deleteAttachment(id)),
+      updateAttachmentPath: (id: string, path: string, filename?: string) =>
+        runMutation(() => repository.updateAttachmentPath(id, path, filename)),
+      migrateExternalAttachments: async () => {
+        const seq = ++mutationSeqRef.current;
+        try {
+          const result = await repository.migrateExternalAttachments();
+          if (seq >= lastAppliedSeqRef.current) {
+            lastAppliedSeqRef.current = seq;
+            useTodoStore.setState((state) => ({
+              data: state.data ? applyRepositoryPatch(state.data, result.data, result.patch) : result.data,
+              error: null,
+            }));
+          }
+          return { data: result.data, report: result.report };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          setTodoError(message);
+          throw err;
+        }
+      },
       markReminderFired: (id: string) => runMutation(() => repository.markReminderFired(id)),
       markReminderFailed: (id: string, reason: string) => runMutation(() => repository.markReminderFailed(id, reason)),
       snoozeReminder: (id: string, untilIso: string) => runMutation(() => repository.snoozeReminder(id, untilIso)),

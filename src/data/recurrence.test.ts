@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getNextRecurrenceDate } from "./recurrence";
+import { buildTaskFromRecurringTemplate, getNextRecurrenceDate } from "./recurrence";
 import type { RecurringTaskTemplate } from "./types";
 
 const makeRule = (patch: Partial<RecurringTaskTemplate>): RecurringTaskTemplate => ({
@@ -20,6 +20,8 @@ const makeRule = (patch: Partial<RecurringTaskTemplate>): RecurringTaskTemplate 
   anchorDate: patch.anchorDate ?? "2026-06-01",
   endDate: patch.endDate ?? null,
   enabled: true,
+  parentId: patch.parentId ?? null,
+  tags: patch.tags ?? [],
   createdAt: "2026-06-01T00:00:00.000Z",
   updatedAt: "2026-06-01T00:00:00.000Z",
   deletedAt: null,
@@ -96,5 +98,19 @@ describe("getNextRecurrenceDate", () => {
     expect(getNextRecurrenceDate(rule, "2026-06-01")).toBe("2026-06-04"); // active week: Mon -> Thu
     expect(getNextRecurrenceDate(rule, "2026-06-04")).toBe("2026-06-15"); // skip inactive week, next active Mon
     expect(getNextRecurrenceDate(rule, "2026-06-15")).toBe("2026-06-18"); // active week: Mon -> Thu
+  });
+});
+
+describe("buildTaskFromRecurringTemplate", () => {
+  it("inherits tags and parentId from the template", () => {
+    const template = makeRule({
+      parentId: "parent_task",
+      tags: ["work", "recurring"],
+    });
+    const task = buildTaskFromRecurringTemplate(template, "2026-06-08", "2026-06-01T00:00:00.000Z", () => "task_next");
+    expect(task.parentId).toBe("parent_task");
+    expect(task.tags).toEqual(["work", "recurring"]);
+    expect(task.recurrenceTemplateId).toBe(template.id);
+    expect(task.dueDate).toBe("2026-06-08");
   });
 });

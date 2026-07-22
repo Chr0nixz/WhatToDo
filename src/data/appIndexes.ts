@@ -1,22 +1,26 @@
-import type { AppData, AppIndexes, Reminder, Task } from "./types";
+import type { AppData, AppIndexes, Project, Reminder, TaskSummary } from "./types";
 
-export const buildAppIndexes = (data: AppData): AppIndexes => {
-  const projectsById = new Map(data.projects.map((project) => [project.id, project]));
-  const tasksById = new Map(data.tasks.map((task) => [task.id, task]));
-  const tasksByDate = new Map<string, Task[]>();
+export const buildAppIndexes = (
+  tasks: TaskSummary[],
+  projects: Project[],
+  reminders: Reminder[],
+): AppIndexes => {
+  const projectsById = new Map(projects.map((project) => [project.id, project]));
+  const tasksById = new Map(tasks.map((task) => [task.id, task]));
+  const tasksByDate = new Map<string, TaskSummary[]>();
   const remindersByTaskId = new Map<string, Reminder[]>();
   const reminderTaskIds = new Set<string>();
 
-  for (const task of data.tasks) {
-    const tasks = tasksByDate.get(task.dueDate) ?? [];
-    tasks.push(task);
-    tasksByDate.set(task.dueDate, tasks);
+  for (const task of tasks) {
+    const bucket = tasksByDate.get(task.dueDate) ?? [];
+    bucket.push(task);
+    tasksByDate.set(task.dueDate, bucket);
   }
 
-  for (const reminder of data.reminders) {
-    const reminders = remindersByTaskId.get(reminder.taskId) ?? [];
-    reminders.push(reminder);
-    remindersByTaskId.set(reminder.taskId, reminders);
+  for (const reminder of reminders) {
+    const bucket = remindersByTaskId.get(reminder.taskId) ?? [];
+    bucket.push(reminder);
+    remindersByTaskId.set(reminder.taskId, bucket);
 
     if (reminder.enabled) {
       reminderTaskIds.add(reminder.taskId);
@@ -31,3 +35,7 @@ export const buildAppIndexes = (data: AppData): AppIndexes => {
     reminderTaskIds,
   };
 };
+
+/** @deprecated Prefer buildAppIndexes(tasks, projects, reminders). */
+export const buildAppIndexesFromData = (data: Pick<AppData, "tasks" | "projects" | "reminders">): AppIndexes =>
+  buildAppIndexes(data.tasks, data.projects, data.reminders);

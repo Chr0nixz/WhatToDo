@@ -7,9 +7,23 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { accentSwatches } from "@/data/accentSwatches";
+import {
+  restoreAttachmentSidecar,
+  writeBackupBundle,
+  cleanupAutoBackupFiles,
+  prepareBackupExport,
+} from "@/data/backupAttachments";
 import type { AccentColor, AppData, BackupPayload, ImportBackupMode, Language, RecoveryItems, Settings, ThemeMode } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
-import { loadAutoBackupConfig, saveAutoBackupConfig, type AutoBackupConfig } from "@/hooks/useAutoBackup";
+import {
+  AUTO_BACKUP_LAST_ERROR_KEY,
+  applyAutoBackupPreferencesFromBackup,
+  loadAutoBackupConfig,
+  loadAutoBackupLastError,
+  saveAutoBackupConfig,
+  toAutoBackupPreferences,
+  type AutoBackupConfig,
+} from "@/hooks/useAutoBackup";
 import { cn } from "@/lib/utils";
 import { ImportPreviewDialog } from "./ImportPreviewDialog";
 import { UpdateSettingsPanel } from "./UpdateSettingsPanel";
@@ -49,6 +63,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
   const [dataState, setDataState] = useState<"idle" | "saved" | "error">("idle");
   const [dataError, setDataError] = useState<string | null>(null);
+  const [isMigratingAttachments, setIsMigratingAttachments] = useState(false);
   const [recoveryItems, setRecoveryItems] = useState<RecoveryItems>({
     deletedTasks: [],
     deletedWorkspaceFolders: [],
@@ -56,9 +71,14 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
     archivedProjects: [],
   });
   const [recoveryState, setRecoveryState] = useState<"loading" | "ready" | "error">("loading");
-  const [importPreview, setImportPreview] = useState<{ open: boolean; payload: unknown }>({ open: false, payload: null });
+  const [importPreview, setImportPreview] = useState<{
+    open: boolean;
+    payload: unknown;
+    sourcePath: string | null;
+  }>({ open: false, payload: null, sourcePath: null });
   const [autoBackup, setAutoBackup] = useState<AutoBackupConfig>(() => loadAutoBackupConfig());
-  const [autoBackupState, setAutoBackupState] = useState<"idle" | "saved" | "error">("idle");
+  const [autoBackupState, setAutoBackupState] = useState<"idle" | "settings_saved" | "backup_done" | "error">("idle");
+  const [autoBackupFeedback, setAutoBackupFeedback] = useState<string | null>(null);
   const reminderOffsetTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -182,7 +202,26 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
     setDataError(null);
     try {
       const payload = await actions.exportBackup();
-      await writeText(`whattodo-backup-${timestampForFile()}.json`, JSON.stringify(payload, null, 2), "application/json");
+      const prepared = prepareBackupExport(payload, {
+        clientPreferences: { autoBackup: toAutoBackupPreferences(loadAutoBackupConfig()) },
+      });
+      const contents = JSON.stringify(prepared.payload, null, 2);
+      if (!isTauriRuntime()) {
+        downloadText(`whattodo-backup-${timestampForFile()}.json`, contents, "application/json");
+        setDataState("saved");
+        return;
+      }
+
+      const path = await saveDialog({
+        defaultPath: `whattodo-backup-${timestampForFile()}.json`,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (typeof path !== "string") {
+        return;
+      }
+      await writeBackupBundle(path, payload, {
+        clientPreferences: { autoBackup: toAutoBackupPreferences(loadAutoBackupConfig()) },
+      });
       setDataState("saved");
     } catch (err) {
       setDataState("error");
@@ -215,7 +254,9 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
       const parent = selected.split(/[\\/]/).slice(0, -1).join(separator);
       const preImportPath = `${parent}${parent ? separator : ""}whattodo-pre-import-${timestampForFile()}.json`;
       try {
-        await invoke("write_text_file", { path: preImportPath, contents: JSON.stringify(currentBackup, null, 2) });
+        await writeBackupBundle(preImportPath, currentBackup, {
+          clientPreferences: { autoBackup: toAutoBackupPreferences(loadAutoBackupConfig()) },
+        });
       } catch {
         throw new Error(t("preImportBackupFailed"));
       }
@@ -227,7 +268,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
       } catch {
         throw new Error(t("importInvalidJson"));
       }
-      setImportPreview({ open: true, payload: parsed });
+      setImportPreview({ open: true, payload: parsed, sourcePath: selected });
     } catch (err) {
       setDataState("error");
       const message = err instanceof Error ? err.message : String(err);
@@ -238,13 +279,22 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
 
   const confirmImportBackup = async (payload: BackupPayload, mode: ImportBackupMode) => {
     try {
-      await actions.importBackup(payload, mode);
-      setImportPreview({ open: false, payload: null });
+      const sourcePath = importPreview.sourcePath;
+      let nextPayload = payload;
+      if (sourcePath) {
+        nextPayload = await restoreAttachmentSidecar(sourcePath, payload);
+      }
+      if (nextPayload.whattodoBackupVersion === 3 && nextPayload.clientPreferences?.autoBackup) {
+        applyAutoBackupPreferencesFromBackup(nextPayload.clientPreferences.autoBackup);
+        setAutoBackup(loadAutoBackupConfig());
+      }
+      await actions.importBackup(nextPayload, mode);
+      setImportPreview({ open: false, payload: null, sourcePath: null });
       setDataState("saved");
     } catch (err) {
       setDataState("error");
       setDataError(`${t("importFailed")}: ${err instanceof Error ? err.message : String(err)}`);
-      setImportPreview({ open: false, payload: null });
+      setImportPreview({ open: false, payload: null, sourcePath: null });
     }
   };
 
@@ -272,11 +322,48 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
     }
   };
 
+  const migrateAttachments = async () => {
+    setDataState("idle");
+    setDataError(null);
+    if (!isTauriRuntime()) {
+      setDataState("error");
+      setDataError(t("migrateAttachmentsDesktopOnly"));
+      return;
+    }
+    setIsMigratingAttachments(true);
+    try {
+      const { report } = await actions.migrateExternalAttachments();
+      setDataState("saved");
+      setDataError(
+        t("migrateAttachmentsReport", {
+          migrated: report.migrated,
+          skipped: report.skipped,
+          failed: report.failed,
+        }),
+      );
+    } catch (err) {
+      setDataState("error");
+      setDataError(err instanceof Error ? err.message : t("operationFailed"));
+    } finally {
+      setIsMigratingAttachments(false);
+    }
+  };
+
   const updateAutoBackup = (patch: Partial<AutoBackupConfig>) => {
     const next = { ...autoBackup, ...patch };
+    if (next.enabled && !next.folder) {
+      setAutoBackupFeedback(t("autoBackupFolderRequired"));
+      setAutoBackupState("error");
+      window.setTimeout(() => {
+        setAutoBackupState("idle");
+        setAutoBackupFeedback(null);
+      }, 3000);
+      return;
+    }
     setAutoBackup(next);
     saveAutoBackupConfig(next);
-    setAutoBackupState("saved");
+    setAutoBackupFeedback(null);
+    setAutoBackupState("settings_saved");
     window.setTimeout(() => setAutoBackupState("idle"), 2000);
   };
 
@@ -293,20 +380,32 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
 
   const runAutoBackupNow = async () => {
     setAutoBackupState("idle");
+    setAutoBackupFeedback(null);
     try {
       const payload = await actions.exportBackup();
       const filename = `whattodo-auto-${timestampForFile()}.json`;
       const folder = autoBackup.folder;
       if (!folder) {
+        setAutoBackupFeedback(t("autoBackupFolderRequired"));
         setAutoBackupState("error");
         return;
       }
-      const separator = folder.includes("\\") ? "\\" : "/";
-      const path = `${folder}${separator}${filename}`;
-      await invoke("write_text_file", { path, contents: JSON.stringify(payload, null, 2) });
+      const path = await invoke<string>("join_backup_path", { folder, filename });
+      await writeBackupBundle(path, payload, {
+        clientPreferences: { autoBackup: toAutoBackupPreferences(autoBackup) },
+      });
+      try {
+        await cleanupAutoBackupFiles(folder, autoBackup.retentionCount, autoBackup.retentionDays);
+      } catch {
+        // Retention is best-effort after a successful write.
+      }
       localStorage.setItem("whattodo:auto-backup:last-run", String(Date.now()));
-      setAutoBackupState("saved");
-    } catch {
+      localStorage.removeItem(AUTO_BACKUP_LAST_ERROR_KEY);
+      setAutoBackupState("backup_done");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      localStorage.setItem(AUTO_BACKUP_LAST_ERROR_KEY, message);
+      setAutoBackupFeedback(message);
       setAutoBackupState("error");
     }
   };
@@ -577,10 +676,23 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             <Download className="size-4" />
             {t("exportIcs")}
           </Button>
+          <Button
+            disabled={isMigratingAttachments}
+            size="lg"
+            title={t("migrateAttachmentsHint")}
+            type="button"
+            variant="secondary"
+            onClick={() => void migrateAttachments()}
+          >
+            <FolderOpen className="size-4" />
+            {isMigratingAttachments ? t("migrateAttachmentsRunning") : t("migrateAttachments")}
+          </Button>
         </div>
         {dataState !== "idle" && (
           <p className={cn("motion-status mt-3 text-xs", dataState === "saved" ? "text-success" : "text-destructive")}>
-            {dataState === "saved" ? t("dataOperationDone") : dataError ?? t("operationFailed")}
+            {dataState === "saved"
+              ? dataError ?? t("dataOperationDone")
+              : dataError ?? t("operationFailed")}
           </p>
         )}
       </section>
@@ -621,6 +733,46 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
               }}
             />
           </label>
+          <label className="grid grid-cols-[1fr_120px] items-center gap-3 rounded-md bg-background/50 px-3 py-2 text-sm">
+            <span>
+              <span className="block font-medium">{t("autoBackupRetentionCount")}</span>
+              <span className="text-xs text-muted-foreground">{t("autoBackupRetentionCountHint")}</span>
+            </span>
+            <input
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring disabled:opacity-50"
+              disabled={!autoBackup.enabled}
+              min={1}
+              step={1}
+              type="number"
+              value={autoBackup.retentionCount}
+              onChange={(event) => {
+                const parsed = Number(event.target.value);
+                if (Number.isFinite(parsed) && parsed >= 1) {
+                  updateAutoBackup({ retentionCount: Math.floor(parsed) });
+                }
+              }}
+            />
+          </label>
+          <label className="grid grid-cols-[1fr_120px] items-center gap-3 rounded-md bg-background/50 px-3 py-2 text-sm">
+            <span>
+              <span className="block font-medium">{t("autoBackupRetentionDays")}</span>
+              <span className="text-xs text-muted-foreground">{t("autoBackupRetentionDaysHint")}</span>
+            </span>
+            <input
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring disabled:opacity-50"
+              disabled={!autoBackup.enabled}
+              min={1}
+              step={1}
+              type="number"
+              value={autoBackup.retentionDays}
+              onChange={(event) => {
+                const parsed = Number(event.target.value);
+                if (Number.isFinite(parsed) && parsed >= 1) {
+                  updateAutoBackup({ retentionDays: Math.floor(parsed) });
+                }
+              }}
+            />
+          </label>
           <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 max-sm:grid-cols-1">
             <input
               className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring disabled:opacity-50"
@@ -649,8 +801,22 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             </Button>
           </div>
           {autoBackupState !== "idle" && (
-            <p className={cn("motion-status text-xs", autoBackupState === "saved" ? "text-success" : "text-destructive")}>
-              {autoBackupState === "saved" ? t("autoBackupDone") : t("autoBackupFailed")}
+            <p
+              className={cn(
+                "motion-status text-xs",
+                autoBackupState === "error" ? "text-destructive" : "text-success",
+              )}
+            >
+              {autoBackupState === "settings_saved"
+                ? t("autoBackupSettingsSaved")
+                : autoBackupState === "backup_done"
+                  ? t("autoBackupDone")
+                  : (autoBackupFeedback ?? t("autoBackupFailed"))}
+            </p>
+          )}
+          {autoBackupState === "idle" && loadAutoBackupLastError() && (
+            <p className="motion-status text-xs text-destructive">
+              {t("autoBackupLastError")}: {loadAutoBackupLastError()}
             </p>
           )}
         </div>
@@ -712,6 +878,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
       <UpdateSettingsPanel />
 
       <ImportPreviewDialog
+        currentData={data}
         open={importPreview.open}
         rawPayload={importPreview.payload}
         onOpenChange={(open) => setImportPreview((prev) => ({ ...prev, open }))}

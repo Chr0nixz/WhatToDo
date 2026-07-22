@@ -197,7 +197,76 @@ describe("LocalRepository", () => {
 
     expect(result.total).toBe(1);
     expect(result.tasks.map((task) => task.title)).toEqual(["Alpha task"]);
-    expect(result.reminders.map((reminder) => reminder.taskId)).toEqual([data.tasks.find((task) => task.title === "Alpha task")?.id]);
+    expect(Object.prototype.hasOwnProperty.call(result.tasks[0], "notes")).toBe(false);
+    const alphaId = data.tasks.find((task) => task.title === "Alpha task")?.id;
+    expect(result.reminders.map((reminder) => reminder.taskId)).toEqual([alphaId]);
+    const fullTask = await repository.getTask(alphaId!);
+    expect(fullTask?.notes).toBeDefined();
+  });
+
+  it("strips notes from LocalRepository loadTaskPage and returns them via getTask", async () => {
+    const repository = new LocalRepository();
+    await repository.load();
+    const created = (
+      await repository.createTask({
+        title: "Notes task",
+        dueDate: "2026-06-01",
+        notes: "full body notes",
+      })
+    ).data;
+    const taskId = created.tasks.find((task) => task.title === "Notes task")!.id;
+
+    expect(Object.prototype.hasOwnProperty.call(created.tasks.find((task) => task.id === taskId)!, "notes")).toBe(
+      false,
+    );
+
+    const page = await repository.loadTaskPage({
+      scope: "open",
+      date: "2026-06-01",
+      limit: 10,
+      offset: 0,
+      sort: "overview",
+    });
+    const summary = page.tasks.find((task) => task.id === taskId);
+    expect(summary).toBeDefined();
+    expect(Object.prototype.hasOwnProperty.call(summary!, "notes")).toBe(false);
+
+    const full = await repository.getTask(taskId);
+    expect(full?.notes).toBe("full body notes");
+  });
+
+  it("searches tasks across workspaces when workspaceScope is all", async () => {
+    const repository = new LocalRepository();
+    let data = await repository.load();
+    const homeId = data.workspaceId;
+    data = (await repository.createTask({ title: "Home only", dueDate: "2026-06-01" })).data;
+    data = (await repository.createWorkspace({ name: "Side", color: "#6cc083" })).data;
+    const sideId = data.workspaces.find((workspace) => workspace.name === "Side")!.id;
+    data = (await repository.selectWorkspace(sideId)).data;
+    await repository.createTask({ title: "Side only", dueDate: "2026-06-01" });
+
+    const currentOnly = await repository.loadTaskPage({
+      workspaceId: sideId,
+      workspaceScope: "current",
+      scope: "all",
+      query: "only",
+      limit: 20,
+      offset: 0,
+      sort: "overview",
+    });
+    expect(currentOnly.tasks.map((task) => task.title)).toEqual(["Side only"]);
+
+    const allScopes = await repository.loadTaskPage({
+      workspaceId: sideId,
+      workspaceScope: "all",
+      scope: "all",
+      query: "only",
+      limit: 20,
+      offset: 0,
+      sort: "overview",
+    });
+    expect(allScopes.tasks.map((task) => task.title).sort()).toEqual(["Home only", "Side only"]);
+    expect(allScopes.tasks.some((task) => task.workspaceId === homeId)).toBe(true);
   });
 
   it("aggregates due date counts for a visible range", async () => {
@@ -284,12 +353,23 @@ describe("LocalRepository", () => {
       },
     })).data;
     expect(data.savedViews[0].name).toBe("High priority");
+    expect(data.savedViews[0].pinned).toBe(false);
+
+    data = (
+      await repository.updateSavedView(data.savedViews[0].id, {
+        name: "High priority",
+        filters: data.savedViews[0].filters,
+        pinned: true,
+      })
+    ).data;
+    expect(data.savedViews[0].pinned).toBe(true);
 
     const backup = await repository.exportBackup();
     const restoredRepository = new LocalRepository();
     const restored = (await restoredRepository.importBackup(backup)).data;
 
     expect(restored.savedViews[0].filters.priority).toBe("high");
+    expect(restored.savedViews[0].pinned).toBe(true);
     expect(restored.workspaceId).toBe(data.workspaceId);
   });
 
@@ -342,6 +422,44 @@ describe("LocalRepository", () => {
     data = (await repository.toggleTask(firstTaskId)).data;
     data = (await repository.toggleTask(firstTaskId)).data;
     expect(data.tasks.filter((task) => task.dueDate === "2026-06-08")).toHaveLength(1);
+  });
+
+  it("inherits tags and parentId onto the next recurring instance", async () => {
+    const repository = new LocalRepository();
+    let data = await repository.load();
+    data = (await repository.createTask({ title: "Parent", dueDate: "2026-06-01" })).data;
+    const parentId = data.tasks[0].id;
+
+    data = (
+      await repository.createRecurringTask({
+        title: "Tagged series",
+        dueDate: "2026-06-01",
+        frequency: "daily",
+        parentId,
+        tags: ["work", "series"],
+      })
+    ).data;
+
+    expect(data.recurringTaskTemplates[0]).toMatchObject({
+      parentId,
+      tags: ["work", "series"],
+    });
+    expect(data.tasks.find((task) => task.title === "Tagged series")).toMatchObject({
+      parentId,
+      tags: ["work", "series"],
+    });
+
+    const firstId = data.tasks.find((task) => task.title === "Tagged series")!.id;
+    const templateId = data.recurringTaskTemplates[0].id;
+    data = (await repository.toggleTask(firstId)).data;
+    const next = data.tasks.find(
+      (task) => task.recurrenceTemplateId === templateId && task.id !== firstId,
+    );
+    expect(next).toMatchObject({
+      parentId,
+      tags: ["work", "series"],
+      dueDate: "2026-06-02",
+    });
   });
 
   it("does not generate future instances after a template is disabled or past end date", async () => {
@@ -490,13 +608,13 @@ describe("LocalRepository", () => {
     expect(before.tasks).toEqual((await repository.bulkMoveTasksToProject([], null)).data.tasks);
   });
 
-  it("exports version 2 backups and imports version 1 backups without recurring templates", async () => {
+  it("exports version 3 backups and imports version 1 backups without recurring templates", async () => {
     const repository = new LocalRepository();
     let data = await repository.load();
     data = (await repository.createRecurringTask({ title: "Monthly close", dueDate: "2026-01-31", frequency: "monthly" })).data;
 
     const backup = await repository.exportBackup();
-    expect(backup.whattodoBackupVersion).toBe(2);
+    expect(backup.whattodoBackupVersion).toBe(3);
     expect(backup.recurringTaskTemplates).toHaveLength(1);
 
     const legacyRepository = new LocalRepository();
@@ -507,7 +625,12 @@ describe("LocalRepository", () => {
       workspaces: data.workspaces,
       workspaceFolders: data.workspaceFolders,
       projects: data.projects,
-      tasks: data.tasks.map((task) => ({ ...task, recurrenceTemplateId: null, recurrenceInstanceDate: null })),
+      tasks: data.tasks.map((task) => ({
+        ...task,
+        notes: "",
+        recurrenceTemplateId: null,
+        recurrenceInstanceDate: null,
+      })),
       reminders: data.reminders,
       settingsByWorkspace: { [data.workspaceId]: data.settings },
       savedViews: data.savedViews,
@@ -534,6 +657,36 @@ describe("LocalRepository", () => {
     const settingsResult = await repository.saveSettings({ ...createResult.data.settings, theme: "dark" });
     expect(settingsResult.patch.affectedKeys).toContain("settings");
     expect(settingsResult.patch.affectedKeys).not.toContain("tasks");
+  });
+
+  it("honors optional client-provided attachment id", async () => {
+    const repository = new LocalRepository();
+    await repository.load();
+    const created = await repository.createTask({ title: "With attachment", dueDate: "2026-06-01" });
+    const taskId = created.data.tasks[0]!.id;
+    const result = await repository.addAttachment({
+      id: "attachment_fixed_id",
+      taskId,
+      filename: "notes.pdf",
+      path: "/tmp/notes.pdf",
+    });
+    expect(result.data.attachments.some((item) => item.id === "attachment_fixed_id")).toBe(true);
+    expect(result.patch.affectedKeys).toContain("attachments");
+  });
+
+  it("skips migrateExternalAttachments in LocalRepository", async () => {
+    const repository = new LocalRepository();
+    await repository.load();
+    const created = await repository.createTask({ title: "With attachment", dueDate: "2026-06-01" });
+    await repository.addAttachment({
+      taskId: created.data.tasks[0]!.id,
+      filename: "notes.pdf",
+      path: "/tmp/notes.pdf",
+    });
+    const result = await repository.migrateExternalAttachments();
+    expect(result.report).toEqual({ migrated: 0, skipped: 1, failed: 0 });
+    expect(result.patch.affectedKeys).toEqual([]);
+    expect(result.data.attachments[0]?.path).toBe("/tmp/notes.pdf");
   });
 });
 
@@ -669,7 +822,7 @@ describe("SqlRepository", () => {
 
     expect(result.total).toBe(1);
     expect(result.tasks[0].id).toBe("task_a");
-    expect(result.tasks[0].notes).toBe("");
+    expect(Object.prototype.hasOwnProperty.call(result.tasks[0], "notes")).toBe(false);
     expect(result.reminders[0].id).toBe("reminder_a");
     const pageSelect = db.select.mock.calls.find((call: unknown[]) => String(call[0]).includes("LIMIT ? OFFSET ?"));
     expect(pageSelect?.[0]).toEqual(expect.stringContaining("SELECT id, workspace_id"));
@@ -833,6 +986,1265 @@ describe("SqlRepository", () => {
     expect(result.patch.affectedKeys).toEqual(["tasks"]);
     expect(result.data.tasks[0]?.status).toBe("completed");
     expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+  });
+
+  it("returns targeted tasks patch for SqlRepository createTask without full readAll", async () => {
+    let settingsSelectCount = 0;
+    let workspacesSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          workspacesSelectCount += 1;
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM tasks")) {
+          return [];
+        }
+        if (query.includes("FROM reminders")) {
+          return [];
+        }
+        if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+    const workspacesSelectsAfterLoad = workspacesSelectCount;
+
+    const result = await repository.createTask({
+      title: "Created",
+      dueDate: "2026-06-01",
+      notes: "create notes",
+      reminderOffset: 15,
+    });
+    expect(result.patch.affectedKeys).toEqual(["tasks", "reminders"]);
+    expect(result.data.tasks.some((task) => task.title === "Created")).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(result.data.tasks.find((task) => task.title === "Created")!, "notes")).toBe(
+      false,
+    );
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+    expect(workspacesSelectCount).toBe(workspacesSelectsAfterLoad);
+
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO tasks"),
+      expect.arrayContaining(["Created", "create notes"]),
+    );
+  });
+
+  it("returns targeted tasks patch for SqlRepository updateTask without full readAll", async () => {
+    const taskRow = {
+      id: "task_a",
+      workspace_id: "local-workspace",
+      project_id: null,
+      working_folder: null,
+      title: "A",
+      notes: "before",
+      due_date: "2026-06-01",
+      due_time: null,
+      timezone: "UTC",
+      priority: "medium",
+      status: "todo",
+      completed_at: null,
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      deleted_at: null,
+      recurrence_template_id: null,
+      recurrence_instance_date: null,
+      parent_id: null,
+      tags: "[]",
+    };
+    let settingsSelectCount = 0;
+    let workspacesSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          workspacesSelectCount += 1;
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM tasks")) {
+          return [taskRow];
+        }
+        if (query.includes("FROM reminders")) {
+          return [];
+        }
+        if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+    const workspacesSelectsAfterLoad = workspacesSelectCount;
+
+    const result = await repository.updateTask("task_a", { title: "Updated", notes: "after notes" });
+    expect(result.patch.affectedKeys).toEqual(["tasks"]);
+    expect(Object.prototype.hasOwnProperty.call(result.data.tasks.find((task) => task.id === "task_a")!, "notes")).toBe(
+      false,
+    );
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+    expect(workspacesSelectCount).toBe(workspacesSelectsAfterLoad);
+
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.stringMatching(/UPDATE\s+tasks\s+SET/i),
+      expect.arrayContaining(["Updated", "after notes", "task_a"]),
+    );
+  });
+
+  it("returns targeted settings patch for SqlRepository saveSettings without full readAll", async () => {
+    let settingsSelectCount = 0;
+    let workspacesSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          workspacesSelectCount += 1;
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM tasks")) {
+          return [];
+        }
+        if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
+          return [
+            {
+              workspace_id: "local-workspace",
+              theme: "system",
+              accent_color: "#4fb8d8",
+              language: "en",
+              default_reminder_offset: 15,
+              default_working_folder: null,
+              default_saved_view_id: null,
+              notifications_enabled: 1,
+              close_to_tray: 0,
+            },
+          ];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    const loaded = await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+    const workspacesSelectsAfterLoad = workspacesSelectCount;
+
+    const result = await repository.saveSettings({ ...loaded.settings, theme: "dark" });
+    expect(result.patch.affectedKeys).toEqual(["settings", "settingsByWorkspace"]);
+    expect(result.data.settings.theme).toBe("dark");
+    expect(result.data.settingsByWorkspace["local-workspace"]?.theme).toBe("dark");
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+    expect(workspacesSelectCount).toBe(workspacesSelectsAfterLoad);
+    expect(db.execute).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO settings"), expect.any(Array));
+  });
+
+  it("returns targeted projects patch for SqlRepository createProject without full readAll", async () => {
+    let settingsSelectCount = 0;
+    let workspacesSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          workspacesSelectCount += 1;
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+    const workspacesSelectsAfterLoad = workspacesSelectCount;
+
+    const result = await repository.createProject({
+      name: "New project",
+      color: "#ff0000",
+      dueDate: "2026-06-15",
+    });
+    expect(result.patch.affectedKeys).toEqual(["projects"]);
+    expect(result.data.projects.some((project) => project.name === "New project")).toBe(true);
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+    expect(workspacesSelectCount).toBe(workspacesSelectsAfterLoad);
+    expect(db.execute).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO projects"), expect.any(Array));
+  });
+
+  it("returns targeted savedViews patch for SqlRepository createSavedView and updateSavedView without full readAll", async () => {
+    let settingsSelectCount = 0;
+    let workspacesSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          workspacesSelectCount += 1;
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const filters = {
+      scope: "open" as const,
+      priority: "all" as const,
+      projectId: "all" as const,
+      reminder: "all" as const,
+      folder: "all" as const,
+      dateRange: "all" as const,
+      tags: [] as string[],
+      tagMatch: "any" as const,
+      advancedFilter: null,
+    };
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+    const workspacesSelectsAfterLoad = workspacesSelectCount;
+
+    const created = await repository.createSavedView({ name: "My view", filters });
+    expect(created.patch.affectedKeys).toEqual(["savedViews"]);
+    const viewId = created.data.savedViews.find((view) => view.name === "My view")?.id;
+    expect(viewId).toBeTruthy();
+
+    const updated = await repository.updateSavedView(viewId!, { name: "Renamed view", filters, pinned: true });
+    expect(updated.patch.affectedKeys).toEqual(["savedViews"]);
+    expect(updated.data.savedViews.find((view) => view.id === viewId)?.name).toBe("Renamed view");
+    expect(updated.data.savedViews.find((view) => view.id === viewId)?.pinned).toBe(true);
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+    expect(workspacesSelectCount).toBe(workspacesSelectsAfterLoad);
+  });
+
+  it("returns targeted tasks patch for SqlRepository bulkDeleteTasks without full readAll", async () => {
+    const taskRows = [
+      {
+        id: "task_a",
+        workspace_id: "local-workspace",
+        project_id: null,
+        working_folder: null,
+        title: "A",
+        notes: "",
+        due_date: "2026-06-01",
+        due_time: null,
+        timezone: "UTC",
+        priority: "medium",
+        status: "todo",
+        completed_at: null,
+        created_at: "2026-06-01T00:00:00.000Z",
+        updated_at: "2026-06-01T00:00:00.000Z",
+        deleted_at: null,
+        recurrence_template_id: null,
+        recurrence_instance_date: null,
+        parent_id: null,
+        tags: "[]",
+      },
+      {
+        id: "task_b",
+        workspace_id: "local-workspace",
+        project_id: null,
+        working_folder: null,
+        title: "B",
+        notes: "",
+        due_date: "2026-06-02",
+        due_time: null,
+        timezone: "UTC",
+        priority: "medium",
+        status: "todo",
+        completed_at: null,
+        created_at: "2026-06-01T00:00:00.000Z",
+        updated_at: "2026-06-01T00:00:00.000Z",
+        deleted_at: null,
+        recurrence_template_id: null,
+        recurrence_instance_date: null,
+        parent_id: null,
+        tags: "[]",
+      },
+    ];
+    let settingsSelectCount = 0;
+    let workspacesSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          workspacesSelectCount += 1;
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM tasks") && query.includes("deleted_at IS NULL")) {
+          return taskRows;
+        }
+        if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+    const workspacesSelectsAfterLoad = workspacesSelectCount;
+
+    const result = await repository.bulkDeleteTasks(["task_a", "task_b"]);
+    expect(result.patch.affectedKeys).toEqual(["tasks", "reminders"]);
+    expect(result.data.tasks.some((task) => task.id === "task_a" || task.id === "task_b")).toBe(false);
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+    expect(workspacesSelectCount).toBe(workspacesSelectsAfterLoad);
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.stringMatching(/UPDATE\s+tasks\s+SET/i),
+      expect.arrayContaining(["task_a", "task_b"]),
+    );
+  });
+
+  it("returns targeted workspaceFolders patch for SqlRepository createWorkspaceFolder without full readAll", async () => {
+    let settingsSelectCount = 0;
+    let workspacesSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          workspacesSelectCount += 1;
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+    const workspacesSelectsAfterLoad = workspacesSelectCount;
+
+    const result = await repository.createWorkspaceFolder({ name: "Docs", path: "C:/Docs" });
+    expect(result.patch.affectedKeys).toEqual(["workspaceFolders"]);
+    expect(result.data.workspaceFolders.some((folder) => folder.name === "Docs" && folder.path === "C:/Docs")).toBe(true);
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+    expect(workspacesSelectCount).toBe(workspacesSelectsAfterLoad);
+    expect(db.execute).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO workspace_folders"), expect.any(Array));
+  });
+
+  it("returns targeted workspaces patch for SqlRepository updateWorkspace without full readAll", async () => {
+    let settingsSelectCount = 0;
+    let workspacesSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          workspacesSelectCount += 1;
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+    const workspacesSelectsAfterLoad = workspacesSelectCount;
+
+    const result = await repository.updateWorkspace("local-workspace", { name: "Renamed", color: "#112233" });
+    expect(result.patch.affectedKeys).toEqual(["workspaces"]);
+    expect(result.data.workspaces.find((workspace) => workspace.id === "local-workspace")?.name).toBe("Renamed");
+    expect(result.data.workspaces.find((workspace) => workspace.id === "local-workspace")?.color).toBe("#112233");
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+    expect(workspacesSelectCount).toBe(workspacesSelectsAfterLoad);
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE workspaces SET"),
+      expect.arrayContaining(["Renamed", "#112233", "local-workspace"]),
+    );
+  });
+
+  it("returns targeted recurringTaskTemplates and tasks patch for SqlRepository createRecurringTask without full readAll", async () => {
+    let settingsSelectCount = 0;
+    let workspacesSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          workspacesSelectCount += 1;
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+    const workspacesSelectsAfterLoad = workspacesSelectCount;
+
+    const result = await repository.createRecurringTask({
+      title: "Weekly review",
+      dueDate: "2026-06-01",
+      frequency: "weekly",
+      interval: 1,
+      reminderOffset: 30,
+    });
+    expect(result.patch.affectedKeys).toEqual(["recurringTaskTemplates", "tasks", "reminders"]);
+    expect(result.data.recurringTaskTemplates.some((template) => template.title === "Weekly review")).toBe(true);
+    expect(result.data.tasks.some((task) => task.title === "Weekly review")).toBe(true);
+    expect(result.data.reminders.some((reminder) => reminder.offsetMinutes === 30)).toBe(true);
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+    expect(workspacesSelectCount).toBe(workspacesSelectsAfterLoad);
+    expect(db.execute).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO recurring_task_templates"), expect.any(Array));
+    expect(db.execute).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO tasks"), expect.any(Array));
+  });
+
+  it("returns targeted recurringTaskTemplates patch for SqlRepository disableRecurringTaskTemplate without full readAll", async () => {
+    const templateRow = {
+      id: "recur_a",
+      workspace_id: "local-workspace",
+      title: "Weekly review",
+      notes: "",
+      project_id: null,
+      working_folder: null,
+      due_time: null,
+      timezone: "UTC",
+      priority: "medium",
+      reminder_offset: null,
+      frequency: "weekly",
+      interval: 1,
+      by_weekday: null,
+      anchor_date: "2026-06-01",
+      end_date: null,
+      enabled: 1,
+      parent_id: null,
+      tags: "[]",
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      deleted_at: null,
+    };
+    let settingsSelectCount = 0;
+    let workspacesSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          workspacesSelectCount += 1;
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM recurring_task_templates")) {
+          return [templateRow];
+        }
+        if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+    const workspacesSelectsAfterLoad = workspacesSelectCount;
+
+    const result = await repository.disableRecurringTaskTemplate("recur_a");
+    expect(result.patch.affectedKeys).toEqual(["recurringTaskTemplates"]);
+    expect(result.data.recurringTaskTemplates.find((template) => template.id === "recur_a")?.enabled).toBe(false);
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+    expect(workspacesSelectCount).toBe(workspacesSelectsAfterLoad);
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE recurring_task_templates SET enabled"),
+      expect.arrayContaining([0, "recur_a"]),
+    );
+  });
+
+  it("returns targeted patch for SqlRepository createWorkspace without full readAll", async () => {
+    let settingsSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+
+    const result = await repository.createWorkspace({ name: "Team", color: "#ff0000" });
+    expect(result.data.workspaceId).not.toBe("local-workspace");
+    expect(result.data.tasks).toEqual([]);
+    expect(result.data.projects).toEqual([]);
+    expect(result.patch.affectedKeys).toEqual(
+      expect.arrayContaining(["workspaceId", "workspaces", "tasks", "settings", "settingsByWorkspace"]),
+    );
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO workspaces"),
+      expect.arrayContaining(["Team", "#ff0000"]),
+    );
+  });
+
+  it("returns targeted workspaces patch for SqlRepository deleteWorkspace of non-current workspace", async () => {
+    let settingsSelectCount = 0;
+    let workspacesSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          workspacesSelectCount += 1;
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+            {
+              id: "workspace_second",
+              name: "Second",
+              color: "#00ff00",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+    const workspacesSelectsAfterLoad = workspacesSelectCount;
+
+    const result = await repository.deleteWorkspace("workspace_second");
+    expect(result.patch.affectedKeys).toEqual(["workspaces"]);
+    expect(result.data.workspaces.find((workspace) => workspace.id === "workspace_second")).toBeUndefined();
+    expect(result.data.workspaceId).toBe("local-workspace");
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+    expect(workspacesSelectCount).toBe(workspacesSelectsAfterLoad);
+  });
+
+  it("returns workspace-switch patch for SqlRepository selectWorkspace without full workspaces reread", async () => {
+    let workspacesSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string, params?: unknown[]) => {
+        if (query.includes("FROM workspaces")) {
+          workspacesSelectCount += 1;
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+            {
+              id: "workspace_second",
+              name: "Second",
+              color: "#00ff00",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM settings") && params?.[0] === "workspace_second") {
+          return [
+            {
+              workspace_id: "workspace_second",
+              theme: "dark",
+              accent_color: "blue",
+              language: "zh",
+              default_reminder_offset: 30,
+              default_working_folder: null,
+              default_saved_view_id: null,
+              notifications_enabled: 0,
+              close_to_tray: 1,
+            },
+          ];
+        }
+        if (query.includes("FROM settings")) {
+          return [];
+        }
+        if (query.includes("FROM tasks") && params?.[0] === "workspace_second") {
+          return [
+            {
+              id: "task_side",
+              workspace_id: "workspace_second",
+              project_id: null,
+              working_folder: null,
+              title: "Side task",
+              due_date: "2026-07-01",
+              due_time: null,
+              timezone: "Asia/Shanghai",
+              priority: "medium",
+              status: "todo",
+              completed_at: null,
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+              recurrence_template_id: null,
+              recurrence_instance_date: null,
+              parent_id: null,
+              tags_json: "[]",
+            },
+          ];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const workspacesSelectsAfterLoad = workspacesSelectCount;
+
+    const result = await repository.selectWorkspace("workspace_second");
+    expect(result.data.workspaceId).toBe("workspace_second");
+    expect(result.data.tasks.map((task) => task.id)).toEqual(["task_side"]);
+    expect(result.patch.affectedKeys).toEqual(
+      expect.arrayContaining(["workspaceId", "tasks", "settings", "projects", "reminders"]),
+    );
+    expect(workspacesSelectCount).toBe(workspacesSelectsAfterLoad);
+  });
+
+  it("returns workspace-switch patch for SqlRepository deleteWorkspace of current workspace", async () => {
+    let workspacesSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string, params?: unknown[]) => {
+        if (query.includes("FROM workspaces")) {
+          workspacesSelectCount += 1;
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+            {
+              id: "workspace_second",
+              name: "Second",
+              color: "#00ff00",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM settings")) {
+          return [];
+        }
+        if (query.includes("FROM tasks") && params?.[0] === "workspace_second") {
+          return [
+            {
+              id: "task_side",
+              workspace_id: "workspace_second",
+              project_id: null,
+              working_folder: null,
+              title: "Side task",
+              due_date: "2026-07-01",
+              due_time: null,
+              timezone: "Asia/Shanghai",
+              priority: "medium",
+              status: "todo",
+              completed_at: null,
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+              recurrence_template_id: null,
+              recurrence_instance_date: null,
+              parent_id: null,
+              tags_json: "[]",
+            },
+          ];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const workspacesSelectsAfterLoad = workspacesSelectCount;
+
+    const result = await repository.deleteWorkspace("local-workspace");
+    expect(result.data.workspaceId).toBe("workspace_second");
+    expect(result.data.workspaces.find((workspace) => workspace.id === "local-workspace")).toBeUndefined();
+    expect(result.data.tasks.map((task) => task.id)).toEqual(["task_side"]);
+    expect(result.patch.affectedKeys).toEqual(
+      expect.arrayContaining(["workspaceId", "workspaces", "tasks", "settings"]),
+    );
+    expect(workspacesSelectCount).toBe(workspacesSelectsAfterLoad);
+  });
+
+  it("assembles AppData from backup for SqlRepository importBackup replace without post-import workspaces reread", async () => {
+    let workspacesSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          workspacesSelectCount += 1;
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM settings")) {
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const workspacesSelectsAfterLoad = workspacesSelectCount;
+
+    const backup = {
+      whattodoBackupVersion: 3 as const,
+      exportedAt: "2026-07-22T00:00:00.000Z",
+      workspaceId: "ws_imported",
+      workspaces: [
+        {
+          id: "ws_imported",
+          name: "Imported",
+          color: "#abcdef",
+          createdAt: "2026-07-22T00:00:00.000Z",
+          updatedAt: "2026-07-22T00:00:00.000Z",
+          deletedAt: null,
+        },
+      ],
+      workspaceFolders: [],
+      projects: [],
+      tasks: [
+        {
+          id: "task_imported",
+          workspaceId: "ws_imported",
+          projectId: null,
+          workingFolder: null,
+          title: "Imported task",
+          notes: "note",
+          dueDate: "2026-08-01",
+          dueTime: null,
+          timezone: "Asia/Shanghai",
+          priority: "high" as const,
+          status: "todo" as const,
+          completedAt: null,
+          createdAt: "2026-07-22T00:00:00.000Z",
+          updatedAt: "2026-07-22T00:00:00.000Z",
+          deletedAt: null,
+          recurrenceTemplateId: null,
+          recurrenceInstanceDate: null,
+          parentId: null,
+          tags: [],
+        },
+      ],
+      reminders: [],
+      settingsByWorkspace: {
+        ws_imported: {
+          theme: "light" as const,
+          accentColor: "emerald" as const,
+          language: "en" as const,
+          defaultReminderOffset: 15,
+          defaultWorkingFolder: null,
+          defaultSavedViewId: null,
+          notificationsEnabled: true,
+          closeToTray: false,
+        },
+      },
+      savedViews: [],
+      recurringTaskTemplates: [],
+      attachments: [],
+      attachmentBundle: "none" as const,
+    };
+
+    const result = await repository.importBackup(backup, "replace");
+    expect(result.data.workspaceId).toBe("ws_imported");
+    expect(result.data.tasks.map((task) => task.id)).toEqual(["task_imported"]);
+    expect(result.data.settings.language).toBe("en");
+    expect(result.patch.affectedKeys).toEqual(expect.arrayContaining(["workspaceId", "tasks", "settings", "workspaces"]));
+    expect(workspacesSelectCount).toBe(workspacesSelectsAfterLoad);
+  });
+
+  it("returns targeted patch for SqlRepository updateRecurringSeries openFuture without full readAll", async () => {
+    const templateRow = {
+      id: "template_a",
+      workspace_id: "local-workspace",
+      title: "Standup",
+      notes: "body",
+      project_id: null,
+      working_folder: null,
+      due_time: "09:00",
+      timezone: "Asia/Shanghai",
+      priority: "medium",
+      reminder_offset: null,
+      frequency: "daily",
+      interval: 1,
+      by_weekday: null,
+      anchor_date: "2026-06-01",
+      end_date: null,
+      enabled: 1,
+      parent_id: null,
+      tags: "[]",
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      deleted_at: null,
+    };
+    const openTask = {
+      ...makeTaskRow("task_open", "todo", null),
+      recurrence_template_id: "template_a",
+      recurrence_instance_date: "2026-06-02",
+      tags: "[]",
+    };
+    let settingsSelectCount = 0;
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM recurring_task_templates")) {
+          return [templateRow];
+        }
+        if (query.includes("FROM tasks")) {
+          return [openTask];
+        }
+        if (query.includes("FROM settings")) {
+          settingsSelectCount += 1;
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+    const repository = new SqlRepository();
+    await repository.load();
+    const settingsSelectsAfterLoad = settingsSelectCount;
+
+    const result = await repository.updateRecurringSeries("template_a", { title: "Synced" }, "openFuture");
+    expect(result.patch.affectedKeys).toEqual(["recurringTaskTemplates", "tasks", "reminders"]);
+    expect(result.data.tasks.find((task) => task.id === "task_open")?.title).toBe("Synced");
+    expect(result.data.recurringTaskTemplates.find((template) => template.id === "template_a")?.title).toBe("Synced");
+    expect(settingsSelectCount).toBe(settingsSelectsAfterLoad);
+  });
+
+  it("loads SqlRepository getTask with full notes when cache misses", async () => {
+    const taskRow = {
+      id: "task_b",
+      workspace_id: "local-workspace",
+      project_id: null,
+      working_folder: null,
+      title: "B",
+      notes: "detail notes",
+      due_date: "2026-06-01",
+      due_time: null,
+      timezone: "UTC",
+      priority: "medium",
+      status: "todo",
+      completed_at: null,
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      deleted_at: null,
+      recurrence_template_id: null,
+      recurrence_instance_date: null,
+      parent_id: null,
+      tags: "[]",
+    };
+    const db = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM tasks") && query.includes("WHERE id = ?")) {
+          return [taskRow];
+        }
+        if (query.includes("FROM tasks")) {
+          return [];
+        }
+        if (query.includes("FROM reminders")) {
+          return [];
+        }
+        if (query.includes("FROM settings")) {
+          return [];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const full = await repository.getTask("task_b");
+    expect(full?.notes).toBe("detail notes");
+    expect(db.select).toHaveBeenCalledWith(expect.stringContaining("SELECT * FROM tasks WHERE id = ?"), ["task_b"]);
+  });
+
+  it("serializes concurrent toggleTask so both cache updates apply", async () => {
+    const makeTaskRow = (id: string, title: string) => ({
+      id,
+      workspace_id: "local-workspace",
+      project_id: null,
+      working_folder: null,
+      title,
+      notes: "",
+      due_date: "2026-06-01",
+      due_time: null,
+      timezone: "UTC",
+      priority: "medium",
+      status: "todo",
+      completed_at: null,
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      deleted_at: null,
+      recurrence_template_id: null,
+      recurrence_instance_date: null,
+      parent_id: null,
+      tags: "[]",
+    });
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const db = {
+      execute: vi.fn(async (sql: string) => {
+        if (typeof sql === "string" && sql.includes("UPDATE tasks SET status")) {
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          inFlight -= 1;
+        }
+      }),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM tasks") && query.includes("deleted_at IS NULL")) {
+          return [makeTaskRow("task_a", "A"), makeTaskRow("task_b", "B")];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const [, second] = await Promise.all([repository.toggleTask("task_a"), repository.toggleTask("task_b")]);
+
+    expect(maxInFlight).toBe(1);
+    expect(second.data.tasks.find((task) => task.id === "task_a")?.status).toBe("completed");
+    expect(second.data.tasks.find((task) => task.id === "task_b")?.status).toBe("completed");
+  });
+
+  it("serializes concurrent toggleTask on the same id to a deterministic final status", async () => {
+    const taskRow = {
+      id: "task_a",
+      workspace_id: "local-workspace",
+      project_id: null,
+      working_folder: null,
+      title: "A",
+      notes: "",
+      due_date: "2026-06-01",
+      due_time: null,
+      timezone: "UTC",
+      priority: "medium",
+      status: "todo",
+      completed_at: null,
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      deleted_at: null,
+      recurrence_template_id: null,
+      recurrence_instance_date: null,
+      parent_id: null,
+      tags: "[]",
+    };
+    const db = {
+      execute: vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM tasks") && query.includes("deleted_at IS NULL")) {
+          return [taskRow];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const [, second] = await Promise.all([repository.toggleTask("task_a"), repository.toggleTask("task_a")]);
+    expect(second.data.tasks[0]?.status).toBe("todo");
+  });
+
+  it("keeps both toggle and snooze cache updates when interleaved", async () => {
+    const taskRow = {
+      id: "task_a",
+      workspace_id: "local-workspace",
+      project_id: null,
+      working_folder: null,
+      title: "A",
+      notes: "",
+      due_date: "2026-06-01",
+      due_time: null,
+      timezone: "UTC",
+      priority: "medium",
+      status: "todo",
+      completed_at: null,
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      deleted_at: null,
+      recurrence_template_id: null,
+      recurrence_instance_date: null,
+      parent_id: null,
+      tags: "[]",
+    };
+    const reminderRow = {
+      id: "reminder_a",
+      task_id: "task_a",
+      remind_at: "2026-06-01T09:30:00.000Z",
+      offset_minutes: 30,
+      snoozed_until: null,
+      fired_at: null,
+      failed_at: null,
+      last_error: null,
+      last_attempted_at: null,
+      enabled: 1,
+    };
+    const db = {
+      execute: vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }),
+      select: vi.fn(async (query: string) => {
+        if (query.includes("FROM workspaces")) {
+          return [
+            {
+              id: "local-workspace",
+              name: "Default",
+              color: "#4fb8d8",
+              created_at: "2026-06-01T00:00:00.000Z",
+              updated_at: "2026-06-01T00:00:00.000Z",
+              deleted_at: null,
+            },
+          ];
+        }
+        if (query.includes("FROM tasks") && query.includes("deleted_at IS NULL")) {
+          return [taskRow];
+        }
+        if (query.includes("FROM reminders")) {
+          return [reminderRow];
+        }
+        return [];
+      }),
+    };
+    vi.mocked(Database.load).mockResolvedValue(db as never);
+
+    const repository = new SqlRepository();
+    await repository.load();
+    const [, snoozeResult] = await Promise.all([
+      repository.toggleTask("task_a"),
+      repository.snoozeReminder("reminder_a", "2026-06-01T10:00:00.000Z"),
+    ]);
+    expect(snoozeResult.data.tasks.find((task) => task.id === "task_a")?.status).toBe("completed");
+    expect(snoozeResult.data.reminders.find((item) => item.id === "reminder_a")?.snoozedUntil).toBe(
+      "2026-06-01T10:00:00.000Z",
+    );
   });
 
   it("creates a workspace with INSERT sql", async () => {
@@ -1122,6 +2534,8 @@ describe("SqlRepository", () => {
       anchor_date: "2026-06-01",
       end_date: null,
       enabled: 1,
+      parent_id: null,
+      tags: "[]",
       created_at: "2026-06-01T00:00:00.000Z",
       updated_at: "2026-06-01T00:00:00.000Z",
       deleted_at: null,
@@ -1479,6 +2893,8 @@ describe("SqlRepository", () => {
       anchor_date: "2026-06-01",
       end_date: null,
       enabled: 1,
+      parent_id: null,
+      tags: "[]",
       created_at: "2026-06-01T00:00:00.000Z",
       updated_at: "2026-06-01T00:00:00.000Z",
       deleted_at: null,
@@ -1507,17 +2923,30 @@ describe("SqlRepository", () => {
         if (query.includes("FROM recurring_task_templates")) {
           return [templateRow];
         }
-        if (query.includes("recurrence_template_id") && query.includes("recurrence_instance_date")) {
+        // Existence check for the next instance date (not the list SELECT columns).
+        if (
+          query.includes("SELECT id FROM tasks") &&
+          query.includes("recurrence_template_id") &&
+          query.includes("recurrence_instance_date")
+        ) {
           return [];
-        }
-        if (query.includes("FROM tasks")) {
-          return [taskRow];
         }
         if (query.includes("FROM reminders") || query.includes("reminders.*")) {
           return [];
         }
         if (query.includes("FROM settings")) {
           return [];
+        }
+        if (
+          query.includes("FROM projects") ||
+          query.includes("FROM workspace_folders") ||
+          query.includes("FROM saved_views") ||
+          query.includes("FROM attachments")
+        ) {
+          return [];
+        }
+        if (query.includes("FROM tasks")) {
+          return [taskRow];
         }
         return [];
       }),
@@ -1550,6 +2979,8 @@ describe("SqlRepository", () => {
       anchor_date: "2026-06-01",
       end_date: null,
       enabled: 0,
+      parent_id: null,
+      tags: "[]",
       created_at: "2026-06-01T00:00:00.000Z",
       updated_at: "2026-06-01T00:00:00.000Z",
       deleted_at: null,
@@ -1707,9 +3138,12 @@ function makeSqlDbWithTemplates() {
     reminder_offset: 15,
     frequency: "weekly",
     interval: 1,
+    by_weekday: null,
     anchor_date: "2026-06-01",
     end_date: null,
     enabled: 1,
+    parent_id: null,
+    tags: "[]",
     created_at: "2026-06-01T00:00:00.000Z",
     updated_at: "2026-06-01T00:00:00.000Z",
     deleted_at: null,

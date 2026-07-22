@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
 
 const root = resolve(import.meta.dirname, "..");
 const nextVersion = process.argv[2];
@@ -28,4 +29,10 @@ const cargoManifest = readFileSync(cargoManifestPath, "utf8").replace(
 );
 writeFileSync(cargoManifestPath, cargoManifest);
 
-console.log(`Synced release version ${nextVersion}.`);
+execFileSync(
+  "cargo",
+  ["update", "-p", "whattodo", "--precise", nextVersion, "--manifest-path", cargoManifestPath],
+  { cwd: root, stdio: "inherit" },
+);
+
+console.log(`Synced release version ${nextVersion} (including Cargo.lock).`);

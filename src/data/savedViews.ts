@@ -10,6 +10,18 @@ export const applySavedViewFilters = (
   setSelectedViewId(view.id);
 };
 
+export const sortSavedViews = (views: SavedTaskView[]): SavedTaskView[] =>
+  [...views].sort((a, b) => {
+    if (a.pinned !== b.pinned) {
+      return a.pinned ? -1 : 1;
+    }
+    const byUpdated = b.updatedAt.localeCompare(a.updatedAt);
+    if (byUpdated !== 0) {
+      return byUpdated;
+    }
+    return a.name.localeCompare(b.name);
+  });
+
 export const isDefaultTaskViewFilters = (filters: TaskViewFilters) => {
   const defaults = defaultTaskViewFilters();
   return (

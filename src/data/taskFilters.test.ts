@@ -103,7 +103,7 @@ describe("taskMatchesFilters", () => {
   it("uses precomputed reminder task ids for reminder filters", () => {
     const task = makeTask({ id: "target" });
     const data = makeData([task], [makeReminder("target")]);
-    const context = buildAppIndexes(data);
+    const context = buildAppIndexes(data.tasks, data.projects, data.reminders);
 
     expect(taskMatchesFilters(task, context, { ...defaultTaskViewFilters(), reminder: "with" })).toBe(true);
     expect(taskMatchesFilters(task, context, { ...defaultTaskViewFilters(), reminder: "without" })).toBe(false);

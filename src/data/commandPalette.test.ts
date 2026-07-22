@@ -36,6 +36,7 @@ const baseData: AppData = {
       workspaceId: "ws-1",
       name: "High priority",
       filters: { scope: "open", priority: "high", projectId: "all", reminder: "all", folder: "all", dateRange: "all", tags: [], tagMatch: "any", advancedFilter: null },
+      pinned: false,
       createdAt: "2026-01-01",
       updatedAt: "2026-01-01",
     },

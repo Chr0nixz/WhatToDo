@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
 const workspaceCount = 4;
 const taskCount = 20_000;
@@ -21,6 +22,7 @@ const settings = {
   language: "zh",
   defaultReminderOffset: 30,
   defaultWorkingFolder: null,
+  defaultSavedViewId: null,
   notificationsEnabled: false,
   closeToTray: true,
 };
@@ -157,6 +159,41 @@ const backup = {
 
 mkdirSync(outputDir, { recursive: true });
 writeFileSync(outputPath, `${JSON.stringify(backup, null, 2)}\n`, "utf8");
+
+// Self-check: settings must include fields required by backupSchema (with defaults applied).
+for (const [workspaceId, workspaceSettings] of Object.entries(backup.settingsByWorkspace)) {
+  const required = [
+    "theme",
+    "accentColor",
+    "language",
+    "defaultReminderOffset",
+    "defaultWorkingFolder",
+    "defaultSavedViewId",
+    "notificationsEnabled",
+    "closeToTray",
+  ];
+  for (const key of required) {
+    if (!(key in workspaceSettings)) {
+      console.error(`Fixture settings for ${workspaceId} missing ${key}`);
+      process.exit(1);
+    }
+  }
+}
+
+if (backup.whattodoBackupVersion !== 2 || !Array.isArray(backup.recurringTaskTemplates)) {
+  console.error("Fixture failed structural self-check for v2 backup shape");
+  process.exit(1);
+}
+
+const validate = spawnSync(
+  process.execPath,
+  [join(process.cwd(), "scripts", "validate-performance-fixture.mjs"), outputPath],
+  { stdio: "inherit", cwd: process.cwd() },
+);
+if (validate.status !== 0) {
+  console.error("Fixture failed parseBackupPayload self-check");
+  process.exit(validate.status ?? 1);
+}
 
 console.log(`Wrote ${outputPath}`);
 console.log(`${workspaces.length} workspaces, ${tasks.length} tasks, ${reminders.length} reminders`);

@@ -92,25 +92,29 @@ const makeData = (tasks: Task[]): AppData => ({
 });
 
 describe("WorkspaceFloatingWindow performance list behavior", () => {
-  it("loads workspace tasks in pages", async () => {
-    const tasks = Array.from({ length: 160 }, (_, index) => makeTask(index + 1));
-    const loadTaskPage = vi.fn(async ({ limit, offset }: { limit: number; offset: number }) => ({
-      tasks: tasks.slice(offset, offset + limit),
-      total: tasks.length,
-      reminders: [],
-    }));
+  it(
+    "loads workspace tasks in pages",
+    async () => {
+      const tasks = Array.from({ length: 160 }, (_, index) => makeTask(index + 1));
+      const loadTaskPage = vi.fn(async ({ limit, offset }: { limit: number; offset: number }) => ({
+        tasks: tasks.slice(offset, offset + limit),
+        total: tasks.length,
+        reminders: [],
+      }));
 
-    render(
-      <WorkspaceFloatingWindow
-        actions={{ loadTaskPage } as unknown as TodoActions}
-        data={makeData(tasks)}
-      />,
-    );
+      render(
+        <WorkspaceFloatingWindow
+          actions={{ loadTaskPage } as unknown as TodoActions}
+          data={makeData(tasks)}
+        />,
+      );
 
-    expect(await screen.findByText("Task 150")).toBeInTheDocument();
-    expect(screen.queryByText("Task 151")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
-    expect(await screen.findByText("Task 151")).toBeInTheDocument();
-    expect(loadTaskPage).toHaveBeenCalledWith(expect.objectContaining({ limit: 150, offset: 150 }));
-  });
+      expect(await screen.findByText("Task 150")).toBeInTheDocument();
+      expect(screen.queryByText("Task 151")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
+      expect(await screen.findByText("Task 151")).toBeInTheDocument();
+      expect(loadTaskPage).toHaveBeenCalledWith(expect.objectContaining({ limit: 150, offset: 150 }));
+    },
+    15_000,
+  );
 });

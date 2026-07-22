@@ -65,7 +65,9 @@ export default defineConfig(async () => ({
   server: {
     port: 5173,
     strictPort: true,
-    host: host || false,
+    // Bind IPv4 loopback so Playwright and tauri-before-dev (127.0.0.1:5173)
+    // can reach the server. `false`/`localhost` may resolve to IPv6-only on some hosts.
+    host: host || "127.0.0.1",
     hmr: host
       ? {
           protocol: "ws",

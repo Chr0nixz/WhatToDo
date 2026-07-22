@@ -1,4 +1,5 @@
 import type { AppData, AppView, SavedTaskView } from "./types";
+import { sortSavedViews } from "./savedViews";
 
 export type CommandGroup = "recent" | "navigation" | "tasks" | "workspaces" | "folders" | "savedViews" | "manage";
 
@@ -126,7 +127,7 @@ export const buildCommandItems = (context: CommandPaletteContext): CommandItem[]
     });
   }
 
-  for (const view of data.savedViews) {
+  for (const view of sortSavedViews(data.savedViews)) {
     items.push({
       id: `saved-view:${view.id}`,
       group: "savedViews",

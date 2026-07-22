@@ -55,8 +55,8 @@ Tauri dev uses `scripts/tauri-before-dev.mjs` as `beforeDevCommand`. The script 
 - `pnpm test` runs the Vitest suite.
 - `pnpm test:watch` runs Vitest in watch mode.
 - `pnpm tauri` runs Tauri CLI commands.
-- `pnpm release:sync-version <version>` syncs npm, Tauri, and Cargo versions.
-- `pnpm release:check` verifies release metadata, updater configuration, changelog coverage, a clean Git tree, and updater signing secrets.
+- `pnpm release:sync-version <version>` syncs npm, Tauri, Cargo.toml, and Cargo.lock versions.
+- `pnpm release:check` verifies release metadata (including Cargo.lock), updater configuration, changelog coverage, a clean Git tree, and updater signing secrets.
 - `pnpm release:build` runs release checks and builds signed Tauri updater artifacts.
 
 ## Verification
@@ -137,12 +137,13 @@ https://github.com/Chr0nixz/WhatToDo/releases/latest/download/latest.json
 
 Before publishing a release:
 
-1. Run `pnpm release:sync-version <version>`.
+1. Run `pnpm release:sync-version <version>` (syncs `package.json`, `tauri.conf.json`, `Cargo.toml`, and `Cargo.lock`).
 2. Add release notes to `CHANGELOG.md`.
-3. Commit the version and changelog changes.
+3. Commit the version, lockfile, and changelog changes.
 4. Ensure GitHub Secrets contains `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-5. Run `pnpm tauri dev` and complete `docs/DESKTOP_VALIDATION.md`.
-6. Push `app-v<version>` and verify the release assets.
+5. Run `pnpm tauri dev` and **complete and record** the checklist in `docs/DESKTOP_VALIDATION.md` (do not publish with an empty/unexecuted checklist).
+6. Run `pnpm release:check` and confirm it passes on a clean tree.
+7. Push `app-v<version>` and verify the release assets.
 
 The generated updater private key and password are intentionally local-only in `.tauri-updater-private-key.local` and `.tauri-updater-private-key-password.local`. The public key is committed in `src-tauri/tauri.conf.json`; the private key and password must stay in GitHub Secrets or another secure secret store.
 

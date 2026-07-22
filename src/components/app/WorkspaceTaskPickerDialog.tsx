@@ -7,10 +7,10 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { sortTasks } from "@/data/date";
 import { formatTaskDate } from "@/data/dateFormat";
-import type { Task, Workspace } from "@/data/types";
+import type { TaskSummary, Workspace } from "@/data/types";
 
 type WorkspaceTaskPickerDialogProps = {
-  tasks: Task[];
+  tasks: TaskSummary[];
   workspaces: Workspace[];
   isLoading: boolean;
   error: string | null;

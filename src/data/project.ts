@@ -1,14 +1,14 @@
-import type { Project, Task } from "./types";
+import type { Project, TaskSummary } from "./types";
 
 export const NO_PROJECT_ID = "no-project";
 
 export const visibleProjects = (projects: Project[]) =>
   projects.filter((project) => project.deletedAt === null && project.status !== "archived");
 
-export const tasksForProject = (tasks: Task[], projectId: string | null) =>
+export const tasksForProject = (tasks: TaskSummary[], projectId: string | null) =>
   tasks.filter((task) => task.deletedAt === null && task.projectId === projectId);
 
-export const getProjectProgress = (tasks: Task[]) => {
+export const getProjectProgress = (tasks: TaskSummary[]) => {
   const visibleTasks = tasks.filter((task) => task.deletedAt === null);
   const completed = visibleTasks.filter((task) => task.status === "completed").length;
   const total = visibleTasks.length;

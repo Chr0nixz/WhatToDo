@@ -75,6 +75,43 @@ describe("parseBackupPayload", () => {
     expect(result.data?.recurringTaskTemplates).toEqual([]);
   });
 
+  it("accepts a valid v3 backup with attachment bundle and client preferences", () => {
+    const result = parseBackupPayload({
+      ...validV2Backup,
+      whattodoBackupVersion: 3,
+      attachments: [],
+      attachmentBundle: "sidecar",
+      clientPreferences: {
+        autoBackup: {
+          enabled: true,
+          intervalHours: 24,
+          retentionCount: 30,
+          retentionDays: 90,
+        },
+      },
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.whattodoBackupVersion).toBe(3);
+    if (result.data?.whattodoBackupVersion === 3) {
+      expect(result.data.attachmentBundle).toBe("sidecar");
+      expect(result.data.clientPreferences?.autoBackup?.retentionCount).toBe(30);
+    }
+  });
+
+  it("accepts settings missing defaultSavedViewId and defaults to null", () => {
+    const { defaultSavedViewId: _removed, ...settingsWithoutView } =
+      validV1Backup.settingsByWorkspace["local-workspace"];
+    const backup = {
+      ...validV1Backup,
+      settingsByWorkspace: {
+        "local-workspace": settingsWithoutView,
+      },
+    };
+    const result = parseBackupPayload(backup);
+    expect(result.success).toBe(true);
+    expect(result.data?.settingsByWorkspace["local-workspace"].defaultSavedViewId).toBeNull();
+  });
+
   it("rejects a backup with unknown version", () => {
     const result = parseBackupPayload({ ...validV1Backup, whattodoBackupVersion: 99 });
     expect(result.success).toBe(false);
@@ -142,5 +179,34 @@ describe("parseBackupPayload", () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain("tasks");
     expect(result.error).toContain("dueDate");
+  });
+
+  it("accepts a performance-fixture-shaped v2 backup (settings + empty templates)", () => {
+    const fixtureShaped = {
+      whattodoBackupVersion: 2,
+      exportedAt: "2026-05-31T00:00:00.000Z",
+      workspaceId: "local-workspace",
+      workspaces: validV2Backup.workspaces,
+      workspaceFolders: [],
+      projects: [],
+      tasks: [validV2Backup.tasks[0]],
+      reminders: [],
+      settingsByWorkspace: {
+        "local-workspace": {
+          theme: "system",
+          accentColor: "blue",
+          language: "zh",
+          defaultReminderOffset: 30,
+          defaultWorkingFolder: null,
+          defaultSavedViewId: null,
+          notificationsEnabled: false,
+          closeToTray: true,
+        },
+      },
+      savedViews: [],
+      recurringTaskTemplates: [],
+    };
+    const result = parseBackupPayload(fixtureShaped);
+    expect(result.success).toBe(true);
   });
 });

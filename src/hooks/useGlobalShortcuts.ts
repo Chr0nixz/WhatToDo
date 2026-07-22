@@ -9,6 +9,16 @@ type GlobalShortcutHandlers = {
   onOpenHelp: () => void;
 };
 
+/** When the app window already has focus, DOM keydown handlers own the shortcut. */
+export const shouldDeferToDomShortcuts = () => typeof document !== "undefined" && document.hasFocus();
+
+export const runGlobalShortcut = (handler: () => void) => {
+  if (shouldDeferToDomShortcuts()) {
+    return;
+  }
+  handler();
+};
+
 export const useGlobalShortcuts = ({ onOpenPalette, onNewTask, onSearchTasks, onOpenHelp }: GlobalShortcutHandlers) => {
   const handlersRef = useRef({ onOpenPalette, onNewTask, onSearchTasks, onOpenHelp });
   handlersRef.current = { onOpenPalette, onNewTask, onSearchTasks, onOpenHelp };
@@ -28,10 +38,12 @@ export const useGlobalShortcuts = ({ onOpenPalette, onNewTask, onSearchTasks, on
       }
 
       const trigger = (kind: "palette" | "new" | "search") => () => {
-        const h = handlersRef.current;
-        if (kind === "palette") h.onOpenPalette();
-        if (kind === "new") h.onNewTask();
-        if (kind === "search") h.onSearchTasks();
+        runGlobalShortcut(() => {
+          const h = handlersRef.current;
+          if (kind === "palette") h.onOpenPalette();
+          if (kind === "new") h.onNewTask();
+          if (kind === "search") h.onSearchTasks();
+        });
       };
 
       await register("CommandOrControl+K", trigger("palette"));

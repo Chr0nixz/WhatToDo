@@ -1,7 +1,7 @@
 import { endOfWeek, isWithinInterval } from "date-fns";
 
 import { overdueTasks, parseDateKey, todayKey } from "./date";
-import type { AppData, FilterCondition, FilterGroup, Task, TaskFilterContext, TaskViewFilters } from "./types";
+import type { AppData, FilterCondition, FilterGroup, TaskFilterContext, TaskSummary, TaskViewFilters } from "./types";
 
 export const defaultTaskViewFilters = (): TaskViewFilters => ({
   scope: "open",
@@ -17,7 +17,7 @@ export const defaultTaskViewFilters = (): TaskViewFilters => ({
 
 const evalCondition = (
   condition: FilterCondition,
-  task: Task,
+  task: TaskSummary,
   context: AppData | TaskFilterContext,
 ): boolean => {
   const { field, op, value } = condition;
@@ -76,7 +76,7 @@ const evalCondition = (
 };
 
 export const matchesFilterGroup = (
-  task: Task,
+  task: TaskSummary,
   group: FilterGroup,
   context: AppData | TaskFilterContext,
 ): boolean => {
@@ -93,7 +93,7 @@ export const matchesFilterGroup = (
 };
 
 export const taskMatchesFilters = (
-  task: Task,
+  task: TaskSummary,
   dataOrContext: AppData | TaskFilterContext,
   filters: TaskViewFilters,
   referenceDateKey = todayKey(),

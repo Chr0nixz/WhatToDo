@@ -9,8 +9,11 @@ import { useTranslation } from "react-i18next";
 import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { formatReminderDateTime } from "@/data/dateFormat";
+import { prepareManagedAttachmentPath } from "@/data/managedAttachments";
 import { projectById } from "@/data/project";
-import type { Attachment, Project, RecurrenceFrequency, RecurringTaskTemplate, Reminder, Settings, Task, TaskDetailPaneHandle, TaskPriority, TaskStatus } from "@/data/types";
+import { createId, isTauriRuntime } from "@/data/repositoryContract";
+import { getDirectChildren, getDirectChildProgress, wouldCreateParentCycle } from "@/data/taskTree";
+import type { Attachment, Project, RecurrenceFrequency, RecurringTaskTemplate, Reminder, Settings, Task, TaskDetailPaneHandle, TaskPriority, TaskStatus, TaskSummary } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +23,7 @@ type TaskDetailPaneProps = {
   reminders: Reminder[];
   recurringTaskTemplates: RecurringTaskTemplate[];
   attachments: Attachment[];
-  tasks: Task[];
+  tasks: TaskSummary[];
   settings: Settings;
   actions: TodoActions;
   onClose: () => void;
@@ -63,6 +66,8 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
   const [tagInput, setTagInput] = useState("");
   const [parentId, setParentId] = useState<string>("none");
   const [newAttachmentPath, setNewAttachmentPath] = useState("");
+  const [attachmentErrorId, setAttachmentErrorId] = useState<string | null>(null);
+  const [attachmentCopyError, setAttachmentCopyError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingFuture, setIsSavingFuture] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">("idle");
@@ -93,7 +98,23 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
   const taskReminders = task ? reminders.filter((item) => item.taskId === task.id && item.enabled) : [];
   const taskAttachments = task ? attachments.filter((item) => item.task_id === task.id) : [];
   const parentTaskOptions = useMemo(
-    () => (task ? tasks.filter((item) => item.id !== task.id && item.deletedAt === null) : []),
+    () =>
+      task
+        ? tasks.filter(
+            (item) =>
+              item.id !== task.id &&
+              item.deletedAt === null &&
+              !wouldCreateParentCycle(tasks, task.id, item.id),
+          )
+        : [],
+    [tasks, task],
+  );
+  const childTasks = useMemo(
+    () => (task ? getDirectChildren(tasks, task.id) : []),
+    [tasks, task],
+  );
+  const childProgress = useMemo(
+    () => (task ? getDirectChildProgress(tasks, task.id) : null),
     [tasks, task],
   );
   const inheritedFolder = selectedProject?.workingFolder ?? settings.defaultWorkingFolder ?? "";
@@ -226,7 +247,14 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
       setSaveState("saved");
       return true;
     } catch (err) {
-      setSaveErrorMessage(`${t("taskUpdateFailed")}: ${describeError(err)}`);
+      const message = err instanceof Error ? err.message : String(err);
+      if (message === "parentCycle") {
+        setSaveErrorMessage(t("parentCycleError"));
+      } else if (message === "invalidParentTask") {
+        setSaveErrorMessage(t("invalidParentTaskError"));
+      } else {
+        setSaveErrorMessage(`${t("taskUpdateFailed")}: ${describeError(err)}`);
+      }
       setSaveState("error");
       return false;
     } finally {
@@ -285,8 +313,20 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
     const path = newAttachmentPath.trim();
     if (!path) return;
     const filename = path.split(/[\\/]/).pop() ?? path;
-    await actions.addAttachment({ taskId: task.id, filename, path });
-    setNewAttachmentPath("");
+    setAttachmentCopyError(null);
+    try {
+      let pathToStore = path;
+      let id: string | undefined;
+      if (isTauriRuntime()) {
+        id = createId("attachment");
+        pathToStore = await prepareManagedAttachmentPath(path, id, filename);
+      }
+      await actions.addAttachment({ id, taskId: task.id, filename, path: pathToStore });
+      setNewAttachmentPath("");
+    } catch (err) {
+      setAttachmentCopyError(t("attachmentCopyFailed"));
+      console.error(describeError(err));
+    }
   };
 
   const updateFutureRepeats = async (mode: "template" | "openFuture") => {
@@ -769,6 +809,33 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
                     </select>
                   </div>
 
+                  {childTasks.length > 0 && (
+                    <div>
+                      <p className="mb-1 text-xs text-muted-foreground">
+                        {childProgress
+                          ? t("subtasksProgress", {
+                              completed: childProgress.completed,
+                              total: childProgress.total,
+                            })
+                          : t("subtasksCount", { count: childTasks.length })}
+                      </p>
+                      <ul className="grid gap-1">
+                        {childTasks.map((child) => (
+                          <li key={child.id}>
+                            <button
+                              className="w-full truncate rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                              type="button"
+                              onClick={() => onRequestSwitchCommit?.(child.id)}
+                            >
+                              {child.title}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-1 text-xs text-muted-foreground">{t("subtasksNoCascadeHint")}</p>
+                    </div>
+                  )}
+
                   <div className="grid gap-2 rounded-md border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
                       <span>{t("attachments")}</span>
@@ -777,25 +844,62 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
                     {taskAttachments.length > 0 && (
                       <div className="grid gap-1">
                         {taskAttachments.map((item) => (
-                          <div key={item.id} className="flex items-center justify-between gap-2">
-                            <button
-                              className="min-w-0 truncate text-left text-foreground hover:underline"
-                              type="button"
-                              title={item.path}
-                              onClick={() => void openPath(item.path).catch(() => undefined)}
-                            >
-                              {item.filename}
-                            </button>
-                            <Button
-                              aria-label={t("removeAttachment")}
-                              disabled={isSaving}
-                              size="sm"
-                              type="button"
-                              variant="ghost"
-                              onClick={() => void actions.deleteAttachment(item.id)}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
+                          <div key={item.id} className="grid gap-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <button
+                                className="min-w-0 truncate text-left text-foreground hover:underline"
+                                type="button"
+                                title={item.path}
+                                onClick={() => {
+                                  void openPath(item.path).catch(() => {
+                                    setAttachmentErrorId(item.id);
+                                  });
+                                }}
+                              >
+                                {item.filename}
+                              </button>
+                              <div className="flex items-center gap-1">
+                                {attachmentErrorId === item.id && (
+                                  <Button
+                                    disabled={isSaving}
+                                    size="sm"
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => {
+                                      void (async () => {
+                                        const selected = await openDialog({
+                                          multiple: false,
+                                          title: t("relocateAttachment"),
+                                        });
+                                        if (typeof selected !== "string" || !selected) {
+                                          return;
+                                        }
+                                        const filename = selected.split(/[/\\]/).pop() ?? item.filename;
+                                        await actions.updateAttachmentPath(item.id, selected, filename);
+                                        setAttachmentErrorId(null);
+                                      })();
+                                    }}
+                                  >
+                                    {t("relocateAttachment")}
+                                  </Button>
+                                )}
+                                <Button
+                                  aria-label={t("removeAttachment")}
+                                  disabled={isSaving}
+                                  size="sm"
+                                  type="button"
+                                  variant="ghost"
+                                  onClick={() => void actions.deleteAttachment(item.id)}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </div>
+                            </div>
+                            {attachmentErrorId === item.id && (
+                              <p className="text-xs text-destructive" role="alert">
+                                {t("attachmentOpenFailed")}
+                              </p>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -828,6 +932,11 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
                         {t("addAttachment")}
                       </Button>
                     </div>
+                    {attachmentCopyError && (
+                      <p className="text-xs text-destructive" role="alert">
+                        {attachmentCopyError}
+                      </p>
+                    )}
                   </div>
 
                   {recurringTemplate && (

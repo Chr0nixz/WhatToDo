@@ -17,6 +17,22 @@ if (packageJson.version !== tauriConfig.version || packageJson.version !== cargo
   );
 }
 
+const cargoLockPath = resolve(root, "src-tauri/Cargo.lock");
+if (!existsSync(cargoLockPath)) {
+  errors.push("src-tauri/Cargo.lock is missing.");
+} else {
+  const cargoLock = readFileSync(cargoLockPath, "utf8");
+  const lockMatch = cargoLock.match(/\[\[package\]\]\r?\nname = "whattodo"\r?\nversion = "([^"]+)"/);
+  const lockVersion = lockMatch?.[1];
+  if (!lockVersion) {
+    errors.push('Could not find package "whattodo" in src-tauri/Cargo.lock.');
+  } else if (lockVersion !== packageJson.version) {
+    errors.push(
+      `Cargo.lock whattodo version mismatch: package.json=${packageJson.version}, Cargo.lock=${lockVersion}`,
+    );
+  }
+}
+
 if (!existsSync(resolve(root, "CHANGELOG.md"))) {
   errors.push("CHANGELOG.md is missing.");
 } else {
@@ -33,6 +49,21 @@ if (!tauriConfig.bundle?.createUpdaterArtifacts) {
 if (!tauriConfig.plugins?.updater?.pubkey || !tauriConfig.plugins?.updater?.endpoints?.length) {
   errors.push("tauri.conf.json must configure plugins.updater.pubkey and endpoints.");
 }
+
+const runCargo = (label, args) => {
+  try {
+    execFileSync("cargo", args, { cwd: resolve(root, "src-tauri"), encoding: "utf8", stdio: "pipe" });
+  } catch (error) {
+    const stderr = error?.stderr ? String(error.stderr).trim() : "";
+    const stdout = error?.stdout ? String(error.stdout).trim() : "";
+    const detail = [stderr, stdout].filter(Boolean).join("\n").slice(0, 2000);
+    errors.push(`${label} failed.${detail ? `\n${detail}` : ""}`);
+  }
+};
+
+runCargo("cargo fmt --check", ["fmt", "--check"]);
+runCargo("cargo clippy", ["clippy", "--all-targets", "--", "-D", "warnings"]);
+runCargo("cargo test --locked", ["test", "--locked"]);
 
 const status = execFileSync("git", ["status", "--short"], { cwd: root, encoding: "utf8" }).trim();
 if (status) {

@@ -1,4 +1,4 @@
-import type { AppData, Reminder, Task } from "./types";
+import type { AppData, Reminder, TaskSummary } from "./types";
 
 export type ReminderCenterGroupId = "failed" | "missed" | "upcoming" | "fired";
 
@@ -6,7 +6,7 @@ export type SnoozeOption = "tenMinutes" | "oneHour" | "tomorrowMorning";
 
 export type ReminderCenterItem = {
   reminder: Reminder;
-  task: Task;
+  task: TaskSummary;
   effectiveAt: string;
   group: ReminderCenterGroupId;
 };

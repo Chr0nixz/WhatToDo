@@ -2,7 +2,7 @@ import { useStore } from "zustand";
 import { create } from "zustand";
 
 import type { AppData, AppDataKey, Settings } from "@/data/types";
-import type { Project, Reminder, SavedTaskView, Task, Workspace, WorkspaceFolder, Attachment, RecurringTaskTemplate } from "@/data/types";
+import type { Project, Reminder, SavedTaskView, TaskSummary, Workspace, WorkspaceFolder, Attachment, RecurringTaskTemplate } from "@/data/types";
 
 type TodoStoreState = {
   data: AppData | null;
@@ -47,12 +47,14 @@ export const useTodoError = (): string | null => useStore(useTodoStore, (state) 
 // array (stable per call site via module constants) when data is not loaded
 // yet, so consumers can call array methods without null checks.
 const EMPTY: readonly never[] = [];
+const EMPTY_SETTINGS_BY_WORKSPACE: Record<string, Settings> = {};
 
 export const useReminders = (): Reminder[] =>
   (useStore(useTodoStore, (state) => state.data?.reminders) ?? EMPTY) as Reminder[];
-export const useTasks = (): Task[] => (useStore(useTodoStore, (state) => state.data?.tasks) ?? EMPTY) as Task[];
-export const useDeletedTasks = (): Task[] =>
-  (useStore(useTodoStore, (state) => state.data?.deletedTasks) ?? EMPTY) as Task[];
+export const useTasks = (): TaskSummary[] =>
+  (useStore(useTodoStore, (state) => state.data?.tasks) ?? EMPTY) as TaskSummary[];
+export const useDeletedTasks = (): TaskSummary[] =>
+  (useStore(useTodoStore, (state) => state.data?.deletedTasks) ?? EMPTY) as TaskSummary[];
 export const useProjects = (): Project[] =>
   (useStore(useTodoStore, (state) => state.data?.projects) ?? EMPTY) as Project[];
 export const useWorkspaces = (): Workspace[] =>
@@ -66,4 +68,6 @@ export const useRecurringTaskTemplates = (): RecurringTaskTemplate[] =>
 export const useAttachments = (): Attachment[] =>
   (useStore(useTodoStore, (state) => state.data?.attachments) ?? EMPTY) as Attachment[];
 export const useSettings = (): Settings | null => useStore(useTodoStore, (state) => state.data?.settings ?? null);
+export const useSettingsByWorkspace = (): Record<string, Settings> =>
+  useStore(useTodoStore, (state) => state.data?.settingsByWorkspace) ?? EMPTY_SETTINGS_BY_WORKSPACE;
 export const useWorkspaceId = (): string | null => useStore(useTodoStore, (state) => state.data?.workspaceId ?? null);

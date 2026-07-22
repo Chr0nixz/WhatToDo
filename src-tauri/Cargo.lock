@@ -5839,7 +5839,7 @@ dependencies = [
 
 [[package]]
 name = "whattodo"
-version = "0.2.1"
+version = "0.2.3"
 dependencies = [
  "rusqlite",
  "serde",
@@ -5854,6 +5854,7 @@ dependencies = [
  "tauri-plugin-sql",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
+ "tempfile",
 ]
 
 [[package]]

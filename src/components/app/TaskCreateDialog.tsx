@@ -18,6 +18,7 @@ type TaskCreateDialogProps = {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   hideTrigger?: boolean;
+  triggerTestId?: string;
 };
 
 export function TaskCreateDialog({
@@ -29,6 +30,7 @@ export function TaskCreateDialog({
   open: controlledOpen,
   onOpenChange,
   hideTrigger = false,
+  triggerTestId,
 }: TaskCreateDialogProps) {
   const { t } = useTranslation();
   const [internalOpen, setInternalOpen] = useState(false);
@@ -41,6 +43,7 @@ export function TaskCreateDialog({
         <Dialog.Trigger asChild>
           <Button
             className="h-10 gap-2 px-4 text-sm font-semibold shadow-sm shadow-primary/25"
+            data-testid={triggerTestId}
             size="lg"
             type="button"
           >

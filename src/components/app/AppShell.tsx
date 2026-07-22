@@ -31,13 +31,34 @@ import { Button } from "@/components/ui/button";
 import { buildCommandItems, type CommandItem } from "@/data/commandPalette";
 import { openTasks, overdueTasks, todayKey } from "@/data/date";
 import { buildAppIndexes } from "@/data/appIndexes";
-import type { AppData, AppView, SavedTaskView, Settings as SettingsType, TaskDetailPaneHandle, TaskViewFilters } from "@/data/types";
+import type {
+  AppView,
+  SavedTaskView,
+  Settings as SettingsType,
+  Task,
+  TaskDetailPaneHandle,
+  TaskViewFilters,
+} from "@/data/types";
 import { useAutoBackup } from "@/hooks/useAutoBackup";
 import { useCommandPalette } from "@/hooks/useCommandPalette";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import { useReminders } from "@/hooks/useReminders";
 import { useTheme } from "@/hooks/useTheme";
 import type { TodoActions } from "@/hooks/useTodos";
+import {
+  useAttachments,
+  useProjects,
+  useRecurringTaskTemplates,
+  useReminders as useReminderSlice,
+  useSavedViews,
+  useSettings,
+  useSettingsByWorkspace,
+  useTasks,
+  useWorkspaceFolders,
+  useWorkspaceId,
+  useWorkspaces,
+} from "@/hooks/useTodoStore";
+import type { AppData } from "@/data/types";
 import { cn } from "@/lib/utils";
 
 import { HomeView } from "./HomeView";
@@ -66,17 +87,68 @@ const navItems = [
 ] satisfies { id: Exclude<AppView, "settings">; icon: typeof CalendarDays; labelKey: string }[];
 
 type AppShellProps = {
-  data: AppData;
   error: string | null;
   dbReset: string | null;
   actions: TodoActions;
 };
 
-export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
+export function AppShell({ error, dbReset, actions }: AppShellProps) {
   const { i18n, t } = useTranslation();
+  const workspaceId = useWorkspaceId();
+  const settings = useSettings();
+  const settingsByWorkspace = useSettingsByWorkspace();
+  const workspaces = useWorkspaces();
+  const workspaceFolders = useWorkspaceFolders();
+  const projects = useProjects();
+  const tasks = useTasks();
+  const reminderRows = useReminderSlice();
+  const savedViews = useSavedViews();
+  const recurringTaskTemplates = useRecurringTaskTemplates();
+  const attachments = useAttachments();
+
+  const data = useMemo<AppData | null>(() => {
+    if (!workspaceId || !settings) {
+      return null;
+    }
+    return {
+      workspaceId,
+      workspaces,
+      workspaceFolders,
+      projects,
+      tasks,
+      deletedTasks: [],
+      deletedWorkspaceFolders: [],
+      availableTasks: [],
+      reminders: reminderRows,
+      savedViews,
+      recurringTaskTemplates,
+      attachments,
+      settings,
+      settingsByWorkspace,
+    };
+  }, [
+    workspaceId,
+    settings,
+    settingsByWorkspace,
+    workspaces,
+    workspaceFolders,
+    projects,
+    tasks,
+    reminderRows,
+    savedViews,
+    recurringTaskTemplates,
+    attachments,
+  ]);
+
+  const reminderTickData = useMemo(
+    () => (settings ? { tasks, reminders: reminderRows, settings } : null),
+    [tasks, reminderRows, settings],
+  );
+
   const [view, setView] = useState<AppView>("home");
   const [selectedDate, setSelectedDate] = useState(todayKey());
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [detailTask, setDetailTask] = useState<Task | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showResetBanner, setShowResetBanner] = useState(dbReset !== null);
   const taskDetailRef = useRef<TaskDetailPaneHandle>(null);
@@ -93,6 +165,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
   }, [dbReset]);
   const [undoToast, setUndoToast] = useState<{ message: string; undo: () => Promise<unknown> } | null>(null);
   const [noticeToast, setNoticeToast] = useState<string | null>(null);
+  const [reminderToast, setReminderToast] = useState<{ id: string; title: string } | null>(null);
   const [isRailExpanded, setIsRailExpanded] = useState(
     () => (localStorage.getItem("whattodo:rail") ?? localStorage.getItem("ddl-todo:rail")) === "expanded",
   );
@@ -105,21 +178,25 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
   const [overviewFilters, setOverviewFilters] = useState<TaskViewFilters | null>(null);
   const [overviewSelectedViewId, setOverviewSelectedViewId] = useState<string | null>(null);
   const undoTimer = useRef<number | null>(null);
+  const reminderToastTimer = useRef<number | null>(null);
 
   const clearExternalOverviewFilters = useCallback(() => {
     setOverviewFilters(null);
     setOverviewSelectedViewId(null);
   }, []);
 
-  useTheme(data.settings.theme, data.settings.accentColor);
+  useTheme(settings?.theme ?? "system", settings?.accentColor ?? "blue");
 
   useEffect(() => {
-    if (i18n.language !== data.settings.language) {
-      void i18n.changeLanguage(data.settings.language);
+    if (!settings) {
+      return;
+    }
+    if (i18n.language !== settings.language) {
+      void i18n.changeLanguage(settings.language);
     }
     // Keep the desktop tray menu labels in sync with the active language.
-    void invoke("update_tray_menu", { language: data.settings.language }).catch(() => undefined);
-  }, [data.settings.language, i18n]);
+    void invoke("update_tray_menu", { language: settings.language }).catch(() => undefined);
+  }, [settings, settings?.language, i18n]);
 
   useEffect(() => {
     localStorage.setItem("whattodo:rail", isRailExpanded ? "expanded" : "collapsed");
@@ -178,18 +255,45 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
     [actions, showUndo, t],
   );
 
-  const appIndexes = useMemo(() => buildAppIndexes(data), [data]);
+  const appIndexes = useMemo(
+    () => buildAppIndexes(tasks, projects, reminderRows),
+    [tasks, projects, reminderRows],
+  );
+
+  useEffect(() => {
+    if (view === "settings" || !selectedTaskId) {
+      setDetailTask(null);
+      return;
+    }
+
+    let cancelled = false;
+    void actions.getTask(selectedTaskId).then((task) => {
+      if (cancelled) {
+        return;
+      }
+      setDetailTask(task && task.deletedAt === null ? task : null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [actions, tasks, selectedTaskId, view]);
 
   const onOpenTask = useCallback(
-    (taskId: string) => {
-      const task = appIndexes.tasksById.get(taskId);
-      if (task) {
-        setSelectedDate(task.dueDate);
-        safeSetSelectedTaskId(task.id);
-        setView("home");
+    async (taskId: string, options?: { workspaceId?: string; dueDate?: string }) => {
+      if (options?.workspaceId && options.workspaceId !== workspaceId) {
+        await appActions.selectWorkspace(options.workspaceId);
       }
+      const task = appIndexes.tasksById.get(taskId);
+      if (options?.dueDate) {
+        setSelectedDate(options.dueDate);
+      } else if (task) {
+        setSelectedDate(task.dueDate);
+      }
+      safeSetSelectedTaskId(taskId);
+      setView("home");
     },
-    [appIndexes, safeSetSelectedTaskId],
+    [appActions, appIndexes, workspaceId, safeSetSelectedTaskId],
   );
 
   const openFolder = useCallback(async (path: string) => {
@@ -221,15 +325,18 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
   const openTaskSearchRef = useRef<() => void>(() => undefined);
 
   const buildItems = useCallback(
-    () =>
-      buildCommandItems({
+    () => {
+      if (!data || !settings) {
+        return [];
+      }
+      return buildCommandItems({
         data,
         t,
         setView,
         onOpenTask,
         onNewTask: () => setTaskCreateOpen(true),
         onSearchTasks: () => openTaskSearchRef.current(),
-        selectWorkspace: (workspaceId) => void appActions.selectWorkspace(workspaceId),
+        selectWorkspace: (nextWorkspaceId) => void appActions.selectWorkspace(nextWorkspaceId),
         openFolder,
         applySavedView,
         onEditWorkspace: () => {
@@ -243,21 +350,26 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
         },
         onCycleTheme: () => {
           const order: SettingsType["theme"][] = ["system", "light", "dark"];
-          const next = order[(order.indexOf(data.settings.theme) + 1) % order.length];
-          void appActions.saveSettings({ ...data.settings, theme: next });
+          const next = order[(order.indexOf(settings.theme) + 1) % order.length];
+          void appActions.saveSettings({ ...settings, theme: next });
         },
         onToggleLanguage: () => {
-          const next: SettingsType["language"] = data.settings.language === "zh" ? "en" : "zh";
-          void appActions.saveSettings({ ...data.settings, language: next });
+          const next: SettingsType["language"] = settings.language === "zh" ? "en" : "zh";
+          void appActions.saveSettings({ ...settings, language: next });
         },
-      }),
-    [appActions, applySavedView, data, onOpenTask, openFolder, t],
+      });
+    },
+    [appActions, applySavedView, data, onOpenTask, openFolder, settings, t],
   );
 
   const searchTasks = useCallback(
-    async (query: string): Promise<CommandItem[]> => {
+    async (query: string, scope: "current" | "all" = "current"): Promise<CommandItem[]> => {
+      if (!workspaceId) {
+        return [];
+      }
       const result = await appActions.loadTaskPage({
-        workspaceId: data.workspaceId,
+        workspaceId,
+        workspaceScope: scope,
         scope: "all",
         query,
         limit: 20,
@@ -265,15 +377,29 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
         sort: "overview",
       });
 
-      return result.tasks.map((task) => ({
-        id: `task-result:${task.id}`,
-        group: "tasks" as const,
-        label: task.title,
-        keywords: [task.title, task.dueDate],
-        run: () => onOpenTask(task.id),
-      }));
+      const workspaceNameById = new Map(workspaces.map((workspace) => [workspace.id, workspace.name]));
+
+      return result.tasks.map((task) => {
+        const workspaceName = workspaceNameById.get(task.workspaceId);
+        const label =
+          scope === "all" && workspaceName && task.workspaceId !== workspaceId
+            ? `${task.title} · ${workspaceName}`
+            : task.title;
+
+        return {
+          id: `task-result:${task.id}`,
+          group: "tasks" as const,
+          label,
+          keywords: [task.title, task.dueDate, workspaceName ?? ""],
+          run: () =>
+            void onOpenTask(task.id, {
+              workspaceId: task.workspaceId,
+              dueDate: task.dueDate,
+            }),
+        };
+      });
     },
-    [appActions, data.workspaceId, onOpenTask],
+    [appActions, onOpenTask, workspaceId, workspaces],
   );
 
   const palette = useCommandPalette({ buildItems, searchTasks, onOpenTask });
@@ -286,17 +412,34 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
     onOpenHelp: () => setHelpOpen(true),
   });
 
+  const onReminderNotified = useCallback((task: { id: string; title: string }) => {
+    setReminderToast(task);
+    if (reminderToastTimer.current) {
+      window.clearTimeout(reminderToastTimer.current);
+    }
+    reminderToastTimer.current = window.setTimeout(() => {
+      setReminderToast(null);
+      reminderToastTimer.current = null;
+    }, 12_000);
+  }, []);
+
   const disableNotifications = useCallback(async () => {
-    if (!data.settings.notificationsEnabled) {
+    if (!settings?.notificationsEnabled) {
       return;
     }
 
-    await appActions.saveSettings({ ...data.settings, notificationsEnabled: false });
-  }, [appActions, data.settings]);
+    await appActions.saveSettings({ ...settings, notificationsEnabled: false });
+  }, [appActions, settings]);
 
-  useReminders(data, appActions.markReminderFired, appActions.markReminderFailed, onOpenTask, disableNotifications);
+  useReminders(
+    reminderTickData,
+    appActions.markReminderFired,
+    appActions.markReminderFailed,
+    onReminderNotified,
+    disableNotifications,
+  );
 
-  useAutoBackup(data, appActions);
+  useAutoBackup(Boolean(data), appActions);
 
   useEffect(() => {
     if (!pendingSavedView) {
@@ -310,14 +453,16 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
 
   const stats = useMemo(
     () => ({
-      open: openTasks(data.tasks).length,
-      overdue: overdueTasks(data.tasks).length,
+      open: openTasks(tasks).length,
+      overdue: overdueTasks(tasks).length,
     }),
-    [data.tasks],
+    [tasks],
   );
 
-  const currentWorkspace = data.workspaces.find((workspace) => workspace.id === data.workspaceId) ?? null;
-  const editingProject = editingProjectId ? data.projects.find((project) => project.id === editingProjectId) ?? null : null;
+  const currentWorkspace = workspaceId
+    ? workspaces.find((workspace) => workspace.id === workspaceId) ?? null
+    : null;
+  const editingProject = editingProjectId ? projects.find((project) => project.id === editingProjectId) ?? null : null;
   const shortcutHint =
     typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? "\u2318K" : "Ctrl+K";
 
@@ -358,6 +503,10 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [undoToast, dismissUndo]);
+
+  if (!data) {
+    return null;
+  }
 
   return (
     <div className="relative flex h-dvh min-h-0 overflow-hidden bg-background text-foreground max-sm:flex-col">
@@ -484,8 +633,10 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
               <span className="hidden sm:inline">{t("openHelp")}</span>
             </Button>
             <Button
+              aria-label={t("commandPalette")}
               className="border-border px-3 hover:bg-accent hover:text-accent-foreground"
               size="lg"
+              title={t("commandPalette")}
               type="button"
               variant="secondary"
               onClick={() => palette.openPalette("commands")}
@@ -606,16 +757,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
           attachments={data.attachments}
           tasks={data.tasks}
           settings={data.settings}
-          task={
-            view === "settings"
-              ? null
-              : selectedTaskId
-                ? (() => {
-                    const task = appIndexes.tasksById.get(selectedTaskId) ?? null;
-                    return task?.deletedAt === null ? task : null;
-                  })()
-                : null
-          }
+          task={view === "settings" ? null : detailTask}
         />
       </Suspense>
 
@@ -660,6 +802,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
         open={palette.open}
         query={palette.query}
         taskSearchError={palette.taskSearchError}
+        taskSearchScope={palette.taskSearchScope}
         visibleItems={palette.visibleItems}
         onActiveIndexChange={palette.setActiveIndex}
         onModeChange={palette.setMode}
@@ -674,6 +817,7 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
         onRunItem={(item) => {
           void palette.runItem(item);
         }}
+        onTaskSearchScopeChange={palette.setTaskSearchScope}
       />
 
       {undoToast && (
@@ -698,6 +842,43 @@ export function AppShell({ data, error, dbReset, actions }: AppShellProps) {
             className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
             type="button"
             onClick={dismissUndo}
+          >
+            <X className="size-3.5" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+
+      {reminderToast && (
+        <div
+          className="motion-status absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-popover px-3 py-2 text-sm shadow-xl"
+          role="status"
+          aria-live="polite"
+        >
+          <button
+            className="inline-flex h-8 items-center rounded-md bg-secondary px-2.5 font-medium text-secondary-foreground hover:bg-accent"
+            type="button"
+            onClick={() => {
+              onOpenTask(reminderToast.id);
+              setReminderToast(null);
+              if (reminderToastTimer.current) {
+                window.clearTimeout(reminderToastTimer.current);
+                reminderToastTimer.current = null;
+              }
+            }}
+          >
+            {t("openReminderTask", { title: reminderToast.title })}
+          </button>
+          <button
+            aria-label={t("close")}
+            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            type="button"
+            onClick={() => {
+              setReminderToast(null);
+              if (reminderToastTimer.current) {
+                window.clearTimeout(reminderToastTimer.current);
+                reminderToastTimer.current = null;
+              }
+            }}
           >
             <X className="size-3.5" aria-hidden="true" />
           </button>

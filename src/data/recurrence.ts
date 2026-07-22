@@ -118,6 +118,6 @@ export const buildTaskFromRecurringTemplate = (
   deletedAt: null,
   recurrenceTemplateId: template.id,
   recurrenceInstanceDate: dueDate,
-  parentId: null,
-  tags: [],
+  parentId: template.parentId ?? null,
+  tags: Array.isArray(template.tags) ? [...template.tags] : [],
 });

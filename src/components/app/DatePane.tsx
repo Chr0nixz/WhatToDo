@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { getMonthDays, getWeekDays, isToday, shiftMonth, toDateKey } from "@/data/date";
-import { formatMonthTitle, formatWeekDate, formatWeekday } from "@/data/dateFormat";
+import { formatHeaderDate, formatMonthTitle, formatWeekDate, formatWeekday } from "@/data/dateFormat";
 import { TASK_DRAG_MIME } from "@/data/taskDrag";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +31,12 @@ export function DatePane({
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const monthDays = useMemo(() => getMonthDays(monthCursor), [monthCursor]);
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
+
+  const dayAriaLabel = (dateKey: string, count: number) =>
+    t("calendarDayWithTasks", {
+      date: formatHeaderDate(dateKey, i18n.language),
+      count,
+    });
 
   useEffect(() => {
     if (mode === "calendar") {
@@ -142,6 +148,7 @@ export function DatePane({
                 return (
                   <button
                     aria-current={isToday(day) ? "date" : undefined}
+                    aria-label={dayAriaLabel(key, count)}
                     aria-pressed={key === selectedDate}
                     key={key}
                     className={cn(
@@ -174,6 +181,7 @@ export function DatePane({
               return (
                 <button
                   aria-current={isToday(day) ? "date" : undefined}
+                  aria-label={dayAriaLabel(key, count)}
                   aria-pressed={selectedDate === key}
                   key={key}
                   className={cn(

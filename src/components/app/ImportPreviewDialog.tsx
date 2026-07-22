@@ -1,41 +1,29 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { AlertTriangle, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { parseBackupPayload, type BackupSchemaResult } from "@/data/backupSchema";
-import type { BackupPayload, ImportBackupMode } from "@/data/types";
+import { summarizeImportPreview } from "@/data/importPreview";
+import type { AppData, BackupPayload, ImportBackupMode } from "@/data/types";
 import { cn } from "@/lib/utils";
 
 type ImportPreviewDialogProps = {
   open: boolean;
   rawPayload: unknown;
+  currentData: AppData;
   onOpenChange: (open: boolean) => void;
   onConfirm: (payload: BackupPayload, mode: ImportBackupMode) => void;
 };
 
-type PreviewCounts = {
-  workspaces: number;
-  workspaceFolders: number;
-  projects: number;
-  tasks: number;
-  reminders: number;
-  savedViews: number;
-  recurringTaskTemplates: number;
-};
-
-const emptyCounts: PreviewCounts = {
-  workspaces: 0,
-  workspaceFolders: 0,
-  projects: 0,
-  tasks: 0,
-  reminders: 0,
-  savedViews: 0,
-  recurringTaskTemplates: 0,
-};
-
-export function ImportPreviewDialog({ open, rawPayload, onOpenChange, onConfirm }: ImportPreviewDialogProps) {
+export function ImportPreviewDialog({
+  open,
+  rawPayload,
+  currentData,
+  onOpenChange,
+  onConfirm,
+}: ImportPreviewDialogProps) {
   const { t } = useTranslation();
   const [validation, setValidation] = useState<BackupSchemaResult>({ success: false, error: "—" });
   const [isImporting, setIsImporting] = useState(false);
@@ -51,17 +39,10 @@ export function ImportPreviewDialog({ open, rawPayload, onOpenChange, onConfirm 
   }, [open, rawPayload]);
 
   const data = validation.success ? validation.data : null;
-  const counts: PreviewCounts = data
-    ? {
-        workspaces: data.workspaces.length,
-        workspaceFolders: data.workspaceFolders.length,
-        projects: data.projects.length,
-        tasks: data.tasks.length,
-        reminders: data.reminders.length,
-        savedViews: data.savedViews.length,
-        recurringTaskTemplates: data.recurringTaskTemplates?.length ?? 0,
-      }
-    : emptyCounts;
+  const conflict = useMemo(
+    () => (data ? summarizeImportPreview(currentData, data as BackupPayload) : null),
+    [currentData, data],
+  );
 
   const confirm = () => {
     if (!data) {
@@ -71,21 +52,25 @@ export function ImportPreviewDialog({ open, rawPayload, onOpenChange, onConfirm 
     onConfirm(data as BackupPayload, mode);
   };
 
-  const summaryRows: Array<{ label: string; value: number }> = [
-    { label: t("importPreviewWorkspaces"), value: counts.workspaces },
-    { label: t("importPreviewFolders"), value: counts.workspaceFolders },
-    { label: t("importPreviewProjects"), value: counts.projects },
-    { label: t("importPreviewTasks"), value: counts.tasks },
-    { label: t("importPreviewReminders"), value: counts.reminders },
-    { label: t("importPreviewSavedViews"), value: counts.savedViews },
-    { label: t("importPreviewRecurring"), value: counts.recurringTaskTemplates },
-  ];
+  const summaryRows: Array<{ label: string; value: number }> = conflict
+    ? [
+        { label: t("importPreviewWorkspaces"), value: conflict.counts.workspaces },
+        { label: t("importPreviewFolders"), value: conflict.counts.workspaceFolders },
+        { label: t("importPreviewProjects"), value: conflict.counts.projects },
+        { label: t("importPreviewTasks"), value: conflict.counts.tasks },
+        { label: t("importPreviewReminders"), value: conflict.counts.reminders },
+        { label: t("importPreviewSavedViews"), value: conflict.counts.savedViews },
+        { label: t("importPreviewRecurring"), value: conflict.counts.recurringTaskTemplates },
+        { label: t("importPreviewAttachments"), value: conflict.counts.attachments },
+        { label: t("importPreviewReminderEvents"), value: conflict.counts.reminderEvents },
+      ]
+    : [];
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="motion-dialog-overlay fixed inset-0 z-50 bg-background/65 backdrop-blur-[2px]" />
-        <Dialog.Content className="motion-dialog-content fixed left-1/2 top-1/2 z-50 w-[min(440px,calc(100vw-32px))] rounded-lg border border-border bg-popover p-5 text-popover-foreground shadow-xl outline-none">
+        <Dialog.Content className="motion-dialog-content fixed left-1/2 top-1/2 z-50 max-h-[85vh] w-[min(480px,calc(100vw-32px))] overflow-auto rounded-lg border border-border bg-popover p-5 text-popover-foreground shadow-xl outline-none">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
               <Dialog.Title className="text-base font-semibold">{t("importPreviewTitle")}</Dialog.Title>
@@ -100,7 +85,7 @@ export function ImportPreviewDialog({ open, rawPayload, onOpenChange, onConfirm 
             </Dialog.Close>
           </div>
 
-          {data ? (
+          {data && conflict ? (
             <div className="grid gap-4">
               <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
                 <div className="flex justify-between gap-2">
@@ -124,6 +109,40 @@ export function ImportPreviewDialog({ open, rawPayload, onOpenChange, onConfirm 
                   ))}
                 </dl>
               </div>
+
+              {mode === "merge" && (
+                <div className="grid gap-1.5 rounded-md border border-border bg-muted/40 p-3 text-sm">
+                  <p className="text-xs font-medium text-muted-foreground">{t("importConflictSummary")}</p>
+                  <p>
+                    {t("importConflictOverwriteTasks", { count: conflict.overwrite.tasks })} ·{" "}
+                    {t("importConflictNewTasks", { count: conflict.created.tasks })}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t("importConflictOverwriteOther", {
+                      workspaces: conflict.overwrite.workspaces,
+                      projects: conflict.overwrite.projects,
+                      reminders: conflict.overwrite.reminders,
+                      attachments: conflict.overwrite.attachments,
+                    })}
+                  </p>
+                  {conflict.overlappingWorkspaceNames.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {t("importConflictWorkspaces", { names: conflict.overlappingWorkspaceNames.join(", ") })}
+                    </p>
+                  )}
+                  {conflict.sampleOverwriteTaskTitles.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {t("importConflictSampleTasks", { titles: conflict.sampleOverwriteTaskTitles.join(", ") })}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {mode === "replace" && (
+                <p className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+                  {t("importReplaceScopeHint")}
+                </p>
+              )}
 
               <fieldset className="grid gap-2">
                 <legend className="text-xs font-medium text-muted-foreground">{t("importModeLabel")}</legend>

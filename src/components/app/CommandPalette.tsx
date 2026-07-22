@@ -9,12 +9,13 @@ import {
   type CommandGroup,
   type CommandItem,
 } from "@/data/commandPalette";
-import type { CommandPaletteMode } from "@/hooks/useCommandPalette";
+import type { CommandPaletteMode, CommandTaskSearchScope } from "@/hooks/useCommandPalette";
 import { cn } from "@/lib/utils";
 
 type CommandPaletteProps = {
   open: boolean;
   mode: CommandPaletteMode;
+  taskSearchScope: CommandTaskSearchScope;
   query: string;
   activeIndex: number;
   visibleItems: CommandItem[];
@@ -23,11 +24,15 @@ type CommandPaletteProps = {
   onOpenChange: (open: boolean) => void;
   onQueryChange: (query: string) => void;
   onModeChange: (mode: CommandPaletteMode) => void;
+  onTaskSearchScopeChange: (scope: CommandTaskSearchScope) => void;
   onActiveIndexChange: (index: number) => void;
   onRunItem: (item: CommandItem) => void;
 };
 
+const LISTBOX_ID = "command-palette-listbox";
 const GROUP_ORDER: CommandGroup[] = ["recent", "navigation", "tasks", "workspaces", "folders", "savedViews", "manage"];
+
+export const commandOptionId = (itemId: string) => `command-option-${itemId}`;
 
 function Kbd({ children }: { children: ReactNode }) {
   return (
@@ -71,6 +76,40 @@ function PaletteModeToggle({
   );
 }
 
+function TaskSearchScopeToggle({
+  scope,
+  onScopeChange,
+}: {
+  scope: CommandTaskSearchScope;
+  onScopeChange: (scope: CommandTaskSearchScope) => void;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div
+      className="inline-grid shrink-0 grid-flow-col gap-0.5 rounded-md border border-border bg-background/50 p-0.5"
+      role="tablist"
+      aria-label={t("commandSearchScopeLabel")}
+    >
+      {(["current", "all"] as const).map((value) => (
+        <button
+          aria-selected={scope === value}
+          className={cn(
+            "h-7 rounded px-2.5 text-xs font-medium transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent active:scale-[0.98]",
+            scope === value ? "bg-secondary text-secondary-foreground hover:bg-secondary" : "text-muted-foreground",
+          )}
+          key={value}
+          role="tab"
+          type="button"
+          onClick={() => onScopeChange(value)}
+        >
+          {value === "current" ? t("commandSearchScopeCurrent") : t("commandSearchScopeAll")}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function StatusPanel({ children }: { children: React.ReactNode }) {
   return (
     <p className="motion-status mx-1 flex min-h-[9rem] items-center justify-center rounded-lg border border-dashed border-border bg-background/50 px-4 text-center text-sm text-muted-foreground">
@@ -82,6 +121,7 @@ function StatusPanel({ children }: { children: React.ReactNode }) {
 export function CommandPalette({
   open,
   mode,
+  taskSearchScope,
   query,
   activeIndex,
   visibleItems,
@@ -90,6 +130,7 @@ export function CommandPalette({
   onOpenChange,
   onQueryChange,
   onModeChange,
+  onTaskSearchScopeChange,
   onActiveIndexChange,
   onRunItem,
 }: CommandPaletteProps) {
@@ -127,6 +168,20 @@ export function CommandPalette({
   const showLoading = mode === "tasks" && isSearchingTasks;
   const showError = Boolean(taskSearchError);
   const showNoResults = !isSearchingTasks && visibleItems.length === 0 && query.trim();
+  const showList = !showEmptyHint && !showLoading && !showError && !showNoResults;
+  const tasksHint =
+    taskSearchScope === "all" ? t("commandSearchTasksHintAll") : t("commandSearchTasksHint");
+
+  const activeItem = visibleItems[activeIndex] ?? null;
+  const liveStatus = showLoading
+    ? t("loadingTasks")
+    : showError
+      ? t(taskSearchError!)
+      : showNoResults
+        ? t("commandNoResults")
+        : showEmptyHint
+          ? tasksHint
+          : t("commandResultCount", { count: visibleItems.length });
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -149,6 +204,11 @@ export function CommandPalette({
                 <input
                   ref={inputRef}
                   id="command-palette-input"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={open}
+                  aria-controls={LISTBOX_ID}
+                  aria-activedescendant={showList && activeItem ? commandOptionId(activeItem.id) : undefined}
                   className="h-9 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                   placeholder={mode === "tasks" ? t("commandSearchTasksPlaceholder") : t("commandPalettePlaceholder")}
                   value={query}
@@ -157,10 +217,19 @@ export function CommandPalette({
               </div>
               <PaletteModeToggle mode={mode} onModeChange={onModeChange} />
             </div>
+            {mode === "tasks" && (
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <TaskSearchScopeToggle scope={taskSearchScope} onScopeChange={onTaskSearchScopeChange} />
+              </div>
+            )}
+          </div>
+
+          <div aria-live="polite" className="sr-only">
+            {open ? liveStatus : ""}
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
-            {showEmptyHint && <StatusPanel>{t("commandSearchTasksHint")}</StatusPanel>}
+            {showEmptyHint && <StatusPanel>{tasksHint}</StatusPanel>}
             {showLoading && (
               <StatusPanel>
                 <span className="inline-flex items-center gap-2">
@@ -170,14 +239,17 @@ export function CommandPalette({
               </StatusPanel>
             )}
             {showError && (
-              <p className="motion-status mx-1 flex min-h-[9rem] items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/10 px-4 text-center text-sm text-destructive">
+              <p
+                className="motion-status mx-1 flex min-h-[9rem] items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/10 px-4 text-center text-sm text-destructive"
+                role="alert"
+              >
                 {t(taskSearchError!)}
               </p>
             )}
             {showNoResults && <StatusPanel>{t("commandNoResults")}</StatusPanel>}
 
-            {!showEmptyHint && !showLoading && !showError && !showNoResults && (
-              <div className="motion-list space-y-2">
+            {showList && (
+              <div className="motion-list space-y-2" id={LISTBOX_ID} role="listbox">
                 {renderSections.map(({ group, items }) => (
                   <section key={group}>
                     {(mode === "commands" || group === "recent") && (
@@ -185,7 +257,7 @@ export function CommandPalette({
                         {t(COMMAND_GROUP_LABEL_KEYS[group])}
                       </p>
                     )}
-                    <ul className="grid gap-0.5" role="listbox">
+                    <ul className="grid gap-0.5">
                       {items.map((item) => {
                         const itemIndex = flatIndexById.get(item.id) ?? 0;
                         const active = itemIndex === activeIndex;
@@ -194,6 +266,7 @@ export function CommandPalette({
                           <li key={item.id}>
                             <button
                               ref={active ? activeItemRef : undefined}
+                              id={commandOptionId(item.id)}
                               aria-selected={active}
                               className={cn(
                                 "flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-[background-color,box-shadow,color] duration-150 ease-[var(--ease-out-quart)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",

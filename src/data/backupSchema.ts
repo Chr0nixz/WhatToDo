@@ -128,6 +128,7 @@ const savedTaskViewSchema = z.object({
     tagMatch: z.enum(["any", "all", "none"]).default("any"),
     advancedFilter: filterGroupSchema.nullable().default(null),
   }),
+  pinned: z.boolean().default(false),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -149,6 +150,8 @@ const recurringTaskTemplateSchema = z.object({
   anchorDate: z.string(),
   endDate: z.string().nullable(),
   enabled: z.boolean(),
+  parentId: z.string().nullable().default(null),
+  tags: z.array(z.string()).default([]),
   createdAt: z.string(),
   updatedAt: z.string(),
   deletedAt: z.string().nullable(),
@@ -160,7 +163,7 @@ const settingsSchema = z.object({
   language: z.enum(["zh", "en"]),
   defaultReminderOffset: z.number(),
   defaultWorkingFolder: z.string().nullable(),
-  defaultSavedViewId: z.string().nullable(),
+  defaultSavedViewId: z.string().nullable().default(null),
   notificationsEnabled: z.boolean(),
   closeToTray: z.boolean(),
 });
@@ -173,6 +176,19 @@ const reminderEventSchema = z.object({
   detail: z.string().nullable(),
   createdAt: z.string(),
 });
+
+const clientPreferencesSchema = z
+  .object({
+    autoBackup: z
+      .object({
+        enabled: z.boolean(),
+        intervalHours: z.number(),
+        retentionCount: z.number(),
+        retentionDays: z.number(),
+      })
+      .optional(),
+  })
+  .optional();
 
 const baseBackupFields = {
   exportedAt: z.string(),
@@ -198,6 +214,14 @@ export const backupPayloadSchema = z.discriminatedUnion("whattodoBackupVersion",
     whattodoBackupVersion: z.literal(2),
     recurringTaskTemplates: z.array(recurringTaskTemplateSchema),
     attachments: z.array(attachmentSchema).optional().default([]),
+  }),
+  z.object({
+    ...baseBackupFields,
+    whattodoBackupVersion: z.literal(3),
+    recurringTaskTemplates: z.array(recurringTaskTemplateSchema),
+    attachments: z.array(attachmentSchema).optional().default([]),
+    attachmentBundle: z.enum(["sidecar", "none"]).optional().default("none"),
+    clientPreferences: clientPreferencesSchema,
   }),
 ]);
 

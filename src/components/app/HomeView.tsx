@@ -209,6 +209,7 @@ export function HomeView({
                 defaultDate={selectedDate}
                 projects={data.projects.filter((project) => project.deletedAt === null && project.status !== "archived")}
                 settings={data.settings}
+                triggerTestId="add-task"
               />
             </div>
           </div>
@@ -239,6 +240,7 @@ export function HomeView({
                 defaultDate={selectedDate}
                 projects={data.projects.filter((project) => project.deletedAt === null && project.status !== "archived")}
                 settings={data.settings}
+                triggerTestId="add-task-empty"
               />
             }
             onSelectTask={setSelectedTaskId}

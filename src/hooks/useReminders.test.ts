@@ -138,11 +138,38 @@ describe("useReminders notification failure", () => {
       [makeReminder({ id: "reminder-a", taskId: "task-a", remindAt: past })],
     );
 
-    renderHook(() => useReminders(data, markReminderFired, markReminderFailed, vi.fn()));
+    renderHook(() => useReminders(data, markReminderFired, markReminderFailed));
 
     await waitFor(() => {
       expect(markReminderFailed).toHaveBeenCalledWith("reminder-a", "notify boom");
     });
     expect(markReminderFired).not.toHaveBeenCalled();
+  });
+
+  it("notifies via callback and does not open a task on window focus", async () => {
+    sendNotification.mockResolvedValue(undefined);
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const markReminderFired = vi.fn(async (id: string) =>
+      makeData(
+        [makeTask({ id: "task-a", title: "Alpha" })],
+        [makeReminder({ id, taskId: "task-a", remindAt: past, firedAt: new Date().toISOString() })],
+      ),
+    );
+    const markReminderFailed = vi.fn(async () => makeData([], []));
+    const onReminderNotified = vi.fn();
+    const data = makeData(
+      [makeTask({ id: "task-a", title: "Alpha" })],
+      [makeReminder({ id: "reminder-a", taskId: "task-a", remindAt: past })],
+    );
+
+    renderHook(() => useReminders(data, markReminderFired, markReminderFailed, onReminderNotified));
+
+    await waitFor(() => {
+      expect(onReminderNotified).toHaveBeenCalledWith({ id: "task-a", title: "Alpha" });
+    });
+    expect(markReminderFired).toHaveBeenCalledWith("reminder-a");
+
+    window.dispatchEvent(new Event("focus"));
+    expect(onReminderNotified).toHaveBeenCalledTimes(1);
   });
 });

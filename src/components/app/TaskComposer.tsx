@@ -195,6 +195,8 @@ export function TaskComposer({
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
           <input
             id="task-title"
+            aria-invalid={Boolean(submitError)}
+            aria-describedby={submitError ? "task-title-error" : undefined}
             className="h-11 min-w-0 rounded-md border border-input bg-background px-3 text-base outline-none transition-colors placeholder:text-muted-foreground focus:border-ring"
             placeholder={t("taskTitle")}
             value={title}
@@ -409,7 +411,12 @@ export function TaskComposer({
         )}
 
         {(submitError || parseFeedback) && (
-          <p className={cn("motion-status text-xs", submitError ? "text-destructive" : "text-muted-foreground")}>
+          <p
+            id={submitError ? "task-title-error" : undefined}
+            className={cn("motion-status text-xs", submitError ? "text-destructive" : "text-muted-foreground")}
+            role={submitError ? "alert" : undefined}
+            aria-live={submitError ? "assertive" : "polite"}
+          >
             {submitError ?? parseFeedback}
           </p>
         )}
@@ -463,6 +470,8 @@ export function TaskComposer({
       </label>
       <input
         id="task-title"
+        aria-invalid={Boolean(submitError)}
+        aria-describedby={submitError ? "task-title-error" : undefined}
         className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring"
         placeholder={t("taskTitle")}
         value={title}
@@ -577,10 +586,17 @@ export function TaskComposer({
         </p>
       )}
       {submitError && (
-        <p className="motion-status col-span-full text-xs text-destructive">{submitError}</p>
+        <p
+          id="task-title-error"
+          className="motion-status col-span-full text-xs text-destructive"
+          role="alert"
+          aria-live="assertive"
+        >
+          {submitError}
+        </p>
       )}
       {parseFeedback && !submitError && (
-        <p className="motion-status col-span-full text-xs text-muted-foreground">
+        <p className="motion-status col-span-full text-xs text-muted-foreground" aria-live="polite">
           {parseFeedback}
         </p>
       )}

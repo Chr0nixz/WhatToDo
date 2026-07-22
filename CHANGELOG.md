@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.3
+
+- Packages managed attachment binaries beside JSON backups as a `{stem}_attachments/` sidecar (backup schema v3), and restores them into the app-managed folder on import.
+- Adds Settings migration to copy external attachment paths into the app data directory, plus Tauri copy/delete helpers for managed files.
+- Extends auto-backup with retention by count/days, prunes old `whattodo-auto-*.json` sidecars, and round-trips interval/retention preferences in v3 `clientPreferences` (device folder stays local).
+- Finishes SqlRepository PERF-002 hot paths: `selectWorkspace`, deleting the current workspace, and `importBackup` use workspace-slice loads / in-memory assemble + `commitCache` instead of full `readAll`.
+- Moves AppShell onto TodoStore slice subscriptions so settings-only updates no longer depend on a full `AppData` subscription for indexes and reminder/auto-backup hooks.
+- Expands Local/Sql conformance coverage for recurring completion, backup replace/merge/v1, failed reminders, cross-workspace paging, and soft-delete recovery.
+- Hardens ICS VTODO export (`CREATED` / `LAST-MODIFIED` / `CATEGORIES`), Rust fmt/clippy/test release gates, and desktop/performance validation docs for Wave closeout.
+
 ## 0.2.2
 
 - Improves large-list performance with targeted repository patches, `tasksRevision`-aware pagination, and list-column projection for task pages, available tasks, and recovery lists.

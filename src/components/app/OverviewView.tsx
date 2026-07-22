@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { applySavedViewFilters } from "@/data/savedViews";
+import { applySavedViewFilters, sortSavedViews } from "@/data/savedViews";
 import { defaultTaskViewFilters } from "@/data/taskFilters";
 import type { AppData, FilterCondition, FilterConditionField, FilterConditionOperator, FilterGroup, SavedTaskView, Settings, TaskViewFilters } from "@/data/types";
 import { useTaskPage } from "@/hooks/useTaskPage";
@@ -71,6 +71,8 @@ export function OverviewView({
       hasAppliedDefaultView.current = true;
     }
   }, [data.savedViews, data.settings.defaultSavedViewId, externalFilters]);
+
+  const sortedSavedViews = useMemo(() => sortSavedViews(data.savedViews), [data.savedViews]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearchQuery(searchQuery), 180);
@@ -377,7 +379,7 @@ export function OverviewView({
         {showFilters && (
           <div className="mt-2 grid gap-2">
             <div className="flex flex-wrap items-center gap-2">
-              {data.savedViews.length > 0 && (
+              {sortedSavedViews.length > 0 && (
                 <div className="relative">
                   <label className="sr-only" htmlFor="overview-saved-views">
                     {t("savedViews")}
@@ -396,8 +398,9 @@ export function OverviewView({
                     }}
                   >
                     <option value="">{t("viewsMenu")}</option>
-                    {data.savedViews.map((view) => (
+                    {sortedSavedViews.map((view) => (
                       <option key={view.id} value={view.id}>
+                        {view.pinned ? `${t("pinnedSavedView")} · ` : ""}
                         {view.name}
                         {data.settings.defaultSavedViewId === view.id ? ` · ${t("defaultSavedView")}` : ""}
                       </option>
@@ -542,7 +545,7 @@ export function OverviewView({
         onOpenChange={setManageOpen}
         onSelectView={applySavedView}
         open={manageOpen}
-        savedViews={data.savedViews}
+        savedViews={sortedSavedViews}
         selectedViewId={selectedViewId}
         settings={data.settings}
       />
@@ -596,13 +599,21 @@ function ManageViewsDialog({
       setEditingViewId(null);
       return;
     }
-    await actions.updateSavedView(viewId, { name, filters: view.filters });
+    await actions.updateSavedView(viewId, { name, filters: view.filters, pinned: view.pinned });
     setEditingViewId(null);
   };
 
   const updateWithCurrent = async (view: SavedTaskView) => {
-    await actions.updateSavedView(view.id, { name: view.name, filters: currentFilters });
+    await actions.updateSavedView(view.id, { name: view.name, filters: currentFilters, pinned: view.pinned });
     onSelectView(view.id);
+  };
+
+  const togglePinned = async (view: SavedTaskView) => {
+    await actions.updateSavedView(view.id, {
+      name: view.name,
+      filters: view.filters,
+      pinned: !view.pinned,
+    });
   };
 
   const setDefault = async (viewId: string) => {
@@ -697,12 +708,25 @@ function ManageViewsDialog({
                         >
                           {view.name}
                         </button>
+                        {view.pinned && (
+                          <span className="rounded bg-secondary px-1.5 py-0.5 text-xs text-secondary-foreground">
+                            {t("pinnedSavedView")}
+                          </span>
+                        )}
                         {isDefault && (
                           <span className="rounded bg-secondary px-1.5 py-0.5 text-xs text-secondary-foreground">
                             {t("defaultSavedView")}
                           </span>
                         )}
                         <div className="flex items-center gap-1">
+                          <Button
+                            size="xs"
+                            type="button"
+                            variant="outline"
+                            onClick={() => void togglePinned(view)}
+                          >
+                            {view.pinned ? t("unpinSavedView") : t("pinSavedView")}
+                          </Button>
                           {!isDefault && (
                             <Button size="xs" type="button" variant="outline" onClick={() => void setDefault(view.id)}>
                               {t("setAsDefault")}

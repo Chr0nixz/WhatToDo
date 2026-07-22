@@ -1,534 +1,389 @@
 # WhatToDo 项目审计报告
 
-更新时间：2026-06-26（Asia/Shanghai）
+- 更新时间：2026-07-21（Asia/Shanghai）
+- 审计对象：`D:\Projects\ToDo` 当前 `main` 分支磁盘代码
+- 审计方式：产品文档核对、静态代码审查、浏览器桌面/390px 窄屏烟雾检查、自动化测试、构建与依赖检查
+- 审计原则：以当前代码和实际命令结果为准，不沿用旧审计结论，不把尚未执行的桌面验证视为已通过
 
-本次审计基于 `d:\Projects\ToDo` 当前磁盘代码状态（截至 2026-06-26），未依赖文档承诺。所有引用均带文件路径与行号，可直接通过编辑器跳转复核。
+## 1. 执行摘要
 
-## 概览
+WhatToDo 已经不是功能原型。当前版本具备多工作区、项目、任务多状态、标签、父子任务、附件、多提醒、提醒历史、保存视图、复杂筛选、重复任务、命令面板、批量操作、撤销与恢复、自动备份、导入预览、CSV/ICS 导出、悬浮窗口和中英文界面，整体已达到可日常使用的功能密度。
 
-| 维度 | 严重项 | 中等项 | 轻微项 | 整体评价 |
-|---|---|---|---|---|
-| 用户交互便捷性 | 7 | 8 | 4 | 基础齐全但缺效率闭环 |
-| 功能丰富性完整性 | 19 | 14 | 1 | 数据层扎实，领域深度不足 |
-| 架构鲁棒性稳定性 | 8 | 7 | 5 | Local/SQL 一致性是核心隐患 |
-| 程序运行效率 | 8 | 10 | 8 | mutation→readAll 全量重读是致命瓶颈 |
+当前最短板不是继续增加功能数量，而是以下四类工程风险：
 
-最致命的三个跨维度问题：
+1. 数据库迁移失败时存在自动删除并重建数据库的路径，且备份失败不会阻止重置。
+2. SQLite 事务与缓存缺少真正的并发控制，快速并行 mutation 可能丢失内存状态更新。
+3. 自动备份、旧备份兼容、ICS 互操作和发布锁文件仍存在可验证的不完整行为。
+4. 分页、虚拟化和定向 patch 已落地，但启动及大量普通 mutation 仍会全量加载当前工作区任务。
 
-1. **无 React ErrorBoundary** —— 任意子组件渲染错误直接白屏
-2. **每次 mutation 触发 readAll 8 条 SELECT** —— 单次 `toggleTask` 触发 16 条 SQL 查询 + 全树重渲染
-3. **LocalRepository 与 SqlRepository 的 settings 存储模型根本不一致** —— 破坏"两个实现行为一致"的核心约束
+### 1.1 四维度评分
 
----
+| 维度 | 评分 | 当前判断 |
+|---|---:|---|
+| 用户交互便捷性 | 7.5/10 | 主要工作流顺畅，键盘、读屏和错误反馈仍有断点 |
+| 功能丰富性与完整性 | 7.5/10 | 已可日用，数据安全型功能和跨应用互操作仍欠闭环 |
+| 架构鲁棒性与稳定性 | 5.5/10 | migration、并发写入和发布验证是主要风险 |
+| 程序运行效率 | 6.5/10 | 前端优化较好，数据加载和 mutation 刷新仍偏重 |
 
-## 一、用户交互便捷性
+前端技术审计评分为 **16/20**：Accessibility 3/4、Performance 2/4、Responsive 3/4、Theming 4/4、Anti-patterns 4/4。
 
-### 1.1 桌面效率入口
+### 1.2 问题数量
 
-**[严重] 全局快捷键处理器为内联闭包导致每次 AppShell 重渲染都重新注册 OS 快捷键**
-[AppShell.tsx:234](file:///d:/Projects/ToDo/src/components/app/AppShell.tsx) 传入 `onNewTask: () => setTaskCreateOpen(true)` 是内联箭头函数，[useGlobalShortcuts.ts:51](file:///d:/Projects/ToDo/src/hooks/useGlobalShortcuts.ts) 的 `useEffect` 依赖数组包含 `onNewTask/onOpenPalette/onSearchTasks`。任意 state 变化触发 effect 反复 `unregisterAll()` + `register()`，存在"快捷键短暂失效窗口"。
+| 维度 | P0 | P1 | P2 | P3 | 合计 |
+|---|---:|---:|---:|---:|---:|
+| 用户交互便捷性 | 0 | 0 | 6 | 1 | 7 |
+| 功能丰富性与完整性 | 0 | 3 | 5 | 0 | 8 |
+| 架构鲁棒性与稳定性 | 1 | 4 | 5 | 0 | 10 |
+| 程序运行效率 | 0 | 1 | 4 | 1 | 6 |
+| **总计** | **1** | **8** | **20** | **2** | **31** |
 
-**[严重] 应用内与 OS 级快捷键双重监听可能导致双触发**
-[useGlobalShortcuts.ts:26-34](file:///d:/Projects/ToDo/src/hooks/useGlobalShortcuts.ts) 在 OS 层注册 `Ctrl+K/N/Shift+F`，[useCommandPalette.ts:142-160](file:///d:/Projects/ToDo/src/hooks/useCommandPalette.ts) 在 window 层又监听相同组合。窗口聚焦时按键可能先后都执行，`Ctrl+K` 直接开了又关。
+严重级别定义：
 
-**[中等] 命令面板缺「切换主题/语言」命令**
-[commandPalette.ts:38-144](file:///d:/Projects/ToDo/src/data/commandPalette.ts) 的 `manage` 组只有"编辑工作区/项目"，未接入 `actions.saveSettings` 切换主题/语言。
+- **P0 Blocking**：存在数据丢失或阻断核心使用的风险，发布前必须修复。
+- **P1 Major**：关键可靠性、数据完整性或发布门禁问题，应在下一版本前修复。
+- **P2 Minor**：有明确用户或维护成本，允许短期绕过，但应进入近期迭代。
+- **P3 Polish**：不阻断使用，适合在质量收口阶段处理。
 
-### 1.2 快速添加与自然语言解析
+### 1.3 发布判断
 
-**[严重] 大量常见中文日期表达完全不支持**
-[quickAdd.ts:101-207](file:///d:/Projects/ToDo/src/data/quickAdd.ts) 中无 `下周三`、`周五前`、`月底`、`每周一`、`每两周`、`3天后`、`下周`、`本周末` 等正则。`后天` 只到第 2 天，`3天后`/`一周后`/`下周五` 全部不识别，会被当作标题文本残留。
+阶段 A 的数据安全与并发项（`ARC-001`～`003`、`FUN-001`/`FUN-002`）以及 `ARC-007`/`ARC-008` 类型与浏览器 runtime 守卫已落地。当前更不宜把未勾选的 [`DESKTOP_VALIDATION.md`](DESKTOP_VALIDATION.md) / 真实 Tauri 桌面验证等同于稳定发布基线；发布前仍需完成桌面清单与 updater 签名环境验证。
 
-**[严重] 「清除预览」只清标签不回滚字段，误导用户**
-[TaskComposer.tsx:348,511](file:///d:/Projects/ToDo/src/components/app/TaskComposer.tsx) 的"清除预览"按钮仅 `setQuickAddMatches([])`，但 [TaskComposer.tsx:77-93](file:///d:/Projects/ToDo/src/components/app/TaskComposer.tsx) 的 `applyQuickAdd` 已把 `dueDate/dueTime/priority/projectId/reminderOffset` 写入表单字段。点"清除预览"后标签消失但日期/优先级仍是解析后的值，用户以为撤销了实际没有。
+## 2. 验证基线
 
-**[中等] 无实时输入预览，必须手动点「解析输入」**
-[TaskComposer.tsx:177](file:///d:/Projects/ToDo/src/components/app/TaskComposer.tsx) 的 `applyQuickAdd` 仅由 Wand2 按钮触发，输入框 `onChange` 只清 `parseFeedback`，没有防抖自动解析。
+### 2.1 本次通过
 
-### 1.3 键盘可访问性与无障碍
+- `pnpm test`：20 个测试文件、151 个测试全部通过。
+- `pnpm build`：TypeScript 与 Vite 生产构建通过。
+- `pnpm lint`：通过；当前脚本实际只执行 `tsc --noEmit`。
+- `pnpm perf:runtime`：3 个 LocalRepository 性能基线通过。
+- `pnpm perf:build`：通过；主入口约 211.7 kB，总 JS 约 822.3 kB，总 CSS 约 60.5 kB。
+- `cargo check`：通过，但会修正提交中的 Cargo.lock 包版本。
+- `cargo test`：6 个 Rust 单元测试通过，当前仅覆盖文件路径校验。
+- `pnpm audit --prod`：未发现已知生产依赖漏洞。
+- 浏览器桌面与 390x844 窄屏：应用可挂载，无水平溢出，新增任务表单在窄屏可操作。
+- 中英文资源键：各 455 个，键集合完全对齐。
 
-**[严重] TaskDetailPane 未保存确认对话框非 Radix 实现，无焦点陷阱/Esc/聚焦**
-[TaskDetailPane.tsx:507-525](file:///d:/Projects/ToDo/src/components/app/TaskDetailPane.tsx) 是手写 `<div role="dialog">`，Tab 会跑到背景表单、Esc 不关闭、打开后焦点不在任何按钮上。同样 [OverviewView.tsx:362-376](file:///d:/Projects/ToDo/src/components/app/OverviewView.tsx) 的 saved-view 菜单也是手写浮层无 outside-click 处理。
+### 2.2 本次失败或未完成
 
-**[严重] 任务列表无键盘导航（j/k 切换、Enter 打开、Space 完成）**
-[TaskList.tsx:105-206](file:///d:/Projects/ToDo/src/components/app/TaskList.tsx) 的 `<article>` 与内部按钮均无 `onKeyDown`、`tabIndex`、`role="listitem"`。Tab 只能逐个走，无上下键浏览，快捷完成缺失。
+- `pnpm test:e2e`：10/11 通过；新增任务入口测试因页面存在两个同名“添加”按钮而触发 Playwright strict-mode 失败，见 [`e2e/smoke.spec.ts`](../e2e/smoke.spec.ts#L83)。
+- `cargo fmt --check`：失败，`src-tauri/src/lib.rs` 未符合 rustfmt。
+- `cargo check --locked`：失败，因为 [`Cargo.toml`](../src-tauri/Cargo.toml#L3) 为 0.2.2，而 [`Cargo.lock`](../src-tauri/Cargo.lock#L5840) 中应用包仍为 0.2.1。
+- 浏览器控制台：应用挂载时出现两次 Tauri `listen()` 的 `transformCallback` 错误。
+- `docs/DESKTOP_VALIDATION.md`：仍是未执行清单，不是验证报告。
+- `docs/PERFORMANCE_VALIDATION.md`：20k 任务真实桌面检查仍全部未执行。
+- 通知权限、托盘、悬浮窗、真实文件对话框、覆盖写入、数据库迁移失败恢复均未在真实 Tauri 桌面运行时完成验证。
 
-**[中等] 部分图标按钮仅 `title` 无 `aria-label`**
-[WorkspacesView.tsx:333,375,385](file:///d:/Projects/ToDo/src/components/app/WorkspacesView.tsx) 和 [ProjectsView.tsx:256](file:///d:/Projects/ToDo/src/components/app/ProjectsView.tsx) 多处 `title=` 无 `aria-label`；[TaskDetailPane.tsx:269](file:///d:/Projects/ToDo/src/components/app/TaskDetailPane.tsx) 未保存状态点是纯装饰 `<span>` 无可访问性语义。
+## 3. 当前值得保留的实现
 
-### 1.4 错误反馈与可恢复操作
+以下能力已落地，旧审计中相应“缺失”结论不再成立：
 
-**[严重] 无全局 ErrorBoundary，运行时渲染错误直接白屏**
-[main.tsx:10-14](file:///d:/Projects/ToDo/src/main.tsx) 仅 `<React.StrictMode><App/></React.StrictMode>`，[App.tsx:28-40](file:///d:/Projects/ToDo/src/App.tsx) 只处理 `useTodos` 初始加载错误且要求 `!data`。任意子组件抛错会导致整树卸载白屏，桌面端用户无恢复入口。
+- 全局 [`ErrorBoundary`](../src/components/app/ErrorBoundary.tsx) 已接入应用根节点。
+- 命令面板已支持导航、新增/搜索任务、工作区切换、文件夹、保存视图、主题和语言命令。
+- 快速添加已支持“下周三、月底、3天后、每周一、每两周”等中英文规则。
+- 任务支持 `todo`、`in_progress`、`completed`、`cancelled` 四种状态。
+- 已实现多选、批量状态更新、批量删除、批量移动项目和任务列表键盘导航。
+- 已实现标签、父任务、附件、多提醒、提醒事件历史和提醒失败重试入口。
+- 保存视图已支持创建、重命名、覆盖过滤条件、设为默认和删除。
+- 项目与工作区均有编辑、删除/归档及恢复入口。
+- 导入已有 schema 校验、预览、替换/合并模式和导入前备份。
+- 重复任务已支持 daily、weekly、monthly、yearly、interval、按星期和截止日期。
+- 主要视图已使用分页、懒加载、列表虚拟化和定向 repository patch。
+- UI 使用稳定设计 token、8px 以内圆角、可见焦点、暗色主题和 reduced-motion 回退。
+- 未发现渐变文字、玻璃拟态、装饰性大圆角、营销 hero 或明显 AI 模板化布局。
 
-**[中等] Undo toast 仅覆盖 4 类操作，无键盘快捷键**
-[AppShell.tsx:129-148](file:///d:/Projects/ToDo/src/components/app/AppShell.tsx) 只对 `deleteTask`/`deleteWorkspaceFolder`/`archiveProject`/`deleteWorkspace` 包装 showUndo。缺失 `deleteSavedView`、`disableReminder` 等；[AppShell.tsx:574-586](file:///d:/Projects/ToDo/src/components/app/AppShell.tsx) toast 只能鼠标点"撤销"，无 `Ctrl+Z`、无 Esc、8 秒后静默消失。
+## 4. 用户交互便捷性
 
-**[中等] 命令面板「打开文件夹」失败完全静默**
-[AppShell.tsx:167-173](file:///d:/Projects/ToDo/src/components/app/AppShell.tsx) 的 `openFolder` catch 块为空，从命令面板触发 ([commandPalette.ts:88-91,100](file:///d:/Projects/ToDo/src/data/commandPalette.ts)) 失败时无任何 toast/banner。
+### UX-001 [P2] 命令面板不是完整的可访问 combobox — **已修复**
 
-### 1.5 桌面实机验证状态
+**当前状态（Wave 1）**：[`CommandPalette.tsx`](../src/components/app/CommandPalette.tsx) 输入框为 `role="combobox"`，含 `aria-controls` / `aria-expanded` / `aria-activedescendant`；结果 listbox 与 option 对齐。
 
-**[严重] 桌面实机验证完全未执行/未记录**
-[docs/DESKTOP_VALIDATION.md](file:///d:/Projects/ToDo/docs/DESKTOP_VALIDATION.md) 是清单而非已完成报告，无任何勾选记录。通知权限拒绝路径、托盘恢复焦点、悬浮窗真实失效路径、stale folder path 失败提示等关键路径仅靠代码推断。
+**残留**：真实 NVDA/VoiceOver 回归仍建议在发布前人工抽检。
 
-### 1.6 任务列表与详情面板流畅度
+### UX-002 [P2] 移动端命令按钮的可访问名称错误 — **已修复**
 
-**[严重] 无拖拽排序、无批量选择、无多选操作**
-全仓 grep `batch|selectAll|multiSelect|selectedIds` 0 匹配。[TaskList.tsx](file:///d:/Projects/ToDo/src/components/app/TaskList.tsx) 无 checkbox 多选、无全选、无批量完成/删除/移动项目；`Task` 类型无 `sortOrder`/`pinned` 字段，无拖拽实现。
+**当前状态（Wave 1）**：命令入口使用本地化 `aria-label={t("commandPalette")}`，快捷键不再充当唯一名称。
 
-**[中等] 列表为「加载更多」按钮，无无限滚动**
-[TaskList.tsx:209-227](file:///d:/Projects/ToDo/src/components/app/TaskList.tsx) 仅一个 button，无 `IntersectionObserver` 自动加载。
+### UX-003 [P2] 月历日期和任务数量缺少完整可访问名称 — **已修复**
 
-**[中等] 详情面板切换任务时未保存内容丢失**
-[TaskDetailPane.tsx:210-224](file:///d:/Projects/ToDo/src/components/app/TaskDetailPane.tsx) `requestClose`/`requestDelete` 才检查 isDirty，但用户在详情面板编辑后直接点侧栏切换视图或选另一任务，`selectedTaskId` 变化触发 `useEffect`（[TaskDetailPane.tsx:58-74](file:///d:/Projects/ToDo/src/components/app/TaskDetailPane.tsx)）直接重置表单，未保存内容丢失且无提示。
+**当前状态（Wave 1）**：日期按钮提供含完整日期与任务数量的本地化 `aria-label`，并保留选中态语义。
 
-**[中等] 详情面板底部三按钮无键盘快捷键**
-[TaskDetailPane.tsx:485-502](file:///d:/Projects/ToDo/src/components/app/TaskDetailPane.tsx) 完成/保存/删除仅鼠标，无 `Ctrl+S` 保存、`Ctrl+Enter` 完成。
+### UX-004 [P2] 表单错误没有与字段建立程序化关联 — **已修复**
 
-### 1.7 国际化与本地化
+**当前状态（Wave 1）**：关键表单错误使用 `aria-invalid` / 描述关联与提交失败 live region（如 TaskComposer）。
 
-**[严重] 全程无 IME 输入法组合态处理，中文输入与快捷键冲突**
-全仓无 `composition`/`isComposing` 业务匹配。[useCommandPalette.ts:142-160](file:///d:/Projects/ToDo/src/hooks/useCommandPalette.ts) 的 window 级 `matchesShortcut` 不检查 `event.nativeEvent.isComposing`，中文输入法组词期间可能误触快捷键。
+**残留**：并非每个次要表单控件都已统一 FormField 组件；可按需继续收敛。
 
-**[中等] 命令面板命令的 keywords 仅有英文**
-[commandPalette.ts:57-137](file:///d:/Projects/ToDo/src/data/commandPalette.ts) 的 keywords 都是 `["add","create"]`、`["find","search"]` 等，中文用户搜"添加"找不到"新建任务"。
+### UX-005 [P2] OS 全局快捷键与 DOM 快捷键可能双触发 — **已修复**
 
-**[中等] 后端托盘文案未本地化**
-[lib.rs:748-752](file:///d:/Projects/ToDo/src-tauri/src/lib.rs) tray 菜单硬编码 "Open WhatToDo"/"Quit"、tooltip "WhatToDo"，中文用户在系统托盘看到的是英文。
+**当前状态（Wave 1）**：窗口聚焦时由 DOM 处理；全局插件路径对主窗口焦点去重，避免 `Ctrl+K` 等双触发。
 
-### 1.8 改进建议清单（交互维度）
+### UX-006 [P2] “通知点击”使用窗口聚焦近似，可能误跳任务 — **已修复**
 
-**P0 严重**：
-1. 修复全局快捷键内联闭包导致的反复注册与双触发（[AppShell.tsx:234](file:///d:/Projects/ToDo/src/components/app/AppShell.tsx) + [useGlobalShortcuts.ts:51](file:///d:/Projects/ToDo/src/hooks/useGlobalShortcuts.ts)）
-2. 引入全局 `ErrorBoundary`（[main.tsx](file:///d:/Projects/ToDo/src/main.tsx) 或 [App.tsx](file:///d:/Projects/ToDo/src/App.tsx)）
-3. 扩展 [quickAdd.ts](file:///d:/Projects/ToDo/src/data/quickAdd.ts) 中文日期解析并修复"清除预览"不回滚字段问题
-4. 为 TaskList 增加键盘导航 + 多选批量操作
-5. 按清单逐项执行桌面实机验证并记录结果
+**当前状态（Wave 1）**：不再把任意窗口 focus 当作通知点击；打开任务走显式提醒中心/支持的通知 action 路径。
 
-**P1 中等**：
-6. TaskDetailPane 未保存确认弹窗与 OverviewView saved-view 菜单改用 Radix Dialog/Popover
-7. Undo toast 扩展覆盖 + `Ctrl+Z` + Esc 关闭
-8. `openFolder` 失败统一反馈
-9. 切换任务时未保存提示
-10. 命令面板新增「切换主题/语言」命令 + keywords 补中文同义词
-11. 后端托盘菜单本地化
-12. 列表无限滚动 + 详情面板 `Ctrl+S` 保存
+### UX-007 [P3] 窄屏月历占用过多首屏且日期触控高度偏小
 
-**P2 轻微**：
-13. 全部 icon-only 按钮补 `aria-label`
-14. IME `isComposing` 守卫加到所有 keydown handler
-15. `useGlobalShortcuts` 清理竞态与重复 `unregisterAll` 修正
+**证据**：390x844 实测无水平溢出，但月历占据首屏大部分区域，日期按钮约 48x34 px；[`index.css`](../src/index.css#L414) 还显式取消了日历按钮的 44px 最小目标。
 
----
+**建议**：窄屏默认周视图或允许折叠月历；日期按钮至少保持 40-44px 高，避免密集误触。
 
-## 二、程序功能丰富性和完整性
+## 5. 功能丰富性与完整性
 
-### 2.1 重复任务规则
+### FUN-001 [P1] 自动备份可能显示成功但没有生成文件 — **已修复**
 
-**[严重] 频率支持严重不全，interval 字段被锁死为 1**
-[types.ts:15](file:///d:/Projects/ToDo/src/data/types.ts) `RecurrenceFrequency = "daily" | "weekly" | "monthly"` 缺 `yearly`；[recurrence.ts:33-47](file:///d:/Projects/ToDo/src/data/recurrence.ts) `getNextRecurrenceDate` 无 yearly 分支、无 BYDAY/BYMONTHDAY 规则；[repository.ts:1877](file:///d:/Projects/ToDo/src/data/repository.ts) `createRecurringTemplate` 中 `interval: 1` 硬编码，UI 也无 interval 输入控件。
+**当前状态（阶段 A + Wave 10）**：设置保存与备份成功文案分离；无目录不可启用；仅真实写入成功后记录 last-run；失败写入 last-error；路径用 Rust `join_backup_path`。Wave 10：按 `retentionCount` / `retentionDays` 清理 `whattodo-auto-*.json` 及对应 `_attachments`；v3 备份的 `clientPreferences.autoBackup` 可恢复间隔/保留策略（**不**覆盖本机 `folder`）。
 
-**[严重] 不支持"每周一三五""每月最后一天""每月第N个周X"**
-[recurrence.ts:38-39](file:///d:/Projects/ToDo/src/data/recurrence.ts) weekly 分支只是简单 `addDays`，无 weekdays 数组；[recurrence.ts:23-31](file:///d:/Projects/ToDo/src/data/recurrence.ts) `nextMonthlyDate` 只是 clamp 到月末，无法表达"最后一个周五"或"第二个周一"。
+**残留**：自动备份目录仍是本机路径，不随备份跨设备迁移。
 
-**[严重] "更新未来重复实例"并未真正同步已生成的未来实例**
-[TaskDetailPane.tsx:159-188](file:///d:/Projects/ToDo/src/components/app/TaskDetailPane.tsx) `updateFutureRepeats` 仅调用 `actions.updateRecurringTaskTemplate`；[repository.ts:664-672](file:///d:/Projects/ToDo/src/data/repository.ts)（Local）和 [1393-1421](file:///d:/Projects/ToDo/src/data/repository.ts)（SQL）的 `updateRecurringTaskTemplate` 只更新模板记录本身，**不更新已生成的未来 Task 实例**。
+### FUN-002 [P1] 备份 schema 的向后兼容与性能 fixture 失配 — **已修复**
 
-**[中等] 删除未完成重复实例不生成下一个**
-[repository.ts:811-817](file:///d:/Projects/ToDo/src/data/repository.ts)（Local）、[1532-1536](file:///d:/Projects/ToDo/src/data/repository.ts)（SQL）只在 `toggleTask` 完成时触发下一实例生成，直接 `deleteTask` 一个未完成重复实例不会生成下一个，重复链可能断裂。
+**原证据（已过时）**：曾要求 `defaultSavedViewId` 且 20k fixture 缺该字段，导入预览失败。
 
-### 2.2 提醒系统
+**当前状态**：
+- [`backupSchema.ts`](../src/data/backupSchema.ts) 对 `defaultSavedViewId` 使用 `.default(null)`，旧备份缺字段可通过。
+- [`generate-performance-backup.mjs`](../scripts/generate-performance-backup.mjs) settings 含全部当前字段，生成后调用 [`validate-performance-fixture.mjs`](../scripts/validate-performance-fixture.mjs) 执行 `parseBackupPayload()`，失败则非 0 退出。
+- 自动化：[`backupSchema.test.ts`](../src/data/backupSchema.test.ts) 覆盖缺字段默认值、fixture 形态，以及存在时的 20k 文件校验。
 
-**[严重] 提醒历史不完整，仅记录最后一次失败**
-[types.ts:95-106](file:///d:/Projects/ToDo/src/data/types.ts) `Reminder` 类型只有单值字段 `failedAt`/`lastError`/`lastAttemptedAt`/`firedAt`，无 `attempts: ReminderAttempt[]` 时间线数组。每次失败覆盖前一次 ([repository.ts:841-850,1554-1563](file:///d:/Projects/ToDo/src/data/repository.ts))，无法回溯触发/关闭/稍后/重试/成功的完整历史。
+**残留**：更老备份若缺 `theme` 等无 default 字段仍会被拒；未来语义不兼容字段需升版本 + 显式迁移。
 
-**[严重] 一个任务只能有一个提醒**
-[repository.ts:751](file:///d:/Projects/ToDo/src/data/repository.ts) `updateTaskReminder` 用 `find()` 取第一个；SQL 版 [repository.ts:1484-1488](file:///d:/Projects/ToDo/src/data/repository.ts) 用 `LIMIT 1`；`createReminder` ([repository.ts:1842-1859](file:///d:/Projects/ToDo/src/data/repository.ts)) 只创建单条。用户无法为同一任务设置"提前1天"和"提前1小时"两个提醒。
+### FUN-003 [P1] ICS 导出混用了 VEVENT 和 VTODO 语义 — **已修复**
 
-**[严重] 无失败重试策略，无指数退避，无最大重试次数**
-[useReminders.ts:118-120](file:///d:/Projects/ToDo/src/hooks/useReminders.ts) tick 间隔固定 30 秒，失败提醒被 [useReminders.ts:21](file:///d:/Projects/ToDo/src/hooks/useReminders.ts) 的 `dueRemindersForData` 排除，不会自动重试。用户必须手动点击"重试"。
+**原证据（已过时）**：曾对所有任务输出 VEVENT，却混入 VTODO 状态属性与零时长 `DTEND`。
 
-**[严重] 通知不支持点击跳转任务**
-[useReminders.ts:97-102](file:///d:/Projects/ToDo/src/hooks/useReminders.ts) `onOpenTask(task.id)` 在发送通知后**立即**执行，不等用户点击通知。[lib.rs:728-789](file:///d:/Projects/ToDo/src-tauri/src/lib.rs) 未注册 `tauri-plugin-notification` 的 `on_notification` 回调。
+**当前状态**：
+- [`buildTasksIcs`](../src/data/repository.ts) 导出 `VTODO`（`DUE` / `DUE;VALUE=DATE`），无 `VEVENT`/`DTSTART`/`DTEND`。
+- 状态映射：`completed` → `COMPLETED` + `PERCENT-COMPLETE:100`；`in_progress` → `IN-PROCESS` + 50；`todo` → `NEEDS-ACTION`；`cancelled` → `CANCELLED`。
+- 含 `CREATED` / `LAST-MODIFIED`、项目 `CATEGORIES`、首个未触发提醒的 `VALARM`。
+- [`ics.test.ts`](../src/data/ics.test.ts) 用 RFC 5545 展开解析断言组件语义。
 
-**[中等] 提醒提前量/稍后选项固定不可自定义**
-[TaskDetailPane.tsx:26](file:///d:/Projects/ToDo/src/components/app/TaskDetailPane.tsx) `reminderOffsetOptions = [10, 30, 60, 1440]`；[reminderCenter.ts:81-94](file:///d:/Projects/ToDo/src/data/reminderCenter.ts) 稍后选项固定 10分钟/1小时/明天9点。
+**残留**：未导出本地 `TZID`；不导入 ICS；未做真实日历客户端互操作验证。
 
-### 2.3 保存视图管理
+### FUN-004 [P2] 重复任务规则仍缺少常见高级表达
 
-**[严重] 过滤条件不支持复合条件（OR/NOT/嵌套）**
-[types.ts:108-115](file:///d:/Projects/ToDo/src/data/types.ts) `TaskViewFilters` 所有条件是 AND 关系，无 OR、无 NOT、无嵌套分组。无标签过滤、无文本搜索过滤、无自定义日期范围（只有 today/week/overdue/all）。
+**现状**：已支持四种频率、interval、每周多个星期和截止日期。
 
-**[中等] 缺少排序/置顶/手动排序**
-[savedViews.ts](file:///d:/Projects/ToDo/src/data/savedViews.ts) 按 `createdAt DESC` 固定排序，[types.ts:117-124](file:///d:/Projects/ToDo/src/data/types.ts) `SavedTaskView` 类型无 `sortOrder`/`pinned` 字段。
+**缺口**：每月最后一天、每月第 N 个星期 X、按次数结束、排除日期、跳过本次、延后本次、仅修改单次/本次及以后/整组的完整交互语义仍不足。
 
-实际已实现：创建/应用/重命名/覆盖过滤条件/设为默认/删除（见 [OverviewView.tsx:132-184](file:///d:/Projects/ToDo/src/components/app/OverviewView.tsx)）。
+**建议**：采用 RRULE 风格领域模型或成熟 recurrence 库，避免继续为每种规则增加独立分支。
 
-### 2.4 项目和工作区管理
+### FUN-005 [P2] 重复实例不会继承标签和父任务关系 — **已修复**
 
-**[中等] 项目编辑入口分散**
-[ProjectEditDialog.tsx:61-65](file:///d:/Projects/ToDo/src/components/app/ProjectEditDialog.tsx) 只能改 name/dueDate/color，**不能改 workingFolder**（只能在 ProjectsView 单独面板中改）。`paused`/`completed` 状态 ([types.ts:9](file:///d:/Projects/ToDo/src/data/types.ts)) 完全无 UI 入口。
+**当前状态（Wave 2）**：重复模板保存 tags/parentId；新实例继承这些字段（以及既有的 project/folder/priority/notes/提醒策略）。
 
-**[中等] 工作区编辑/删除入口**
-[WorkspaceEditDialog.tsx](file:///d:/Projects/ToDo/src/components/app/WorkspaceEditDialog.tsx) 已实现创建/编辑/删除/切换，但恢复只在 Settings 恢复中心，主视图内无入口。
+**残留**：高级 RRULE 与“仅本次/本次及以后/整组”完整交互仍见 FUN-004。
 
-**[严重] Local 与 SQL 设置存储模型根本不一致**（详见维度三 3.1）
+### FUN-006 [P2] 子任务只有 parentId，缺少完整任务树语义
 
-### 2.5 导入导出与备份
+**进展**：
+- Wave 3：`wouldCreateParentCycle` 写入防护；列表缩进；详情子任务列表；完成不级联（`subtasksNoCascadeHint`）。
+- Wave 8：直接子任务进度 `getDirectChildProgress`；详情与列表显示 completed/total；列表可折叠隐藏子孙。
 
-**[严重] 导入是破坏性覆盖，无预览无合并**
-[repository.ts:911-915](file:///d:/Projects/ToDo/src/data/repository.ts)（Local）`importBackup` 直接 `this.data = normalizeBackupPayload(payload)` 替换全部数据；SQL 版 ([repository.ts:1649-1725](file:///d:/Projects/ToDo/src/data/repository.ts)) 先 `DELETE FROM` 所有表再插入。**无导入预览、无选择性合并、无冲突检测**。
+**残留**：无父子完成级联；无树形重排/拖拽改父子；Composer 未提供快捷建子任务；删除父任务时子任务策略未单独产品化。
 
-**[严重] Schema 校验极其薄弱**
-[repository.ts:2004-2007](file:///d:/Projects/ToDo/src/data/repository.ts) `normalizeBackupPayload` 只检查版本号，不校验数组是否存在、字段是否完整、类型是否正确。`{ "whattodoBackupVersion": 2 }` 的空对象会通过校验产生空数据覆盖。项目已依赖 `zod` ([package.json:48](file:///d:/Projects/ToDo/package.json)) 但**未在备份导入路径使用**。
+### FUN-007 [P2] 搜索与保存视图仍有管理能力缺口 — **已修复**
 
-**[严重] 无自动定期备份**
-[SettingsView.tsx:176-187](file:///d:/Projects/ToDo/src/components/app/SettingsView.tsx) 只有手动"导出备份"按钮，[types.ts:126-135](file:///d:/Projects/ToDo/src/data/types.ts) `Settings` 类型无 `autoBackup*` 字段。
+**当前状态（Wave 2）**：命令面板支持当前/全部工作区搜索范围；保存视图支持 pinned/置顶。
 
-**[严重] ICS 导出不符合 RFC 5545**
-[repository.ts:2054-2080](file:///d:/Projects/ToDo/src/data/repository.ts) `buildTasksIcs`：
-- 无时区：`icsDate` 是 naive 时间，无 `TZID` 或 `Z` 后缀
-- 无 VALARM：不导出提醒信息
-- DTSTART 和 DTEND 相同（持续时间为 0）
-- `STATUS:COMPLETED` 对 VEVENT 无效（RFC 5545 规定只能是 TENTATIVE/CONFIRMED/CANCELLED）
-- 无 VTODO 支持
+**残留**：复制视图与导出共享仍未做。
 
-**[中等] CSV 导出字段不完整**
-[repository.ts:2032-2049](file:///d:/Projects/ToDo/src/data/repository.ts) `buildTasksCsv` 只导出 8 列，缺少 taskId/completedAt/createdAt/reminderOffset/recurrence，无法重新导入。
+### FUN-008 [P2] 导入预览与附件生命周期不完整
 
-**[中等] 文件 IO 无原子写入、无路径遍历防护**
-[lib.rs:287-291](file:///d:/Projects/ToDo/src-tauri/src/lib.rs) `write_text_file` 直接 `fs::write`，写入中途崩溃产生损坏文件；[lib.rs:218-236](file:///d:/Projects/ToDo/src-tauri/src/lib.rs) `validate_text_file_path` 只检查扩展名不检查路径遍历。
+**进展**：
+- Wave 3：导入预览含实体计数与 merge 冲突摘要；打开附件失败可「重新定位」并 `updateAttachmentPath`。
+- Wave 7：Tauri 添加附件时 `copy_managed_attachment` 复制到 `{appData}/attachments/{id}/`；`SqlRepository.deleteAttachment` 删除托管文件；浏览器 Local 仍存外部路径。
+- Wave 9：Settings「迁入应用托管目录」对可读的外部路径附件执行 copy + 更新 path（`migrateExternalAttachments`）；缺失源计入 failed，不删原文件。
+- Wave 10：备份 schema v3 + `{stem}_attachments/` sidecar；导出把托管附件写成可移植路径并打包二进制；导入前从 sidecar 还原到托管目录；自动备份/导入前备份同样走 bundle。
 
-### 2.6 任务核心字段与操作
+**残留**：无 `storageKind` 字段；merge 仍按同 ID 覆盖、无策略选择 UI；Relocate 仍可指向外部路径；浏览器导出仍无法打包二进制。
 
-**[严重] Task 字段严重不足**
-[types.ts:54-72](file:///d:/Projects/ToDo/src/data/types.ts) `Task` 类型缺少：
-- 子任务/检查清单：无 `parentId`/`subtasks`
-- 标签：无 `tags: string[]`
-- 附件：无 `attachments`
-- 富文本描述：`notes: string` 是纯文本
-- 预估时间/实际时间：无 `estimate`/`actual`
-- 开始日期：只有 `dueDate`，无 `startDate`
+## 6. 项目架构的鲁棒性与稳定性
 
-**[严重] 完全没有批量操作**
-[useTodos.ts:28-72](file:///d:/Projects/ToDo/src/hooks/useTodos.ts) `TodoActions` 所有操作都是单任务，无 `bulkComplete`/`bulkDelete`/`bulkMoveToProject`/`bulkUpdatePriority`/`bulkUpdateDueDate`。[TaskList.tsx](file:///d:/Projects/ToDo/src/components/app/TaskList.tsx) 无多选机制。
+### ARC-001 [P0] migration 失败会在备份未确认成功时删除数据库 — **已修复**
 
-**[严重] 无拖拽排序、手动排序、置顶**
-[types.ts:171](file:///d:/Projects/ToDo/src/data/types.ts) `TaskPageSort = "createdDesc" | "dueAsc" | "overview"` 三种固定排序，无 `manual`/`custom`，无 `priorityDesc`。Task 类型无 `sortOrder`/`pinned` 字段。
+**当前状态（阶段 A）**：migration/打开失败保留原库；经校验备份后由用户在恢复界面主动重置；Rust 测试覆盖备份失败不删库、确认重置等路径。
 
-**[严重] 任务状态机过于简单**
-[types.ts:11](file:///d:/Projects/ToDo/src/data/types.ts) `TaskStatus = "todo" | "completed"` 只有 2 个状态。缺少 `in_progress`/`blocked`/`cancelled`/`deferred`，无法表达"开始工作但未完成"或"因依赖阻塞"。
+**残留**：并非每个历史 schema 版本都有完整 fixture 升级矩阵。
 
-### 2.7 设置与个性化
+### ARC-002 [P1] duplicate-column 恢复会错误标记整条 migration 完成 — **已修复**
 
-**[中等] 缺少多项常用配置**
-[types.ts:126-135](file:///d:/Projects/ToDo/src/data/types.ts) `Settings` 类型缺少：每周第一天、时间格式（12h/24h）、日期格式、自动备份配置、提醒声音、稍后提醒默认值、快捷键自定义。
+**当前状态（阶段 A）**：按列/表存在性推进 schema（`ensure_column` / repair）；禁止仅凭 duplicate-column 字符串把整版标完成；有相关 Rust 单测。
 
-### 2.8 搜索与筛选
+### ARC-003 [P1] 事务深度和 repository cache 不支持并发 mutation — **已修复**
 
-**[中等] Home 视图搜索过于简陋**
-[HomeView.tsx:47-56](file:///d:/Projects/ToDo/src/components/app/HomeView.tsx) 只搜 `title`，不搜 notes/dueTime/项目名，与 OverviewView 和 CommandPalette 的搜索范围不一致。
+**当前状态（阶段 A）**：`SqlRepository` 实例级 mutation 队列 + `transactionDepth`；并发 toggle/snooze 测试覆盖；`useTodos` 仍丢弃过期 UI 结果。
 
-**[中等] CommandPalette 只搜当前工作区**
-[AppShell.tsx:209-210](file:///d:/Projects/ToDo/src/components/app/AppShell.tsx) 非真正全局搜索。
+### ARC-004 [P1] E2E 已失败但不属于 CI 门禁 — **已修复**
 
-### 2.9 改进建议清单（功能维度）
+**当前状态（阶段 B）**：CI Linux job 运行 `pnpm test:e2e`；smoke 监听 pageerror；当前 E2E 套件通过。
 
-**高优先级（严重项）**：
-1. 扩展 `RecurrenceRule` 增加 `byWeekday`/`byMonthDay`/`weekOfMonth`/`count`，实现 RRULE 风格日期计算，添加 `yearly` 频率
-2. 让 `interval` 可配置，移除 [repository.ts:1877](file:///d:/Projects/ToDo/src/data/repository.ts) 的硬编码 `interval: 1`
-3. 在 `updateRecurringTaskTemplate` 中批量更新所有未完成未来 Task 实例的可变字段
-4. 新建 `ReminderAttempt` 类型与 `reminder_attempts` 表，提醒历史改追加而非覆盖
-5. 移除 `updateTaskReminder` 的单提醒限制，UI 支持多提醒
-6. 自动重试 + 指数退避：`Reminder` 增加 `retryCount`/`nextRetryAt`，tick 中自动重试 `2^retryCount * 60s`
-7. 通知点击跳转：`sendNotification` 传 `data: { taskId }`，lib.rs 注册 `on_notification_click` 事件
-8. 重构 `TaskViewFilters` 为 `FilterGroup` 树形结构支持嵌套
-9. 安全导入：预览模式 + 选择性合并 + zod schema 校验
-10. 自动备份：Settings 增加配置项 + Tauri 后端定时任务
-11. 修复 ICS 导出：VTIMEZONE + VALARM + VTODO 或修正 STATUS
-12. Task 增加 `parentId`/`tags`/`attachments`，新建 `attachments` 表
-13. 批量操作：TodoActions 增加批量方法 + TaskList 多选模式
-14. 扩展状态机：`todo`/`in_progress`/`blocked`/`completed`/`cancelled`
+### ARC-005 [P1] 发布版本同步不包含 Cargo.lock — **已修复**
 
-**中优先级**：手动排序/置顶字段、统一搜索、跨工作区全局搜索、ProjectEditDialog 补 workingFolder、原子文件写入、CSV 字段补全、设置补全。
+**当前状态（阶段 B）**：`release-check.mjs` 校验 Cargo.lock 中 whattodo 版本；CI / release 使用 `cargo check --locked`。
 
----
+### ARC-006 [P2] repository.ts 责任过多且缺共享契约测试
 
-## 三、项目架构鲁棒性和稳定性
+**证据**：[`repository.ts`](../src/data/repository.ts) 体量仍大，同时包含领域规则、LocalRepository、SqlRepository、SQL 组装、cache、备份、CSV、ICS 和映射。
 
-### 3.1 LocalRepository 与 SqlRepository 语义对齐
+**进展（Wave 11）**：[`repositoryConformance.test.ts`](../src/data/repositoryConformance.test.ts) 双跑扩展覆盖 recurring 完成/禁用、backup replace/merge/v1、failed reminder、loadTaskPage/availableTasks/跨工作区、soft-delete recovery。
 
-**[严重] 设置存储模型根本不一致（per-workspace vs global）**
-- [repository.ts:1245-1272](file:///d:/Projects/ToDo/src/data/repository.ts) `SqlRepository.saveSettings`：settings 表以 workspace_id 为主键，按工作区存储
-- [repository.ts:557-560](file:///d:/Projects/ToDo/src/data/repository.ts) `LocalRepository.saveSettings`：单一全局 `this.data.settings`，整体写入 localStorage
-- [repository.ts:907-909](file:///d:/Projects/ToDo/src/data/repository.ts) Local 的 `exportBackup` 只导出 `{ [this.workspaceId]: this.data.settings }`，**丢失其他工作区设置**
+**影响**：任何领域变更都需要同时修改多处；真实 rusqlite 集成测仍缺。
 
-违反 AGENTS.md 第 15 行"LocalRepository 和 SqlRepository should behave consistently"。
+**建议**：拆为 repository contract、domain mutation、local adapter、sqlite adapter、backup、csv、ics；conformance 继续扩到真实临时 SQLite。
 
-**[严重] importBackup 设置处理数据丢失**
-[repository.ts:2023](file:///d:/Projects/ToDo/src/data/repository.ts) `normalizeBackupPayload` 只保留选中工作区的 settings，丢弃其余；SQL 版 [repository.ts:1670-1672](file:///d:/Projects/ToDo/src/data/repository.ts) 保留全部。
+### ARC-007 [P2] TaskPageResult 返回不完整 Task，却使用完整 Task 类型 — **已修复**
 
-**[严重] createWorkspace 设置初始化不一致**
-[repository.ts:461-475](file:///d:/Projects/ToDo/src/data/repository.ts)（Local）新工作区继承当前全局 settings；[repository.ts:1161-1174](file:///d:/Projects/ToDo/src/data/repository.ts)（SQL）调用 `insertSettings(db, id, DEFAULT_SETTINGS)` 重置为默认。
+**当前状态**：`TaskSummary` / `TaskPageResult` 已接入；`AppData.tasks` 为摘要；详情 `getTask` 返回完整 Task；Wave 8 将 `taskFilters` 与 `taskPageComparator` 收窄为 `TaskSummary`。备份/ICS/CSV 仍使用完整 `Task`。
 
-**[中等] moveTaskToWorkspace 校验不一致**
-[repository.ts:685](file:///d:/Projects/ToDo/src/data/repository.ts)（Local）有 `resolveWorkspaceId` 校验；[repository.ts:1431](file:///d:/Projects/ToDo/src/data/repository.ts)（SQL）无校验，由于 FK 未启用可制造孤儿任务。
+### ARC-008 [P2] 浏览器 fallback 无条件调用 Tauri event API — **已修复**
 
-**[中等] 事务覆盖范围不对等**
-`SqlRepository` 仅 5 个方法用 `withTransaction`；`createWorkspace` ([repository.ts:1166-1171](file:///d:/Projects/ToDo/src/data/repository.ts))、`deleteSavedView` ([repository.ts:1603-1614](file:///d:/Projects/ToDo/src/data/repository.ts)) 等多语句操作无事务保护。LocalRepository 通过单次 `persist()` 天然原子。
+**当前状态（Wave 1）**：仅在 Tauri runtime 注册 listen；浏览器 smoke/E2E 将 pageerror 视为失败。
 
-### 3.2 SqlRepository 测试覆盖
+### ARC-009 [P2] 数据库重置通知存在事件时序风险 — **已修复**
 
-**[严重] SqlRepository 测试严重不足（2 vs 11）**
-[repository.test.ts](file:///d:/Projects/ToDo/src/data/repository.test.ts) 中 `LocalRepository` 有 11 个用例，`SqlRepository` **仅 2 个**："updates snoozed and disabled reminder fields" 和 "loads task pages with SQL filters and reminder rows"。
+**当前状态（Wave 1）**：前端启动主动 `get_db_init_status`；事件用于后续变化。
 
-完全未覆盖：重复任务、备份导入、保存视图、失败提醒、workspace 过滤、软删除恢复、批量操作、事务回滚、createWorkspace 设置初始化、moveTaskToWorkspace 孤儿数据。
+### ARC-010 [P2] Rust 质量门禁和桌面验证不足
 
-**[中等] useReminders hook 本身无测试**
-[useReminders.test.ts](file:///d:/Projects/ToDo/src/hooks/useReminders.test.ts) 仅测试纯函数 `dueRemindersForData`，未测试 tick 并发控制、permission denied 回退、markReminderFailed 调用路径。
+**进展**：
+- CI 已跑 `cargo fmt --check` / clippy / `cargo test --locked` / `cargo check --locked`。
+- Wave 8：`lib.rs` rustfmt；`release-check.mjs` 与 release workflow 对齐 fmt/clippy/test；`package.json` 增加 `rust:fmt` / `rust:clippy` / `rust:test`。
+- Wave 10：[`DESKTOP_VALIDATION.md`](DESKTOP_VALIDATION.md) 增加可勾选清单、附件 sidecar / 自动备份保留项，并明确 agent 会话对交互桌面项为 **blocked**；Rust 覆盖 sidecar 导出与 auto-backup 清理。
 
-### 3.3 错误处理与失败恢复
+**残留**：交互桌面清单仍需人工 `pnpm tauri dev` 勾选；桌面 20k UI 验证多为 blocked；Rust 测试面仍偏窄。
 
-**[严重] 无 React ErrorBoundary**（同维度一）
+## 7. 程序运行效率
 
-**[严重] useReminders 外层 catch 静默吞掉所有错误**
-[useReminders.ts:110-111](file:///d:/Projects/ToDo/src/hooks/useReminders.ts) `} catch { return; }` —— `isPermissionGranted()`、`requestPermission()`、`dueRemindersForData` 任何抛错都被完全静默，用户无任何反馈。
+### PERF-001 [P2] 启动仍加载当前工作区全部任务
 
-**[中等] Tauri 命令错误暴露不充分**
-[lib.rs:272-275](file:///d:/Projects/ToDo/src-tauri/src/lib.rs) `set_close_to_tray` 返回 `()` 而非 `Result`，无法向 frontend 传递失败。[lib.rs:293-449](file:///d:/Projects/ToDo/src-tauri/src/lib.rs) `open_workspace_window` 大量 `let _ =` 静默忽略失败。
+**证据**：[`readAll()`](../src/data/repository.ts) 仍 O(N) 加载当前工作区全部 `TaskSummary`（及 reminders/attachments/templates 等）。
 
-**[中等] repository.ts 非事务方法无回滚**
-`createWorkspace` 若 `insertSettings` 失败，workspace 已插入无回滚；`deleteSavedView` DELETE + 可能的 saveSettings 无事务。[useTodos.ts:80-91](file:///d:/Projects/ToDo/src/hooks/useTodos.ts) `run` 失败时不回滚 UI 状态。
+**纠偏（Wave 11）**：列表查询已使用 [`TASK_LIST_COLUMNS`](../src/data/repositoryMappers.ts) + `TaskSummary`（**不含 notes**）；详情 notes 经 `getTask(id)` 按需加载。AUDIT 旧述 `SELECT *` 含 notes 已过时。
 
-### 3.4 Tauri 安全边界
+**残留**：启动仍全量拉取当前工作区 Summary；未做「首屏空列表 + 分页灌入」。统计/日历/提醒 tick 仍依赖内存中的任务切片。
 
-**[严重] read_text_file/write_text_file 路径无范围限制**
-[lib.rs:218-236](file:///d:/Projects/ToDo/src-tauri/src/lib.rs) `validate_text_file_path` 仅校验非空 + 扩展名，**不限制路径范围**。可读取/覆写系统任意 `.json/.csv/.ics/.txt` 文件。
+**建议**：AppData 启动只保留必要摘要或首屏页；统计、日历计数和提醒到期检查继续下推 SQL；避免为打开首页加载全部任务行。
 
-**[中等] CSP 包含开发服务器地址**
-[tauri.conf.json:25](file:///d:/Projects/ToDo/src-tauri/tauri.conf.json) `connect-src` 含 `http://127.0.0.1:5173 ws://127.0.0.1:5173`，生产环境若本机运行恶意 5173 服务可被诱导连接。`*.githubusercontent.com` 通配符较宽。
+### PERF-002 [P1] 大量普通 mutation 后仍执行完整 readAll
 
-**[中等] capabilities 给 frontend 全 SQL 权限**
-[capabilities/default.json:18-21](file:///d:/Projects/ToDo/src-tauri/capabilities/default.json) `sql:allow-load`/`execute`/`select` 全部授予，任何 XSS 可执行任意 SQL（含 DELETE/DROP）。
+**证据**：高频 toggle/status/delete/reminder 与 Tier-1/Tier-2/Tier-3 定向 `commitCache` delta patch 已落地。
 
-### 3.5 数据迁移与版本管理
+**进展**：Tier-1～3 已完成。**Wave 11 收尾**：`selectWorkspace`、删**当前**工作区、`importBackup` 改为 `loadWorkspaceSlices` / 内存组装 + `commitCache`，不再 post-mutation `readAllWithPatch()`。
 
-**[严重] 迁移失败直接重置数据库（数据全毁）**
-[lib.rs:686-693](file:///d:/Projects/ToDo/src-tauri/src/lib.rs) 迁移失败后 `reset_database(&db_path)` 删除 db + wal + shm 重新创建空库，**无自动备份**。仅通过 `db-reset` 事件 ([lib.rs:778](file:///d:/Projects/ToDo/src-tauri/src/lib.rs)) 通知 frontend 显示 banner。
+**仍全量 readAll**：冷启动 `load()` / cache miss `getCache()`。
 
-**[严重] 迁移不可回滚**
-[lib.rs:473-526](file:///d:/Projects/ToDo/src-tauri/src/lib.rs) `apply_migrations` 仅向前迁移，无 DOWN 脚本。一旦迁移应用无法回退（降级应用会因 schema 不匹配而崩溃）。
+**影响**：工作区任务量大时，冷启动与首次 miss 仍贵；普通编辑与切工作区已不再二次全表重读。
 
-**[中等] 推断已应用迁移的逻辑脆弱**
-[lib.rs:528-603](file:///d:/Projects/ToDo/src-tauri/src/lib.rs) `infer_applied_migrations` 通过检查表/列/索引是否存在推断版本，部分应用会导致推断错误，`bootstrap_migration_tracking` 记录后该迁移永不会重跑，留下不一致 schema。
+**建议**：继续压缩 `load()` 启动面（见 PERF-001）；cache miss 可只拉 workspaces + 当前 slice。
 
-**[中等] ALTER TABLE 无幂等保护**
-[lib.rs:81-83](file:///d:/Projects/ToDo/src-tauri/src/lib.rs) `ADD_PROJECT_WORKING_FOLDER_SQL` 等 ALTER TABLE ADD COLUMN 不支持 IF NOT EXISTS，迁移表损坏重跑会因"column already exists"失败 → 触发数据库重置。
+### PERF-003 [P2] AppShell 订阅完整 AppData 并重复构建索引
 
-### 3.6 类型安全
+**证据**：曾用 `useTodoData()` 订阅整树，settings 变更也会重渲染外壳。
 
-**[中等] SQL 结果类型断言无运行时校验**
-[repository.ts:243-261](file:///d:/Projects/ToDo/src/data/repository.ts) `rowToTask` 用 `row.priority as Task["priority"]` unsafe 断言；[repository.ts:297-308](file:///d:/Projects/ToDo/src/data/repository.ts) `rowToSavedTaskView` 的 `JSON.parse(String(row.filters_json))` 无 try/catch，损坏的 filters_json 会导致整个 readAll 失败。
+**进展（Wave 11）**：[`AppShell.tsx`](../src/components/app/AppShell.tsx) 改用 `useTasks` / `useSettings` / `useWorkspaceId` 等 slice；索引仍只依赖 `tasks`/`projects`/`reminders`；`useReminders` 收窄为 `ReminderTickData`；`useAutoBackup` 只依赖 `ready` 布尔。
 
-**[轻微] i18n key 无类型约束**
-[i18n/index.ts:7-580](file:///d:/Projects/ToDo/src/i18n/index.ts) 未做 `declare module 'i18next'` 类型增强，`t("nonExistentKey")` 不报编译错误。
+**残留**：子视图仍接收组装后的 `data` prop；Overview 等未全部改为直接 slice 订阅。
 
-### 3.7 并发与竞态
+**建议**：让各 view 直接使用 slice selectors；继续保证 patch 不改变无关 slice 的引用。
 
-**[严重] SQLite 未启用 WAL 模式 + 单连接 + FK 未启用**
-[repository.ts:1735-1738](file:///d:/Projects/ToDo/src/data/repository.ts) `this.db ??= await Database.load(DB_URL)` 单连接懒加载，全文 grep `PRAGMA|journal_mode|WAL|foreign_keys` 无业务匹配（[lib.rs:542](file:///d:/Projects/ToDo/src-tauri/src/lib.rs) 仅 `PRAGMA table_info`）。
+### PERF-004 [P2] 文本搜索无法利用普通索引 — **本轮不做 FTS5**
 
-后果：
-- 默认 DELETE journal mode，写时阻塞读，频繁写入冻结 UI 查询
-- FK 定义形同虚设，`moveTaskToWorkspace` 可制造孤儿任务，删除 workspace 不级联
-- 主窗口与浮窗两个 Webview 各自 `Database.load` 同一 DB，无 `busy_timeout` 会立即报 `SQLITE_BUSY`
+**证据**：[`loadTaskPage`](../src/data/repository.ts) 使用 `%query%` 匹配 title、notes、日期、时间和项目名。
 
-**[中等] useTodos mutation 无队列/取消**
-[useTodos.ts:80-91](file:///d:/Projects/ToDo/src/hooks/useTodos.ts) `run` 无 mutex，连续 `createTask` 两次并发，第二个 `setData(next)` 可能覆盖第一个结果。`selectWorkspace` ([useTodos.ts:143](file:///d:/Projects/ToDo/src/hooks/useTodos.ts)) 快速切换多个 `readAll()` 竞态。无 AbortController 取消机制。
+**影响**：数据增长后搜索会扫描候选任务；查询和 count 还会分别执行一次相同过滤。
 
-### 3.8 测试基础设施
+**Wave 5 决策（2026-07-22）**：不引入 SQLite FTS5。LocalRepository 20k `loadTaskPage` P95 远低于预算；本轮未能完成 Tauri 桌面导入与 Home 搜索计时，因此没有用户可见瓶颈证据。短期继续依赖分页查询与非文本过滤；仅在真实桌面记录搜索卡顿后再开 FTS Wave。
 
-**[中等] 测试 setup 极简**
-[test/setup.ts](file:///d:/Projects/ToDo/src/test/setup.ts) 仅 16 行，只 mock `window.matchMedia`。无 MSW、无 Tauri API 全局 mock 层（各测试自行 mock `@tauri-apps/plugin-sql`）。
+**建议（保留）**：桌面 20k 搜索实测后再决定 FTS5；短期可把 count 和 page 查询并发，并为常用非文本过滤补充组合索引与 EXPLAIN QUERY PLAN 基线。
 
-**[中等] 无集成/E2E 测试**
-无端到端测试（无 Playwright/Cypress 依赖），无"Tauri command → SQLite → repository → hook → component"全链路集成测试。
+### PERF-005 [P2] 性能自动化不代表真实桌面负载
 
-**[中等] 无覆盖率配置 / CI 未跑 lint/clippy**
-[vite.config.ts:18-22](file:///d:/Projects/ToDo/vite.config.ts) `test` 配置无 `coverage` 字段；[ci.yml:67-74](file:///d:/Projects/ToDo/.github/workflows/ci.yml) 仅 `pnpm test`、`pnpm build`、`cargo check`，无 `pnpm lint`、`cargo clippy`、`pnpm audit`。[package.json:6-19](file:///d:/Projects/ToDo/package.json) 也无 lint 脚本。
+**证据**：[`repository.perf.test.ts`](../src/data/repository.perf.test.ts#L6) 只测试 LocalRepository 的 2000 条任务，并明确声明不能替代 20k 桌面验证。
 
-**[轻微] 无 Rust 侧测试**
-[src-tauri/src/lib.rs](file:///d:/Projects/ToDo/src-tauri/src/lib.rs) 无 `#[cfg(test)] mod tests`，CI 仅 `cargo check`。
+**进展（Wave 10）**：[`PERFORMANCE_VALIDATION.md`](PERFORMANCE_VALIDATION.md) / [`DESKTOP_VALIDATION.md`](DESKTOP_VALIDATION.md) 记录自动化绿与桌面 **blocked** 边界；20k fixture + Local/runtime 门禁仍绿。
 
-### 3.9 构建与发布
+**缺口**：没有真实 SQLite 文件、Tauri IPC、导入耗时、首屏时间、搜索、mutation 延迟、内存峰值、提醒中心和悬浮窗数据。
 
-**[中等] release-check.mjs 不校验公钥与私钥匹配**
-[release-check.mjs:29-35](file:///d:/Projects/ToDo/scripts/release-check.mjs) 仅检查 `pubkey` 非空和 `endpoints` 非空，不验证 pubkey 与签名私钥是否匹配。私钥轮换但未更新 pubkey 时签名产物无法被 updater 验证。
+**建议**：在本机 `pnpm tauri dev` 导入 `tmp/performance-backup-20000.json` 后填写桌面行：冷启动、切工作区、首屏、搜索、打开详情、完成任务、批量操作、提醒分组、导入和内存峰值；给出 P50/P95。
 
-**[中等] release-build.mjs 默认密码空串**
-[release-build.mjs:12](file:///d:/Projects/ToDo/scripts/release-build.mjs) `env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ??= ""`，密码为空静默通过可能掩盖配置缺失。
+### PERF-006 [P3] bundle 门槛只约束主入口，不约束总量和关键路由
 
-### 3.10 改进建议清单（架构维度）
+**现状**：主入口约 211.7 kB，低于 500 kB 限制；总 JS 约 822.3 kB，React vendor 约 287.6 kB，当前 gzip 体积仍可接受。
 
-**P0 严重**：
-1. 修复 Local/SQL 设置一致性：Local 改为 `Record<string, Settings>` 按 workspaceId 索引，`exportBackup`/`importBackup` 保留全部
-2. 引入全局 React ErrorBoundary
-3. [useReminders.ts:110](file:///d:/Projects/ToDo/src/hooks/useReminders.ts) `catch {}` 改为记录错误并回调
-4. `validate_text_file_path` 增加路径范围限制
-5. 迁移失败前自动导出当前 DB 为备份文件
-6. 初始化 DB 时执行 `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;`
-7. 为 SqlRepository 补齐与 LocalRepository 一一对应的对等用例
+**建议**：继续保留懒加载；基线同时记录 total JS、初始请求 gzip、最大 lazy route 和 CSS，避免把依赖移动到 vendor 后绕过 main chunk 门槛。
 
-**P1 中等**：
-8. `withTransaction` 用 `SAVEPOINT` 支持嵌套；`createWorkspace`/`deleteSavedView` 等多语句操作统一包裹事务
-9. `moveTaskToWorkspace` 增加校验防止孤儿数据
-10. 生产 CSP 移除 dev server 地址
-11. `infer_applied_migrations` 改为逐列检查迁移内所有 schema 变更
-12. ALTER TABLE 迁移用 `BEGIN; ALTER...; COMMIT;` 包裹并捕获"duplicate column"错误
-13. `normalizeBackupPayload` 用 zod schema 校验
-14. `rowToTask` 等用 guard 校验枚举字段
-15. `useTodos.run` 引入请求序列号 + AbortController
-16. package.json 增加 `lint` 脚本，CI 增加 lint/clippy/audit
-17. `release-check.mjs` 增加公钥/私钥匹配校验
+## 8. 系统性问题
 
----
+1. **验证声明与真实门禁不一致**：README、Playwright 注释和手工清单描述了应执行的验证，但 CI 并未实际执行 E2E、Rust tests、fmt、clippy 或 locked build。
+2. **错误反馈仍以局部 catch + 普通文本为主**：视觉上已有反馈，但可访问性、日志、最近失败状态和跨会话诊断不足。
+3. **部分性能优化只覆盖高频路径**：Wave 11 后切工作区/导入/删当前工作区已定向 patch；冷启动 `load()` 仍全量 readAll。
+4. **类型未区分完整实体与摘要**：TaskPageResult、availableTasks、recovery tasks 在 Local/SQL 下携带的信息不一致。
+5. **桌面能力缺自动化层**：通知、托盘、窗口、文件系统和 migration 仍主要依赖人工代码推断。
 
-## 四、程序运行效率
+## 9. 分阶段整改路线
 
-### 4.1 Repository 全量读取问题（致命瓶颈）
+### 阶段 A：数据安全与发布阻断项
 
-**[严重] 33 个 mutation 全部触发 readAll（8 条 SELECT），单次 toggleTask 触发 16 条 SQL**
-[repository.ts](file:///d:/Projects/ToDo/src/data/repository.ts) 中所有 mutation 方法（共约 33 个）在尾部都调用 `this.readAll()` 返回完整 AppData。readAll 每次执行 **8 条串行 SELECT**（[repository.ts:1742-1781](file:///d:/Projects/ToDo/src/data/repository.ts)），含**当前 workspace 全部未删除任务（20k 行）**。
+1. 修复 `ARC-001`：migration 失败禁止自动删除原库，备份成功且校验后才能由用户主动重置。
+2. 修复 `ARC-002`：拆分 migration，逐项检测 schema，不再用 duplicate-column 字符串跳过整版。
+3. 修复 `ARC-003`：repository mutation 串行化，补并发 cache/transaction 测试。
+4. 修复 `FUN-001`：自动备份必须以真实文件写入成功为准，记录最后成功和失败。
+5. 修复 `FUN-002`：补备份默认值/版本迁移，并让 20k fixture 自校验。
 
-**单次 `toggleTask` 端到端流程**：
-1. `SqlRepository.toggleTask` 内部先 `readAll()`（8 条 SELECT）找当前任务 ([repository.ts:1509](file:///d:/Projects/ToDo/src/data/repository.ts))
-2. 执行 UPDATE
-3. 再次 `readAll()` 返回（[repository.ts:1529](file:///d:/Projects/ToDo/src/data/repository.ts)），共 **16 条 SELECT**
-4. `useTodos` 的 `setData(next)` 替换整个 AppData ([useTodos.ts:83](file:///d:/Projects/ToDo/src/hooks/useTodos.ts))
-5. OverviewView 的 `useTaskPage({ reloadKey: data.tasks })` ([OverviewView.tsx:108](file:///d:/Projects/ToDo/src/components/app/OverviewView.tsx)) 检测到新引用，重新 `loadTaskPage(0)`，又 **3 条 SELECT**
-6. 整棵组件树重渲染
+阶段 A 验收：旧库升级、备份失败、磁盘错误、两个并发 mutation、自动备份失败均有自动化测试；任何失败不删除用户原始数据。
 
-**单次勾选 = 19 条 SQL 查询 + 全量重渲染。**
+### 阶段 B：CI 与发布门禁
 
-**[严重] 6 个方法双重 readAll（先查后改后返回）**
-- `updateWorkspace` ([repository.ts:1177+1191](file:///d:/Projects/ToDo/src/data/repository.ts))
-- `updateProject` ([repository.ts:1302+1316](file:///d:/Projects/ToDo/src/data/repository.ts))
-- `updateRecurringTaskTemplate` ([repository.ts:1394+1420](file:///d:/Projects/ToDo/src/data/repository.ts))
-- `updateTask` ([repository.ts:1443+1468](file:///d:/Projects/ToDo/src/data/repository.ts))
-- `updateTaskReminder` ([repository.ts:1472+1481](file:///d:/Projects/ToDo/src/data/repository.ts))
-- `toggleTask` ([repository.ts:1509+1529](file:///d:/Projects/ToDo/src/data/repository.ts))
+1. 修复当前 E2E 定位器，并让 `pnpm test:e2e` 进入 CI。
+2. 修复 rustfmt，增加 fmt、clippy、cargo test 和 `cargo check --locked`。
+3. 修复 Cargo.lock 版本同步和 release-check 校验。
+4. 浏览器 smoke 监听 `pageerror` / console error。
+5. 为每次 release 保存已完成的 `DESKTOP_VALIDATION.md` 结果，而不是空清单。
 
-### 4.2 SQL 查询效率
+阶段 B 验收：干净 checkout 上所有门禁一次通过，CI 与本地 release-check 对版本和测试结论一致。
 
-**[严重] readAll 的 tasks 查询缺复合索引**
-[repository.ts:1755-1757](file:///d:/Projects/ToDo/src/data/repository.ts) 用 `ORDER BY created_at DESC`，现有复合索引是 `(workspace_id, deleted_at, due_date)` 与 `(workspace_id, deleted_at, status)`，**没有 `(workspace_id, deleted_at, created_at)`**，ORDER BY 需要额外排序步骤。20k 行排序有成本。
+### 阶段 C：数据层性能与契约
 
-**[中等] 全部 SELECT *，列表读取 notes/timezone 等无用字段**
-readAll 的 8 条查询、loadAvailableTasks ([repository.ts:1021](file:///d:/Projects/ToDo/src/data/repository.ts))、loadRecoveryItems ([repository.ts:1031-1047](file:///d:/Projects/ToDo/src/data/repository.ts))、loadTaskPage 主查询 ([repository.ts:1135](file:///d:/Projects/ToDo/src/data/repository.ts))、exportBackup 的 8 条查询 ([repository.ts:1618-1637](file:///d:/Projects/ToDo/src/data/repository.ts)) 全部 `SELECT *`，列表渲染只需 id/title/dueDate/dueTime/priority/status/projectId 等少量字段，notes 应在 TaskDetailPane 打开时单独按 id 懒加载。
+1. 拆分 repository 责任并建立 Local/SQLite 共享 conformance suite。
+2. 引入 TaskSummary，详情按 ID 查询。
+3. 把普通 CRUD 改为 delta patch，减少 readAll。
+4. 用真实 SQLite/Tauri 完成 20k P50/P95 验证，再决定 FTS5 和更多索引。
 
-**[中等] readAll 8 条 SELECT 串行，未 Promise.all 并行**
-[repository.ts:1742-1781](file:///d:/Projects/ToDo/src/data/repository.ts) 逐条 `await`，无 `Promise.all` 并行化。
+阶段 C 验收：20k 单工作区下启动、搜索、编辑、完成和批量操作达到明确预算，Local/SQL 契约测试完全一致。
 
-### 4.3 前端渲染效率
+### 阶段 D：交互和功能收口
 
-**[严重] 列表无虚拟化，loadMore 累加不清退，20k 全加载 DOM 崩溃**
-[TaskList.tsx:100](file:///d:/Projects/ToDo/src/components/app/TaskList.tsx) `visibleTasks.map(...)` 把所有传入的 tasks 一次性渲染为 DOM `<article>` 节点。[useTaskPage.ts:82](file:///d:/Projects/ToDo/src/hooks/useTaskPage.ts) loadMore 把新页 `[...current.tasks, ...next.tasks]` 累加，**无淘汰机制**。用户连续点 10 次 loadMore 后 DOM 里有 1500 个节点，20k 任务全加载后 = 20000 个 DOM 节点，会卡死。
+1. 完成 command palette combobox、日期 aria-label、字段错误关联和 live region。
+2. 消除全局/DOM 快捷键双触发，替换通知 focus 近似方案。
+3. 修正 ICS 语义，扩展 recurrence 规则和字段继承。
+4. 完善子任务树、跨工作区搜索、导入冲突摘要和附件失效恢复。
+5. 最后执行视觉、暗色、窄屏、键盘和 reduced-motion polish。
 
-**[严重] TaskList 未 React.memo**
-[TaskList.tsx:49](file:///d:/Projects/ToDo/src/components/app/TaskList.tsx) `export function TaskList` 未用 React.memo 包裹。父组件每次重渲染整个列表重渲染，即使 props 相同。
+## 10. 建议的持续检查命令
 
-**[严重] 状态管理：单一 AppData blob，无 selector，mutation 后全树重渲染**
-[useTodos.ts:76,83](file:///d:/Projects/ToDo/src/hooks/useTodos.ts) 用单个 `useState<AppData | null>`，所有 mutation 通过 `setData(next)` 替换整个 AppData。**没有 selector、没有 context 拆分、没有 zustand/jotai 原子订阅**。AppShell 把 `data` 透传给所有视图，每次 mutation 全部重渲染。例如用户在 ReminderCenterView snooze 一个提醒 → HomeView（不可见）也重渲染。
+```bash
+pnpm lint
+pnpm test
+pnpm test:e2e
+pnpm build
+pnpm perf:runtime
+pnpm perf:build
 
-**[严重] readAll → useTaskPage reloadKey=data.tasks 级联**
-[OverviewView.tsx:108](file:///d:/Projects/ToDo/src/components/app/OverviewView.tsx)、[ProjectsView.tsx:98](file:///d:/Projects/ToDo/src/components/app/ProjectsView.tsx)、[WorkspaceFloatingWindow.tsx:42](file:///d:/Projects/ToDo/src/components/app/WorkspaceFloatingWindow.tsx) 都把 `data.tasks` 整个数组作为 `reloadKey`，每次 readAll 返回新引用 → loadTaskPage 重跑整页。
+cd src-tauri
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --locked
+cargo check --locked
+```
 
-**[中等] buildAppIndexes 在 AppShell + HomeView 重复构建两份**
-[AppShell.tsx:153](file:///d:/Projects/ToDo/src/components/app/AppShell.tsx) 与 [HomeView.tsx:40](file:///d:/Projects/ToDo/src/components/app/HomeView.tsx) 各 `useMemo(() => buildAppIndexes(data), [data])` 一次。每次 readAll 返回新 data → buildAppIndexes 重跑 O(n) → 重建 5 个 Map/Set。20k 任务下每次 mutation 都做一次 20k 元素 Map 构建，且两处重复。
+发布前还必须执行：
 
-**[中等] OverviewView counts 对全部 tasks 做 3 次遍历**
-[OverviewView.tsx:82-90](file:///d:/Projects/ToDo/src/components/app/OverviewView.tsx) all/open/completed/overdue 各 filter 一次，可合并为单次 reduce。
+- 完整记录 `docs/DESKTOP_VALIDATION.md`。
+- 完整记录 `docs/PERFORMANCE_VALIDATION.md` 的 20k 桌面结果。
+- 验证真实通知权限允许/拒绝、托盘恢复、关闭到托盘、悬浮窗、文件覆盖写入、自动备份和数据库迁移恢复。
+- 运行 `pnpm release:check` 并确认 updater 签名密钥只存在于安全环境。
 
-**[中等] DatePane taskCountsByDate 每次 data 变化对全量 tasks reduce**
-[DatePane.tsx:30](file:///d:/Projects/ToDo/src/components/app/DatePane.tsx) + [date.ts:85-93](file:///d:/Projects/ToDo/src/data/date.ts) 20k 任务下每次 mutation 都跑一遍 O(n)。
+## 11. 审计结论
 
-**[中等] TaskDetailPane effect 依赖 reminders 数组，mutation 后重置表单**
-[TaskDetailPane.tsx:58-74](file:///d:/Projects/ToDo/src/components/app/TaskDetailPane.tsx) useEffect 依赖 `[reminders, settings.defaultReminderOffset, task]`，readAll 后 reminders 引用变化 → effect 触发 → `setTitle/setNotes/setDueDate/...` 全部重置为 task 原值。**若用户正在编辑未保存，mutation（哪怕是别的 task 的 toggle）会清空当前输入**。
+WhatToDo 的产品面和前端完成度已经较高，继续堆叠普通功能的边际收益低于修复数据安全与验证体系。下一阶段应按 **migration 数据安全 → 并发与 cache 一致性 → 自动备份与备份兼容 → CI/发布门禁 → 20k 数据层性能 → 交互与功能收口** 的顺序推进。
 
-### 4.4 SQLite 配置
-
-**[严重] 无 WAL 模式、无 busy_timeout**（同维度三 3.7）
-
-### 4.5 大数据集验证状态
-
-**[严重] 20k 桌面验证全部 not run，仅测 bundle 体积**
-[PERFORMANCE_VALIDATION.md:17-22](file:///d:/Projects/ToDo/docs/PERFORMANCE_VALIDATION.md) 手动桌面检查全部 "not run"。[perf-baseline.mjs:43-45](file:///d:/Projects/ToDo/scripts/perf-baseline.mjs) 只测 bundle 体积不测运行时性能。**即：20k 任务的真实桌面运行性能从未被验证过**，所有性能假设都是纸面推断。
-
-### 4.6 内存与资源释放
-
-**[中等] useGlobalShortcuts 依赖不稳定回调可能导致频繁 register/unregister**
-[useGlobalShortcuts.ts:51](file:///d:/Projects/ToDo/src/hooks/useGlobalShortcuts.ts) 依赖 `[onNewTask, onOpenPalette, onSearchTasks]`，AppShell 传入的回调若不稳定 effect 会反复重建。
-
-**[中等] useTaskPage loadMore 累积无淘汰，20k 全驻留内存**
-[useTaskPage.ts:82](file:///d:/Projects/ToDo/src/hooks/useTaskPage.ts) 累积无淘汰，20k 全加载后 20k 个 Task 对象 + Reminder 全部驻留 React state。
-
-### 4.7 Bundle 与依赖
-
-**[中等] radix-ui 元包与 @radix-ui/* 单包并存可能重复打包**
-[package.json:22-25,40](file:///d:/Projects/ToDo/package.json) 同时有 `@radix-ui/react-dialog` 等子包和 `"radix-ui": "^1.4.3"` 元包，若代码同时从两处 import Tree-shaking 可能无法去重。
-
-**[轻微] shadcn CLI 误放 dependencies、tw-animate-css 可移 devDependencies**
-[package.json:45,47](file:///d:/Projects/ToDo/package.json)。**[轻微] zod 可能未使用** ([package.json:48](file:///d:/Projects/ToDo/package.json))，需 `pnpm depcheck` 确认。
-
-### 4.8 提醒中心与定时任务效率
-
-**[轻微] 单次 tick 内 tasksById Map 构建两次**
-[useReminders.ts:13+79](file:///d:/Projects/ToDo/src/hooks/useReminders.ts) `dueRemindersForData` 内部构建一次，外层又构建一次。
-
-### 4.9 改进建议清单（效率维度，按 ROI 排序）
-
-**第一优先级（投入小，收益巨大）**：
-1. **mutation 返回局部对象而非 readAll**：改 `TodoRepository` 接口，snoozeReminder/markReminderFired/disableReminder/toggleTask/deleteTask 等返回 `Promise<Reminder | Task>`，用 SQLite `UPDATE ... RETURNING *` 取回单行。预计单次 mutation 的 SQL 从 16 条降到 1 条，20k 场景从 ~150ms 降到 < 5ms。
-2. **断开 useTaskPage 的 reloadKey=data.tasks 级联**：改为 `reloadKey: data.tasks.length` 或显式 dirty 标志。否则即便修了第 1 点，每次 mutation 仍会重跑 loadTaskPage。
-3. **开启 SQLite WAL + busy_timeout**：在 [lib.rs](file:///d:/Projects/ToDo/src-tauri/src/lib.rs) migration 第一步或 init_database 后执行 `PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;`。解决浮窗双连接争用与写阻塞读。
-4. **去掉双重 readAll**：updateTask/updateProject/toggleTask 等"先 readAll 找当前对象"改为直接 `SELECT * FROM tasks WHERE id=?` 单行查询（命中主键索引）。
-
-**第二优先级（投入中等，收益显著）**：
-5. TaskList 引入虚拟列表（`@tanstack/react-virtual` 或 `react-virtuoso`），只渲染可视区 ~20 行。
-6. TaskList 包 React.memo，配合 props 引用稳定。
-7. appIndexes 单例化：useTodos 内 `useMemo` 后通过 Context 暴露，删除重复构建。
-8. readAll 的 8 条 SELECT 并行化 `Promise.all`。
-9. SELECT * 收窄，TaskDetailPane 打开时单独 `SELECT notes FROM tasks WHERE id=?` 懒加载。
-10. 补索引 `idx_tasks_workspace_deleted_created_at`。
-
-**第三优先级（长期收益）**：
-11. 状态管理重构：引入 zustand（或 useSyncExternalStore）按 slice 订阅，让 ReminderCenterView 只订阅 reminders。
-12. mutation 增量索引：appIndexes 改为可变更新而非全量重建。
-13. 运行时性能基准：新增 `scripts/perf-runtime.mjs` 驱动桌面 app 导入 20k fixture 测量 loadTaskPage/toggleTask/loadMore 耗时。
-14. 清理依赖：shadcn→devDependencies，确认 zod 是否使用，统一 radix-ui import 来源。
-
-**第四优先级（细节优化）**：
-15. useReminders 去除双 Map 构建
-16. TaskDetailPane effect 依赖收窄为 `[task?.id]`
-17. useGlobalShortcuts 回调稳定化
-18. OverviewView counts 合并遍历为单次 reduce
-
----
-
-## 跨维度优先级矩阵
-
-| 优先级 | 关键改进项 |
-|---|---|
-| **P0 立即修复** | 1. 引入全局 ErrorBoundary（维度一/三）<br>2. mutation 返回局部对象 + 断开 reloadKey 级联 + 开启 WAL（维度四）<br>3. 修复 Local/SQL settings 一致性（维度三）<br>4. 修复全局快捷键内联闭包导致的反复注册（维度一）<br>5. 修复 TaskDetailPane 切换任务时未保存内容丢失（维度一/四）<br>6. 迁移失败前自动备份（维度三） |
-| **P1 计划修复** | 7. SqlRepository 测试补齐（维度三）<br>8. 扩展 quickAdd 中文日期解析（维度一）<br>9. 桌面实机验证（维度一）<br>10. TaskList 虚拟化 + React.memo（维度四）<br>11. 修复 ICS 导出标准合规（维度二）<br>12. 安全导入预览 + zod 校验（维度二）<br>13. 路径范围限制 + 生产 CSP 收紧（维度三） |
-| **P2 功能补全** | 14. 重复任务规则扩展（interval/byWeekday/yearly）（维度二）<br>15. 提醒历史时间线 + 多提醒 + 通知点击跳转（维度二）<br>16. 批量操作 + 多选模式（维度一/二）<br>17. 任务字段扩展（子任务/标签/附件）（维度二）<br>18. 状态机扩展（in_progress/blocked/cancelled）（维度二） |
-| **P3 长期优化** | 19. 状态管理重构（zustand 按 slice 订阅）（维度四）<br>20. 运行时性能基准与 CI 断言（维度四）<br>21. 复合过滤条件（FilterGroup 树）（维度二）<br>22. 自动备份（维度二）<br>23. E2E 测试与覆盖率门槛（维度三） |
-
----
-
-## 报告说明
-
-- 所有结论均基于 `d:\Projects\ToDo` 当前磁盘代码状态（截至 2026-06-26），未依赖文档承诺。
-- 引用的文件路径与行号均可直接通过编辑器跳转复核。
-- 项目核心结论：**WhatToDo 在基础 CRUD、数据持久化、迁移系统、workspace 隔离、undo 机制、分页 API 等方面做得扎实，但在「mutation→readAll 全量重读」性能瓶颈、「Local/SQL 一致性」、「重复规则/提醒/批量等任务管理领域深度」、「全局错误边界与桌面实机验证」上存在系统性不足**，需要按上述 P0→P3 优先级分阶段落地。
+修复后应重新执行本审计，并同步更新 `README.md`、`PROJECT_ANALYSIS.md`、`DESKTOP_VALIDATION.md` 和 `PERFORMANCE_VALIDATION.md`，避免文档继续保留已经过时的测试数量、构建体积和功能缺口。

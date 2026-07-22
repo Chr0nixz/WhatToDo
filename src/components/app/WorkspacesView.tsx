@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { accentSwatches, defaultAccentSwatch } from "@/data/accentSwatches";
-import type { AppData, Task } from "@/data/types";
+import type { AppData, TaskSummary } from "@/data/types";
 import { useTaskPage } from "@/hooks/useTaskPage";
 import { useTasksRevision } from "@/hooks/useTodoStore";
 import type { TodoActions } from "@/hooks/useTodos";
@@ -44,7 +44,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
   const [workspaceActionError, setWorkspaceActionError] = useState<string | null>(null);
-  const [availableTasks, setAvailableTasks] = useState<Task[]>([]);
+  const [availableTasks, setAvailableTasks] = useState<TaskSummary[]>([]);
   const [isLoadingAvailableTasks, setIsLoadingAvailableTasks] = useState(false);
   const [availableTasksError, setAvailableTasksError] = useState<string | null>(null);
 

@@ -13,10 +13,11 @@ import {
 } from "@/data/commandPalette";
 
 export type CommandPaletteMode = "commands" | "tasks";
+export type CommandTaskSearchScope = "current" | "all";
 
 type UseCommandPaletteOptions = {
   buildItems: () => CommandItem[];
-  searchTasks: (query: string) => Promise<CommandItem[]>;
+  searchTasks: (query: string, scope: CommandTaskSearchScope) => Promise<CommandItem[]>;
   onOpenTask: (taskId: string) => void;
   onClose?: () => void;
 };
@@ -24,6 +25,7 @@ type UseCommandPaletteOptions = {
 export const useCommandPalette = ({ buildItems, searchTasks, onOpenTask, onClose }: UseCommandPaletteOptions) => {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<CommandPaletteMode>("commands");
+  const [taskSearchScope, setTaskSearchScope] = useState<CommandTaskSearchScope>("current");
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [taskItems, setTaskItems] = useState<CommandItem[]>([]);
@@ -114,7 +116,7 @@ export const useCommandPalette = ({ buildItems, searchTasks, onOpenTask, onClose
 
   useEffect(() => {
     setActiveIndex(0);
-  }, [query, mode, visibleItems.length]);
+  }, [query, mode, taskSearchScope, visibleItems.length]);
 
   useEffect(() => {
     if (!open || mode !== "tasks") {
@@ -132,7 +134,7 @@ export const useCommandPalette = ({ buildItems, searchTasks, onOpenTask, onClose
     setIsSearchingTasks(true);
     setTaskSearchError(null);
     const timer = window.setTimeout(() => {
-      void searchTasks(trimmed)
+      void searchTasks(trimmed, taskSearchScope)
         .then((items) => {
           setTaskItems(items);
         })
@@ -146,7 +148,7 @@ export const useCommandPalette = ({ buildItems, searchTasks, onOpenTask, onClose
     }, 180);
 
     return () => window.clearTimeout(timer);
-  }, [mode, open, query, recentTaskItems, searchTasks]);
+  }, [mode, open, query, recentTaskItems, searchTasks, taskSearchScope]);
 
   useEffect(() => {
     if (!open) {
@@ -221,6 +223,8 @@ export const useCommandPalette = ({ buildItems, searchTasks, onOpenTask, onClose
     open,
     mode,
     setMode,
+    taskSearchScope,
+    setTaskSearchScope,
     query,
     setQuery,
     activeIndex,

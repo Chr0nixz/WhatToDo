@@ -9,7 +9,14 @@ import type { AppData } from "@/data/types";
 
 const isTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-export const dueRemindersForData = (data: AppData, now = Date.now()) => {
+export type ReminderTickData = Pick<AppData, "tasks" | "reminders" | "settings">;
+
+export type ReminderNotifyPayload = {
+  id: string;
+  title: string;
+};
+
+export const dueRemindersForData = (data: ReminderTickData, now = Date.now()) => {
   const tasksById = new Map(data.tasks.map((task) => [task.id, task]));
 
   return data.reminders.filter((reminder) => {
@@ -28,40 +35,20 @@ export const dueRemindersForData = (data: AppData, now = Date.now()) => {
 };
 
 export const useReminders = (
-  data: AppData | null,
+  data: ReminderTickData | null,
   markReminderFired: (id: string) => Promise<AppData>,
   markReminderFailed: (id: string, reason: string) => Promise<AppData>,
-  onOpenTask: (taskId: string) => void,
+  onReminderNotified?: (task: ReminderNotifyPayload) => void,
   onPermissionDenied?: () => Promise<void> | void,
 ) => {
-  const latestStateRef = useRef({ data, markReminderFired, markReminderFailed, onOpenTask, onPermissionDenied });
+  const latestStateRef = useRef({ data, markReminderFired, markReminderFailed, onReminderNotified, onPermissionDenied });
   const isTickingRef = useRef(false);
   const permissionDeniedRef = useRef(false);
   const activeReminderIdsRef = useRef(new Set<string>());
-  // Tracks the most recently notified task id. The Tauri desktop notification
-  // plugin does not expose a click handler on desktop, so we approximate
-  // "user clicked the notification" by navigating to this task when the app
-  // window regains focus shortly after a notification fires.
-  const pendingFocusTaskIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    latestStateRef.current = { data, markReminderFired, markReminderFailed, onOpenTask, onPermissionDenied };
-  }, [data, markReminderFailed, markReminderFired, onOpenTask, onPermissionDenied]);
-
-  // Focus-based notification click handling: when the window gains focus
-  // within 60s of a notification firing, navigate to the notified task.
-  useEffect(() => {
-    if (!isTauriRuntime()) return;
-    const onFocus = () => {
-      const taskId = pendingFocusTaskIdRef.current;
-      if (taskId) {
-        pendingFocusTaskIdRef.current = null;
-        latestStateRef.current.onOpenTask(taskId);
-      }
-    };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, []);
+    latestStateRef.current = { data, markReminderFired, markReminderFailed, onReminderNotified, onPermissionDenied };
+  }, [data, markReminderFailed, markReminderFired, onPermissionDenied, onReminderNotified]);
 
   useEffect(() => {
     if (!data?.settings.notificationsEnabled || !isTauriRuntime()) {
@@ -119,15 +106,7 @@ export const useReminders = (
               title: "WhatToDo",
               body: task.dueTime ? `${task.title} · ${task.dueTime}` : task.title,
             });
-            // Record the task for focus-based click navigation instead of
-            // switching the view immediately (which disrupted users who
-            // were away from the app when the notification fired).
-            pendingFocusTaskIdRef.current = task.id;
-            window.setTimeout(() => {
-              if (pendingFocusTaskIdRef.current === task.id) {
-                pendingFocusTaskIdRef.current = null;
-              }
-            }, 60_000);
+            latestStateRef.current.onReminderNotified?.({ id: task.id, title: task.title });
             await latestStateRef.current.markReminderFired(reminder.id);
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);

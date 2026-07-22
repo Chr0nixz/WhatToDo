@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 /**
  * Webview smoke tests for WhatToDo.
@@ -15,14 +15,28 @@ import { expect, test } from "@playwright/test";
  *   checklist in docs/DESKTOP_VALIDATION.md.
  */
 
+async function gotoAndTrackPageErrors(page: Page, path = "/") {
+  const pageErrors: Error[] = [];
+  page.on("pageerror", (error) => {
+    pageErrors.push(error);
+  });
+  await page.goto(path);
+  return pageErrors;
+}
+
+function assertNoPageErrors(pageErrors: Error[]) {
+  expect(pageErrors, pageErrors.map((error) => error.message).join("\n")).toEqual([]);
+}
+
 test.describe("WhatToDo webview smoke", () => {
   test("document title is WhatToDo", async ({ page }) => {
-    await page.goto("/");
+    const pageErrors = await gotoAndTrackPageErrors(page);
     await expect(page).toHaveTitle("WhatToDo");
+    assertNoPageErrors(pageErrors);
   });
 
   test("app shell mounts with sidebar nav and main content", async ({ page }) => {
-    await page.goto("/");
+    const pageErrors = await gotoAndTrackPageErrors(page);
 
     // #root must be populated (i.e., React mounted instead of leaving the
     // boot placeholder from index.html).
@@ -37,63 +51,71 @@ test.describe("WhatToDo webview smoke", () => {
     await expect(page.getByRole("button", { name: "主页" })).toBeVisible();
     await expect(page.getByRole("button", { name: "总览" })).toBeVisible();
     await expect(page.getByRole("button", { name: "设置" })).toBeVisible();
+    assertNoPageErrors(pageErrors);
   });
 
   test("sidebar switches to Projects view", async ({ page }) => {
-    await page.goto("/");
+    const pageErrors = await gotoAndTrackPageErrors(page);
 
     // Click the Projects nav button (zh: 项目, exact to avoid matching the
     // 搜索任务或项目 search button) and verify the ProjectsView lazy chunk
     // loads and renders its heading.
     await page.getByRole("button", { name: "项目", exact: true }).click();
     await expect(page.getByRole("heading", { name: "项目", exact: true }).first()).toBeVisible({ timeout: 10_000 });
+    assertNoPageErrors(pageErrors);
   });
 
   test("sidebar switches to Overview view", async ({ page }) => {
-    await page.goto("/");
+    const pageErrors = await gotoAndTrackPageErrors(page);
 
     await page.getByRole("button", { name: "总览", exact: true }).click();
     // OverviewView renders the "所有任务" (allTasks) h1 heading.
     await expect(page.getByRole("heading", { name: "所有任务", exact: true }).first()).toBeVisible({ timeout: 10_000 });
+    assertNoPageErrors(pageErrors);
   });
 
   test("sidebar switches to Reminders view", async ({ page }) => {
-    await page.goto("/");
+    const pageErrors = await gotoAndTrackPageErrors(page);
 
     await page.getByRole("button", { name: "提醒", exact: true }).click();
     // ReminderCenterView renders an h2 with "提醒" (reminders).
     await expect(page.getByRole("heading", { name: "提醒", exact: true }).first()).toBeVisible({ timeout: 10_000 });
+    assertNoPageErrors(pageErrors);
   });
 
   test("sidebar switches to Workspaces view", async ({ page }) => {
-    await page.goto("/");
+    const pageErrors = await gotoAndTrackPageErrors(page);
 
     await page.getByRole("button", { name: "工作区", exact: true }).click();
     await expect(page.getByRole("heading", { name: "工作区", exact: true }).first()).toBeVisible({ timeout: 10_000 });
+    assertNoPageErrors(pageErrors);
   });
 
   test("sidebar switches to Settings view and shows theme section", async ({ page }) => {
-    await page.goto("/");
+    const pageErrors = await gotoAndTrackPageErrors(page);
 
     await page.getByRole("button", { name: "设置", exact: true }).click();
     // SettingsView renders the "主题" heading (theme section).
     await expect(page.getByRole("heading", { name: "主题", exact: true }).first()).toBeVisible({ timeout: 10_000 });
+    assertNoPageErrors(pageErrors);
   });
 
   test("create-task entry point is reachable from Home view", async ({ page }) => {
-    await page.goto("/");
+    const pageErrors = await gotoAndTrackPageErrors(page);
 
-    // The Home view header exposes an Add button (zh: 添加) that opens the
-    // TaskCreateDialog. We only assert the button exists and is clickable —
-    // actually creating a task requires Tauri SQL commands and is out of
-    // scope for webview smoke.
-    const addButton = page.getByRole("button", { name: "添加" });
+    // Prefer the header Add control (data-testid) — Home also renders an
+    // empty-state Add button with the same visible label.
+    const addButton = page.getByTestId("add-task");
     await expect(addButton).toBeVisible({ timeout: 10_000 });
+    assertNoPageErrors(pageErrors);
   });
 
   test("command palette opens via Ctrl+K and shows command list", async ({ page }) => {
-    await page.goto("/");
+    const pageErrors = await gotoAndTrackPageErrors(page);
     await expect(page.locator('aside[aria-label="WhatToDo"]')).toBeVisible({ timeout: 15_000 });
+
+    // Header command button must expose a stable accessible name (not only the shortcut hint).
+    await expect(page.getByRole("button", { name: "命令面板" })).toBeVisible();
 
     // Open the command palette with Ctrl+K (Cmd+K on macOS; Playwright runs
     // on Linux/Windows CI so Ctrl+K is correct).
@@ -102,13 +124,23 @@ test.describe("WhatToDo webview smoke", () => {
     // The palette renders a dialog with a search input (id=command-palette-input).
     const paletteInput = page.locator("#command-palette-input");
     await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    await expect(paletteInput).toHaveAttribute("role", "combobox");
+    await expect(paletteInput).toHaveAttribute("aria-controls", "command-palette-listbox");
 
     // The palette footer shows the Escape kbd hint, confirming the dialog body rendered.
     await expect(page.locator("dialog, [role='dialog']").filter({ hasText: "Esc" })).toBeVisible({ timeout: 5_000 });
+    assertNoPageErrors(pageErrors);
+  });
+
+  test("browser mount has no Tauri listen pageerrors", async ({ page }) => {
+    const pageErrors = await gotoAndTrackPageErrors(page);
+    await expect(page.locator('aside[aria-label="WhatToDo"]')).toBeVisible({ timeout: 15_000 });
+    assertNoPageErrors(pageErrors);
+    expect(pageErrors.some((error) => /transformCallback|listen/i.test(error.message))).toBe(false);
   });
 
   test("sidebar rail can be collapsed and expanded", async ({ page }) => {
-    await page.goto("/");
+    const pageErrors = await gotoAndTrackPageErrors(page);
     const sidebar = page.locator('aside[aria-label="WhatToDo"]');
     await expect(sidebar).toBeVisible({ timeout: 15_000 });
 
@@ -121,13 +153,15 @@ test.describe("WhatToDo webview smoke", () => {
 
     // After expanding, the collapse button (zh: 收起侧边栏) should appear.
     await expect(page.getByRole("button", { name: "收起侧边栏" })).toBeVisible({ timeout: 5_000 });
+    assertNoPageErrors(pageErrors);
   });
 
   test("empty-day placeholder renders on Home view", async ({ page }) => {
-    await page.goto("/");
+    const pageErrors = await gotoAndTrackPageErrors(page);
 
-    // On a fresh localStorage state, the Home view for today should show
-    // the "这一天没有 DDL。" empty placeholder (zh).
-    await expect(page.getByText("这一天没有 DDL。").first()).toBeVisible({ timeout: 10_000 });
+    // Fresh localStorage shows first-run copy; after firstRunSeen it falls back to emptyDay.
+    const emptyCopy = page.getByText(/这一天没有 DDL。|第一次使用？/).first();
+    await expect(emptyCopy).toBeVisible({ timeout: 10_000 });
+    assertNoPageErrors(pageErrors);
   });
 });

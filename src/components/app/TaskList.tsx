@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { CalendarClock, Check, CheckSquare, Clock, EyeOff, Loader2, Repeat2, Square, Trash2, X, XCircle } from "lucide-react";
+import { CalendarClock, Check, CheckSquare, ChevronDown, ChevronRight, Clock, EyeOff, Loader2, Repeat2, Square, Trash2, X, XCircle } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,12 +8,13 @@ import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { formatTaskDate } from "@/data/dateFormat";
 import { TASK_DRAG_MIME } from "@/data/taskDrag";
+import { getDirectChildProgress, isHiddenByCollapsedAncestor, taskDepthInList } from "@/data/taskTree";
 import { cn } from "@/lib/utils";
-import type { Project, Reminder, Task, TaskStatus } from "@/data/types";
+import type { Project, Reminder, TaskStatus, TaskSummary } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 
 type TaskListProps = {
-  tasks: Task[];
+  tasks: TaskSummary[];
   projects: Project[];
   reminders: Reminder[];
   actions: TodoActions;
@@ -59,7 +60,7 @@ const priorityLabelKeys: Record<string, string> = {
 const VIRTUAL_THRESHOLD = 200;
 
 type TaskRowProps = {
-  task: Task;
+  task: TaskSummary;
   project: Project | null;
   reminder: Reminder | undefined;
   isSelected: boolean;
@@ -76,6 +77,10 @@ type TaskRowProps = {
   isChecked?: boolean;
   onToggleCheck?: (taskId: string) => void;
   draggableTasks?: boolean;
+  indentDepth?: number;
+  childProgress?: { completed: number; total: number } | null;
+  isCollapsed?: boolean;
+  onToggleCollapse?: (taskId: string) => void;
 };
 
 const TaskRow = React.memo(function TaskRow({
@@ -96,9 +101,15 @@ const TaskRow = React.memo(function TaskRow({
   isChecked = false,
   onToggleCheck,
   draggableTasks = false,
+  indentDepth = 0,
+  childProgress = null,
+  isCollapsed = false,
+  onToggleCollapse,
 }: TaskRowProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const DeleteIcon = deleteMode === "hide" ? EyeOff : Trash2;
+  const hasChildren = Boolean(childProgress && childProgress.total > 0);
+  const CollapseIcon = isCollapsed ? ChevronRight : ChevronDown;
 
   return (
     <div style={style}>
@@ -107,13 +118,20 @@ const TaskRow = React.memo(function TaskRow({
         draggable={draggableTasks}
         className={cn(
           "motion-surface group grid items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-2 shadow-sm hover:border-ring/70",
-          selectionMode ? "grid-cols-[24px_32px_minmax(0,1fr)_auto]" : "grid-cols-[32px_minmax(0,1fr)_auto]",
+          selectionMode
+            ? "grid-cols-[24px_20px_32px_minmax(0,1fr)_auto]"
+            : "grid-cols-[20px_32px_minmax(0,1fr)_auto]",
           isSelected && "border-ring bg-accent/80",
           (task.status === "completed" || task.status === "cancelled") && "opacity-60",
           isCompact && "py-1.5",
           draggableTasks && "cursor-grab active:cursor-grabbing",
         )}
-        style={{ "--motion-index": index } as CSSProperties}
+        style={
+          {
+            "--motion-index": index,
+            paddingLeft: `${12 + indentDepth * 16}px`,
+          } as CSSProperties
+        }
         onDragStart={
           draggableTasks
             ? (event) => {
@@ -134,6 +152,19 @@ const TaskRow = React.memo(function TaskRow({
           >
             {isChecked ? <CheckSquare className="size-4 text-primary" /> : <Square className="size-4 text-muted-foreground" />}
           </button>
+        )}
+        {hasChildren ? (
+          <button
+            aria-expanded={!isCollapsed}
+            aria-label={isCollapsed ? t("expandSubtasks") : t("collapseSubtasks")}
+            className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            type="button"
+            onClick={() => onToggleCollapse?.(task.id)}
+          >
+            <CollapseIcon className="size-3.5" />
+          </button>
+        ) : (
+          <span aria-hidden="true" className="size-5" />
         )}
         <button
           aria-pressed={task.status === "completed"}
@@ -181,6 +212,14 @@ const TaskRow = React.memo(function TaskRow({
             >
               {task.title}
             </h3>
+            {childProgress && (
+              <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                {t("subtasksProgress", {
+                  completed: childProgress.completed,
+                  total: childProgress.total,
+                })}
+              </span>
+            )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1">
@@ -270,6 +309,7 @@ function TaskListImpl({
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
   const [rowDeleteError, setRowDeleteError] = useState<string | null>(null);
+  const [collapsedParentIds, setCollapsedParentIds] = useState<Set<string>>(() => new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const projectsById = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
   const remindersByTaskId = useMemo(() => {
@@ -283,9 +323,25 @@ function TaskListImpl({
 
     return reminderMap;
   }, [reminders]);
-  const visibleTasks = onLoadMore ? tasks : windowSize ? tasks.slice(0, visibleCount) : tasks;
+  const windowedTasks = onLoadMore ? tasks : windowSize ? tasks.slice(0, visibleCount) : tasks;
+  const visibleTasks = useMemo(
+    () => windowedTasks.filter((task) => !isHiddenByCollapsedAncestor(windowedTasks, task.id, collapsedParentIds)),
+    [windowedTasks, collapsedParentIds],
+  );
   const hasMore = onLoadMore ? tasks.length < (totalCount ?? tasks.length) : windowSize ? visibleCount < tasks.length : false;
   const shouldVirtualize = visibleTasks.length > VIRTUAL_THRESHOLD;
+
+  const toggleCollapse = (taskId: string) => {
+    setCollapsedParentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  };
 
   const toggleCheck = (taskId: string) => {
     setCheckedIds((prev) => {
@@ -559,6 +615,10 @@ function TaskListImpl({
                     isSelected={selectedTaskId === task.id}
                     isCompact={compact}
                     index={virtualItem.index}
+                    indentDepth={taskDepthInList(visibleTasks, task.id)}
+                    childProgress={getDirectChildProgress(windowedTasks, task.id)}
+                    isCollapsed={collapsedParentIds.has(task.id)}
+                    onToggleCollapse={toggleCollapse}
                     actions={actions}
                     onSelectTask={onSelectTask}
                     onDeleteTask={onDeleteTask ?? (deleteMode === "delete" ? requestDeleteTask : undefined)}
@@ -639,6 +699,10 @@ function TaskListImpl({
               isSelected={selectedTaskId === task.id}
               isCompact={compact}
               index={index}
+              indentDepth={taskDepthInList(visibleTasks, task.id)}
+              childProgress={getDirectChildProgress(windowedTasks, task.id)}
+              isCollapsed={collapsedParentIds.has(task.id)}
+              onToggleCollapse={toggleCollapse}
               actions={actions}
               onSelectTask={onSelectTask}
               onDeleteTask={onDeleteTask ?? (deleteMode === "delete" ? requestDeleteTask : undefined)}

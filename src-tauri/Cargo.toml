@@ -1,6 +1,6 @@
 [package]
 name = "whattodo"
-version = "0.2.2"
+version = "0.2.3"
 description = "A desktop task and deadline planner"
 authors = ["chr0nix"]
 edition = "2021"
@@ -30,3 +30,6 @@ tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
 tauri-plugin-global-shortcut = "2"
 rusqlite = { version = "0.31", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3"
