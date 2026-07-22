@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5
+
+- Stabilizes CI tests: raises the LocalRepository `loadTaskPage` budget for shared runners, lengthens HomeView list-window timeouts, and wraps ReminderCenterView async updates in `act` to clear React warnings.
+
 ## 0.2.4
 
 - Fixes attachment filename sanitization so Windows-style paths are stripped correctly on Linux CI hosts.
