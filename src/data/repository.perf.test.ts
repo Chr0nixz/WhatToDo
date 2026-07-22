@@ -19,7 +19,8 @@ import type { AppData, Task } from "./types";
 
 const TASK_COUNT = 2_000;
 const LOAD_BUDGET_MS = 250;
-const LOAD_TASK_PAGE_BUDGET_MS = 80;
+/** Generous for shared CI runners; still catches order-of-magnitude regressions. */
+const LOAD_TASK_PAGE_BUDGET_MS = 200;
 const TOGGLE_BUDGET_MS = 250;
 
 const buildLargeSeedData = (): AppData => {

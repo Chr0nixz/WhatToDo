@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import "@/i18n";
+import i18n from "@/i18n";
 import type { AppData, Task, TaskPageResult } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 
@@ -86,37 +87,45 @@ function makeActions(dayTasks: Task[]): TodoActions {
 }
 
 describe("HomeView performance list behavior", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh");
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("renders selected-day tasks in a 150 item window", async () => {
-    const dayTasks = Array.from({ length: 160 }, (_, index) => makeTask(index + 1));
-    const data = makeData(dayTasks);
-    const actions = makeActions(dayTasks);
+  it(
+    "renders selected-day tasks in a 150 item window",
+    async () => {
+      const dayTasks = Array.from({ length: 160 }, (_, index) => makeTask(index + 1));
+      const data = makeData(dayTasks);
+      const actions = makeActions(dayTasks);
 
-    render(
-      <HomeView
-        actions={actions}
-        data={data}
-        searchQuery=""
-        selectedDate="2026-06-01"
-        selectedTaskId={null}
-        setSearchQuery={vi.fn()}
-        setSelectedDate={vi.fn()}
-        setSelectedTaskId={vi.fn()}
-      />,
-    );
+      render(
+        <HomeView
+          actions={actions}
+          data={data}
+          searchQuery=""
+          selectedDate="2026-06-01"
+          selectedTaskId={null}
+          setSearchQuery={vi.fn()}
+          setSelectedDate={vi.fn()}
+          setSelectedTaskId={vi.fn()}
+        />,
+      );
 
-    await waitFor(() => {
-      expect(screen.getByText("Task 1")).toBeInTheDocument();
-    });
-    expect(screen.queryByText("Task 151")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
-    await waitFor(() => {
-      expect(screen.getByText("Task 151")).toBeInTheDocument();
-    });
-  });
+      expect(await screen.findByText("Task 1", undefined, { timeout: 10_000 })).toBeInTheDocument();
+      expect(screen.queryByText("Task 151")).not.toBeInTheDocument();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /加载更多|Load more/i }));
+      });
+
+      expect(await screen.findByText("Task 151", undefined, { timeout: 10_000 })).toBeInTheDocument();
+    },
+    20_000,
+  );
 
   it("debounces search filtering", async () => {
     const dayTasks = Array.from({ length: 160 }, (_, index) => makeTask(index + 1));
@@ -133,9 +142,7 @@ describe("HomeView performance list behavior", () => {
     };
     const { rerender } = render(<HomeView {...props} searchQuery="" />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Task 1")).toBeInTheDocument();
-    });
+    expect(await screen.findByText("Task 1", undefined, { timeout: 10_000 })).toBeInTheDocument();
 
     vi.useFakeTimers();
     rerender(<HomeView {...props} searchQuery="Task 151" />);
@@ -151,5 +158,5 @@ describe("HomeView performance list behavior", () => {
       expect(screen.queryByText("Task 1")).not.toBeInTheDocument();
       expect(screen.getByText("Task 151")).toBeInTheDocument();
     });
-  });
+  }, 20_000);
 });

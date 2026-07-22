@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 import "@/i18n";
@@ -75,23 +76,44 @@ const makeActions = (patch: Partial<TodoActions> = {}): TodoActions =>
     snoozeReminder: vi.fn().mockResolvedValue({} as AppData),
     disableReminder: vi.fn().mockResolvedValue({} as AppData),
     toggleTask: vi.fn().mockResolvedValue({} as AppData),
+    loadReminderEvents: vi.fn().mockResolvedValue([]),
     ...patch,
   }) as TodoActions;
 
+const renderView = async (ui: ReactElement) => {
+  let view!: ReturnType<typeof render>;
+  await act(async () => {
+    view = render(ui);
+  });
+  return view;
+};
+
+const clickAsync = async (element: HTMLElement) => {
+  await act(async () => {
+    fireEvent.click(element);
+  });
+};
+
 describe("ReminderCenterView", () => {
   beforeEach(async () => {
-    await i18n.changeLanguage("en");
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
   });
 
   afterEach(() => {
-    useTodoStore.setState({ data: null, isLoading: true, error: null });
+    useTodoStore.setState({ data: null, isLoading: true, error: null, tasksRevision: 0 });
   });
 
   const seedStore = (tasks: Task[], reminders: Reminder[]) => {
-    useTodoStore.setState({ data: makeData(tasks, reminders) });
+    useTodoStore.setState({
+      data: makeData(tasks, reminders),
+      isLoading: false,
+      error: null,
+    });
   };
 
-  it("renders missed, upcoming, and fired reminder groups", () => {
+  it("renders missed, upcoming, and fired reminder groups", async () => {
     seedStore(
       [
         makeTask({ id: "missed", title: "Missed task" }),
@@ -110,7 +132,7 @@ describe("ReminderCenterView", () => {
       ],
     );
 
-    render(<ReminderCenterView actions={makeActions()} onOpenTask={vi.fn()} />);
+    await renderView(<ReminderCenterView actions={makeActions()} onOpenTask={vi.fn()} />);
 
     expect(screen.getByText("Missed")).toBeInTheDocument();
     expect(screen.getByText("Upcoming")).toBeInTheDocument();
@@ -120,7 +142,7 @@ describe("ReminderCenterView", () => {
     expect(screen.getByText("Fired task")).toBeInTheDocument();
   });
 
-  it("renders failed reminders with their last error", () => {
+  it("renders failed reminders with their last error", async () => {
     seedStore(
       [makeTask({ id: "failed", title: "Failed task" })],
       [
@@ -133,7 +155,7 @@ describe("ReminderCenterView", () => {
       ],
     );
 
-    render(<ReminderCenterView actions={makeActions()} onOpenTask={vi.fn()} />);
+    await renderView(<ReminderCenterView actions={makeActions()} onOpenTask={vi.fn()} />);
 
     expect(screen.getAllByText("Failed").length).toBeGreaterThan(0);
     expect(screen.getByText("send failed")).toBeInTheDocument();
@@ -147,16 +169,16 @@ describe("ReminderCenterView", () => {
       [makeReminder({ id: "r-missed", taskId: "missed", remindAt: "2000-06-01T00:00:00.000Z" })],
     );
 
-    render(<ReminderCenterView actions={actions} onOpenTask={vi.fn()} />);
+    await renderView(<ReminderCenterView actions={actions} onOpenTask={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /more actions/i }));
-    fireEvent.click(screen.getByRole("button", { name: /10 min/i }));
+    await clickAsync(screen.getByRole("button", { name: /more actions/i }));
+    await clickAsync(screen.getByRole("button", { name: /10 min/i }));
 
     expect(actions.snoozeReminder).toHaveBeenCalledWith("r-missed", expect.any(String));
     await waitFor(() => expect(screen.getByText("Reminder snoozed.")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: /more actions/i }));
-    fireEvent.click(screen.getByRole("button", { name: /turn off reminder/i }));
+    await clickAsync(screen.getByRole("button", { name: /more actions/i }));
+    await clickAsync(screen.getByRole("button", { name: /turn off reminder/i }));
 
     await waitFor(() => expect(actions.disableReminder).toHaveBeenCalledWith("r-missed"));
   });
@@ -169,10 +191,10 @@ describe("ReminderCenterView", () => {
       [makeReminder({ id: "r-missed", taskId: "missed", remindAt: "2000-06-01T00:00:00.000Z" })],
     );
 
-    render(<ReminderCenterView actions={actions} onOpenTask={onOpenTask} />);
+    await renderView(<ReminderCenterView actions={actions} onOpenTask={onOpenTask} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /open task/i }));
-    fireEvent.click(screen.getByRole("button", { name: /complete/i }));
+    await clickAsync(screen.getByRole("button", { name: /open task/i }));
+    await clickAsync(screen.getByRole("button", { name: /complete/i }));
 
     expect(onOpenTask).toHaveBeenCalledWith("missed");
     await waitFor(() => expect(actions.toggleTask).toHaveBeenCalledWith("missed"));
@@ -193,9 +215,9 @@ describe("ReminderCenterView", () => {
       ],
     );
 
-    render(<ReminderCenterView actions={actions} onOpenTask={vi.fn()} />);
+    await renderView(<ReminderCenterView actions={actions} onOpenTask={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /snooze all until tomorrow/i }));
+    await clickAsync(screen.getByRole("button", { name: /snooze all until tomorrow/i }));
 
     await waitFor(() => expect(actions.snoozeReminder).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.getByText("Reminder snoozed.")).toBeInTheDocument());
@@ -222,9 +244,9 @@ describe("ReminderCenterView", () => {
       ],
     );
 
-    render(<ReminderCenterView actions={actions} onOpenTask={vi.fn()} />);
+    await renderView(<ReminderCenterView actions={actions} onOpenTask={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /snooze all until tomorrow/i }));
+    await clickAsync(screen.getByRole("button", { name: /snooze all until tomorrow/i }));
 
     await waitFor(() => expect(screen.getByText("Snoozed 2 of 3 reminders. 1 failed.")).toBeInTheDocument());
   });
@@ -238,9 +260,9 @@ describe("ReminderCenterView", () => {
       [makeReminder({ id: "r-1", taskId: "missed-1", remindAt: "2000-06-01T00:00:00.000Z" })],
     );
 
-    render(<ReminderCenterView actions={actions} onOpenTask={vi.fn()} />);
+    await renderView(<ReminderCenterView actions={actions} onOpenTask={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /snooze all until tomorrow/i }));
+    await clickAsync(screen.getByRole("button", { name: /snooze all until tomorrow/i }));
 
     await waitFor(() => expect(screen.getByText("Could not update the reminder. Try again.")).toBeInTheDocument());
   });
