@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Fixes attachment filename sanitization so Windows-style paths are stripped correctly on Linux CI hosts.
+
 ## 0.2.3
 
 - Packages managed attachment binaries beside JSON backups as a `{stem}_attachments/` sidecar (backup schema v3), and restores them into the app-managed folder on import.

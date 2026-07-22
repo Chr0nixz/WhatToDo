@@ -1181,9 +1181,10 @@ fn sanitize_attachment_filename(filename: &str) -> Result<String, String> {
     if trimmed.is_empty() {
         return Err("Attachment filename is required.".to_string());
     }
-    let name = Path::new(trimmed)
-        .file_name()
-        .and_then(|value| value.to_str())
+    // Split on both separators so Windows-style paths still sanitize on Linux CI.
+    let name = trimmed
+        .rsplit(['/', '\\'])
+        .find(|part| !part.is_empty())
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "Attachment filename must be a plain file name.".to_string())?;
