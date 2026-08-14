@@ -1,14 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import Database from "@tauri-apps/plugin-sql";
+/** @vitest-environment node */
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-vi.mock("@tauri-apps/plugin-sql", () => ({
-  default: {
-    load: vi.fn(),
-  },
-}));
-
+import { createMemorySqliteClient } from "./nodeSqliteClient";
 import type { TodoRepository } from "./repositoryContract";
 import { LocalRepository, SqlRepository } from "./repository";
+import { setSqliteClientForTests } from "./sqliteClient";
+import type { BackupPayload } from "./types";
 
 type CaseRunner = (createRepo: () => Promise<TodoRepository>) => void;
 
@@ -25,431 +22,11 @@ const runAgainstBoth = (name: string, run: CaseRunner) => {
   });
 
   describe(`${name} (SqlRepository)`, () => {
-    const makeDb = () => {
-      const taskRows: Record<string, unknown>[] = [];
-      const projectRows: Record<string, unknown>[] = [];
-      const savedViewRows: Record<string, unknown>[] = [];
-      const settingsRows: Record<string, unknown>[] = [];
-      const attachmentRows: Record<string, unknown>[] = [];
-      const folderRows: Record<string, unknown>[] = [];
-      const templateRows: Record<string, unknown>[] = [];
-      const reminderRows: Record<string, unknown>[] = [];
-      const reminderEventRows: Record<string, unknown>[] = [];
-      const workspaceRows: Record<string, unknown>[] = [
-        {
-          id: "local-workspace",
-          name: "Default",
-          color: "#4fb8d8",
-          created_at: "2026-06-01T00:00:00.000Z",
-          updated_at: "2026-06-01T00:00:00.000Z",
-          deleted_at: null,
-        },
-      ];
-
-      return {
-        execute: vi.fn(async (query: string, params: unknown[] = []) => {
-          if (query.includes("INSERT INTO tasks")) {
-            taskRows.unshift({
-              id: params[0],
-              workspace_id: params[1],
-              project_id: params[2],
-              working_folder: params[3],
-              title: params[4],
-              notes: params[5],
-              due_date: params[6],
-              due_time: params[7],
-              timezone: params[8],
-              priority: params[9],
-              status: params[10],
-              completed_at: params[11],
-              created_at: params[12],
-              updated_at: params[13],
-              deleted_at: params[14],
-              recurrence_template_id: params[15],
-              recurrence_instance_date: params[16],
-              parent_id: params[17],
-              tags: params[18],
-            });
-          }
-          if (query.includes("UPDATE tasks SET") && query.includes("deleted_at = NULL")) {
-            const row = taskRows.find((item) => item.id === params[1]);
-            if (row) {
-              row.deleted_at = null;
-              row.updated_at = params[0];
-            }
-          } else if (query.includes("UPDATE tasks SET") && query.includes("deleted_at")) {
-            const idIndex = params.length - 1;
-            const id = params[idIndex];
-            const row = taskRows.find((item) => item.id === id);
-            if (row) {
-              row.deleted_at = params[0];
-              row.updated_at = params[1];
-            }
-          }
-          if (query.includes("UPDATE tasks SET status")) {
-            const id = params[params.length - 1];
-            const row = taskRows.find((item) => item.id === id);
-            if (row) {
-              row.status = params[0];
-              row.completed_at = params[1];
-              row.updated_at = params[2];
-            }
-          }
-          if (query.includes("INSERT INTO projects")) {
-            projectRows.unshift({
-              id: params[0],
-              workspace_id: params[1],
-              name: params[2],
-              color: params[3],
-              status: params[4],
-              due_date: params[5],
-              working_folder: params[6],
-              created_at: params[7],
-              updated_at: params[8],
-              archived_at: params[9],
-              deleted_at: params[10],
-            });
-          }
-          if (query.includes("INSERT INTO saved_views")) {
-            savedViewRows.unshift({
-              id: params[0],
-              workspace_id: params[1],
-              name: params[2],
-              filters_json: params[3],
-              pinned: params[4],
-              created_at: params[5],
-              updated_at: params[6],
-            });
-          }
-          if (query.includes("UPDATE saved_views SET")) {
-            const row = savedViewRows.find((item) => item.id === params[4]);
-            if (row) {
-              row.name = params[0];
-              row.filters_json = params[1];
-              row.pinned = params[2];
-              row.updated_at = params[3];
-            }
-          }
-          if (query.includes("DELETE FROM saved_views")) {
-            const index = savedViewRows.findIndex((item) => item.id === params[0]);
-            if (index >= 0) savedViewRows.splice(index, 1);
-          }
-          if (query.includes("INSERT INTO settings") || query.includes("ON CONFLICT(workspace_id)")) {
-            settingsRows[0] = {
-              workspace_id: params[0],
-              theme: params[1],
-              accent_color: params[2],
-              language: params[3],
-              default_reminder_offset: params[4],
-              default_working_folder: params[5],
-              default_saved_view_id: params[6],
-              notifications_enabled: params[7],
-              close_to_tray: params[8],
-            };
-          }
-          if (query.includes("INSERT INTO workspaces")) {
-            workspaceRows.unshift({
-              id: params[0],
-              name: params[1],
-              color: params[2],
-              created_at: params[3],
-              updated_at: params[4],
-              deleted_at: params[5] ?? null,
-            });
-          }
-          if (query.includes("UPDATE workspaces SET deleted_at = NULL") || (query.includes("UPDATE workspaces SET") && query.includes("deleted_at = NULL"))) {
-            const row = workspaceRows.find((item) => item.id === params[1]);
-            if (row) {
-              row.deleted_at = null;
-              row.updated_at = params[0];
-            }
-          } else if (query.includes("UPDATE workspaces SET deleted_at")) {
-            const row = workspaceRows.find((item) => item.id === params[2]);
-            if (row) {
-              row.deleted_at = params[0];
-              row.updated_at = params[1];
-            }
-          }
-          if (query.includes("INSERT INTO reminders")) {
-            reminderRows.unshift({
-              id: params[0],
-              task_id: params[1],
-              remind_at: params[2],
-              offset_minutes: params[3],
-              snoozed_until: params[4],
-              fired_at: params[5],
-              failed_at: params[6],
-              last_error: params[7],
-              last_attempted_at: params[8],
-              enabled: params[9],
-            });
-          }
-          if (query.includes("INSERT INTO reminder_events")) {
-            reminderEventRows.unshift({
-              id: params[0],
-              reminder_id: params[1],
-              task_id: params[2],
-              event_type: params[3],
-              detail: params[4],
-              created_at: params[5],
-            });
-          }
-          if (query.includes("UPDATE reminders SET failed_at")) {
-            const row = reminderRows.find((item) => item.id === params[params.length - 1]);
-            if (row) {
-              row.failed_at = params[0];
-              row.last_attempted_at = params[1];
-              row.last_error = params[2];
-            }
-          }
-          if (query.includes("UPDATE reminders SET snoozed_until")) {
-            const row = reminderRows.find((item) => item.id === params[params.length - 1]);
-            if (row) {
-              row.snoozed_until = params[0];
-              row.fired_at = null;
-              row.failed_at = null;
-              row.last_error = null;
-            }
-          }
-          if (query.includes("UPDATE reminders SET fired_at")) {
-            const row = reminderRows.find((item) => item.id === params[params.length - 1]);
-            if (row) {
-              row.fired_at = params[0];
-              row.failed_at = null;
-              row.last_error = null;
-              row.last_attempted_at = params[1];
-            }
-          }
-          if (query.startsWith("DELETE FROM")) {
-            if (query.includes("reminder_events")) reminderEventRows.length = 0;
-            if (query.includes("attachments")) attachmentRows.length = 0;
-            if (query.includes("DELETE FROM reminders")) reminderRows.length = 0;
-            if (query.includes("saved_views")) savedViewRows.length = 0;
-            if (query.includes("DELETE FROM tasks")) taskRows.length = 0;
-            if (query.includes("recurring_task_templates")) templateRows.length = 0;
-            if (query.includes("workspace_folders")) folderRows.length = 0;
-            if (query.includes("DELETE FROM projects")) projectRows.length = 0;
-            if (query.includes("DELETE FROM settings")) settingsRows.length = 0;
-            if (query.includes("DELETE FROM workspaces")) workspaceRows.length = 0;
-          }
-          if (query.includes("INSERT INTO workspace_folders")) {
-            folderRows.unshift({
-              id: params[0],
-              workspace_id: params[1],
-              name: params[2],
-              path: params[3],
-              created_at: params[4],
-              updated_at: params[5],
-              deleted_at: params[6],
-            });
-          }
-          if (query.includes("UPDATE workspace_folders SET deleted_at")) {
-            const row = folderRows.find((item) => item.id === params[2]);
-            if (row) {
-              row.deleted_at = params[0];
-              row.updated_at = params[1];
-            }
-          }
-          if (query.includes("UPDATE workspace_folders SET deleted_at = NULL")) {
-            const row = folderRows.find((item) => item.id === params[1]);
-            if (row) {
-              row.deleted_at = null;
-              row.updated_at = params[0];
-            }
-          }
-          if (query.includes("UPDATE workspaces SET name")) {
-            const row = workspaceRows.find((item) => item.id === params[3]);
-            if (row) {
-              row.name = params[0];
-              row.color = params[1];
-              row.updated_at = params[2];
-            }
-          }
-          if (query.includes("INSERT INTO recurring_task_templates")) {
-            templateRows.unshift({
-              id: params[0],
-              workspace_id: params[1],
-              title: params[2],
-              notes: params[3],
-              project_id: params[4],
-              working_folder: params[5],
-              due_time: params[6],
-              timezone: params[7],
-              priority: params[8],
-              reminder_offset: params[9],
-              frequency: params[10],
-              interval: params[11],
-              by_weekday: params[12],
-              anchor_date: params[13],
-              end_date: params[14],
-              enabled: params[15],
-              parent_id: params[16],
-              tags: params[17],
-              created_at: params[18],
-              updated_at: params[19],
-              deleted_at: params[20],
-            });
-          }
-          if (query.includes("UPDATE recurring_task_templates") && query.includes("enabled")) {
-            const row = templateRows.find((item) => item.id === params[params.length - 1]);
-            if (row) {
-              if (query.includes("SET enabled")) {
-                row.enabled = params[0];
-                row.updated_at = params[1];
-              } else {
-                row.title = params[0];
-                row.notes = params[1];
-                row.updated_at = params[13];
-              }
-            }
-          } else if (query.includes("UPDATE recurring_task_templates SET title")) {
-            const row = templateRows.find((item) => item.id === params[params.length - 1]);
-            if (row) {
-              row.title = params[0];
-              row.notes = params[1];
-              row.project_id = params[2];
-              row.working_folder = params[3];
-              row.due_time = params[4];
-              row.priority = params[5];
-              row.reminder_offset = params[6];
-              row.frequency = params[7];
-              row.interval = params[8];
-              row.by_weekday = params[9];
-              row.end_date = params[10];
-              row.parent_id = params[11];
-              row.tags = params[12];
-              row.updated_at = params[13];
-            }
-          }
-        }),
-        select: vi.fn(async (query: string, params: unknown[] = []) => {
-          const filterActiveTasks = () => {
-            let rows = taskRows.filter((row) => row.deleted_at == null);
-            if (query.includes("workspace_id != ?")) {
-              rows = rows.filter((row) => row.workspace_id !== params[0]);
-            } else if (query.includes("workspace_id = ?")) {
-              const workspaceId = params.find(
-                (value) => typeof value === "string" && !value.includes("%") && value !== "todo" && value !== "in_progress" && value !== "completed" && value !== "cancelled" && value !== "high" && value !== "medium" && value !== "low",
-              );
-              if (typeof workspaceId === "string") {
-                rows = rows.filter((row) => row.workspace_id === workspaceId);
-              }
-            }
-            if (query.includes("(status = ? OR status = ?)")) {
-              rows = rows.filter((row) => row.status === "todo" || row.status === "in_progress");
-            }
-            if (query.includes("priority = ?")) {
-              const priority = params.find((value) => value === "high" || value === "medium" || value === "low");
-              if (priority) {
-                rows = rows.filter((row) => row.priority === priority);
-              }
-            }
-            if (query.includes("LOWER(title) LIKE ?")) {
-              const like = params.find((value) => typeof value === "string" && value.startsWith("%") && value.endsWith("%"));
-              if (typeof like === "string") {
-                const needle = like.slice(1, -1).toLowerCase();
-                rows = rows.filter((row) => String(row.title).toLowerCase().includes(needle));
-              }
-            }
-            return rows;
-          };
-
-          if (query.includes("COUNT(*)")) {
-            return [{ total: filterActiveTasks().length }];
-          }
-          if (query.includes("FROM workspaces")) {
-            if (query.includes("deleted_at IS NOT NULL")) {
-              return workspaceRows.filter((row) => row.deleted_at != null);
-            }
-            if (query.includes("WHERE id = ?")) {
-              return workspaceRows.filter((row) => row.id === params[0]);
-            }
-            return workspaceRows.filter((row) => row.deleted_at == null);
-          }
-          if (query.includes("FROM projects")) {
-            return projectRows.filter((row) => {
-              if (row.status === "archived" || row.deleted_at != null) return false;
-              if (params[0] != null && query.includes("workspace_id")) {
-                return row.workspace_id === params[0];
-              }
-              return true;
-            });
-          }
-          if (query.includes("FROM tasks")) {
-            if (query.includes("deleted_at IS NOT NULL")) {
-              return taskRows.filter((row) => row.deleted_at != null && (params[0] == null || row.workspace_id === params[0]));
-            }
-            if (query.includes("SELECT id FROM tasks") && query.includes("recurrence_template_id")) {
-              return taskRows.filter(
-                (row) =>
-                  row.recurrence_template_id === params[0] &&
-                  row.recurrence_instance_date === params[1] &&
-                  row.deleted_at == null,
-              );
-            }
-            if (query.includes("WHERE id = ?")) {
-              return taskRows.filter((row) => row.id === params[0]);
-            }
-            const rows = filterActiveTasks();
-            if (query.includes("LIMIT ?")) {
-              const limit = Number(params[params.length - 2] ?? params[params.length - 1]);
-              const offset = query.includes("OFFSET") ? Number(params[params.length - 1]) : 0;
-              if (Number.isFinite(limit)) {
-                return rows.slice(offset, offset + limit);
-              }
-            }
-            return rows;
-          }
-          if (query.includes("FROM saved_views")) {
-            return savedViewRows.filter((row) => params[0] == null || row.workspace_id === params[0]);
-          }
-          if (query.includes("FROM settings")) {
-            if (params[0] != null && query.includes("workspace_id = ?")) {
-              return settingsRows.filter((row) => row.workspace_id === params[0]);
-            }
-            return settingsRows;
-          }
-          if (query.includes("FROM attachments")) {
-            return attachmentRows;
-          }
-          if (query.includes("FROM workspace_folders")) {
-            if (query.includes("deleted_at IS NOT NULL")) {
-              return folderRows.filter((row) => row.deleted_at != null);
-            }
-            if (query.includes("WHERE id = ?")) {
-              return folderRows;
-            }
-            return folderRows.filter((row) => row.deleted_at == null && (params[0] == null || row.workspace_id === params[0]));
-          }
-          if (query.includes("FROM recurring_task_templates")) {
-            return templateRows.filter((row) => {
-              if (row.deleted_at != null) return false;
-              if (query.includes("enabled = 1") && row.enabled !== 1 && row.enabled !== true) return false;
-              if (params[0] != null && (query.includes("WHERE id = ?") || query.includes("id = ?"))) {
-                return row.id === params[0];
-              }
-              if (params[0] != null && query.includes("workspace_id")) {
-                return row.workspace_id === params[0];
-              }
-              return true;
-            });
-          }
-          if (query.includes("FROM reminders") || query.includes("reminders.*")) {
-            return reminderRows;
-          }
-          if (query.includes("FROM reminder_events")) {
-            return reminderEventRows;
-          }
-          return [];
-        }),
-      };
-    };
-
-    beforeEach(() => {
-      vi.mocked(Database.load).mockResolvedValue(makeDb() as never);
+    afterEach(() => {
+      setSqliteClientForTests(null);
     });
-
     run(async () => {
+      setSqliteClientForTests(createMemorySqliteClient());
       const repository = new SqlRepository();
       await repository.load();
       return repository;
@@ -709,6 +286,44 @@ describe("repository conformance", () => {
       expect(restored.data.settings).toBeDefined();
     });
 
+    it("importBackup strips unmanaged attachment paths and keeps managed ones", async () => {
+      const repository = await createRepo();
+      await repository.createTask({ title: "Has file", dueDate: "2026-06-01" });
+      const loaded = await repository.load();
+      const taskId = loaded.tasks.find((task) => task.title === "Has file")!.id;
+      const exported = await repository.exportBackup();
+      expect(exported.whattodoBackupVersion).not.toBe(1);
+      const backup = {
+        ...exported,
+        attachments: [
+          {
+            id: "att_evil",
+            task_id: taskId,
+            filename: "payload.exe",
+            path: String.raw`C:\Windows\System32\calc.exe`,
+            mimeType: null,
+            size: null,
+            createdAt: "2026-06-01T00:00:00.000Z",
+          },
+          {
+            id: "att_ok",
+            task_id: taskId,
+            filename: "notes.pdf",
+            path: "/app/data/attachments/att_ok/notes.pdf",
+            mimeType: "application/pdf",
+            size: 12,
+            createdAt: "2026-06-01T00:00:00.000Z",
+          },
+        ],
+      } as BackupPayload;
+      const restored = await repository.importBackup(backup, "replace");
+      expect(restored.data.attachments.find((item) => item.id === "att_evil")?.path).toBe("");
+      expect(restored.data.attachments.find((item) => item.id === "att_ok")?.filename).toBe("notes.pdf");
+      expect(restored.data.attachments.find((item) => item.id === "att_ok")?.path).toBe(
+        "/app/data/attachments/att_ok/notes.pdf",
+      );
+    });
+
     it("importBackup merge keeps local-only tasks", async () => {
       const repository = await createRepo();
       await repository.createTask({ title: "Keep me", dueDate: "2026-06-01" });
@@ -764,6 +379,7 @@ describe("repository conformance", () => {
       const page = await repository.loadTaskPage({
         workspaceId: (await repository.load()).workspaceId,
         scope: "open",
+        sort: "overview",
         priority: "high",
         limit: 20,
         offset: 0,
@@ -795,6 +411,7 @@ describe("repository conformance", () => {
         workspaceId: first.workspaceId,
         workspaceScope: "all",
         scope: "all",
+        sort: "overview",
         limit: 50,
         offset: 0,
       });
@@ -826,5 +443,84 @@ describe("repository conformance", () => {
       await repository.restoreWorkspace(tempId);
       expect((await repository.load()).workspaces.some((workspace) => workspace.id === tempId)).toBe(true);
     });
+
+    it("loadDueReminders returns due items from other workspaces", async () => {
+      const repository = await createRepo();
+      const first = await repository.load();
+      await repository.createTask({
+        title: "Workspace A reminder",
+        dueDate: "2026-06-01",
+        dueTime: "09:00",
+        reminderOffset: 0,
+      });
+      await repository.createWorkspace({ name: "Other", color: "#6cc083" });
+      await repository.createTask({
+        title: "Workspace B reminder",
+        dueDate: "2026-06-01",
+        dueTime: "10:00",
+        reminderOffset: 0,
+      });
+      await repository.selectWorkspace(first.workspaceId);
+      const due = await repository.loadDueReminders("2026-06-01T12:00:00.000Z");
+      expect(due.map((item) => item.task.title).sort()).toEqual([
+        "Workspace A reminder",
+        "Workspace B reminder",
+      ]);
+    });
+
+    it("loadTaskPage paginates without dropping earlier rows", async () => {
+      const repository = await createRepo();
+      for (let index = 0; index < 5; index += 1) {
+        await repository.createTask({ title: `Page task ${index}`, dueDate: "2026-06-01" });
+      }
+      const loaded = await repository.load();
+      const first = await repository.loadTaskPage({
+        workspaceId: loaded.workspaceId,
+        scope: "open",
+        sort: "overview",
+        limit: 2,
+        offset: 0,
+      });
+      const second = await repository.loadTaskPage({
+        workspaceId: loaded.workspaceId,
+        scope: "open",
+        sort: "overview",
+        limit: 2,
+        offset: 2,
+      });
+      expect(first.tasks).toHaveLength(2);
+      expect(second.tasks).toHaveLength(2);
+      expect(first.total).toBeGreaterThanOrEqual(5);
+      const ids = [...first.tasks, ...second.tasks].map((task) => task.id);
+      expect(new Set(ids).size).toBe(4);
+    });
+  });
+});
+
+describe("SqlRepository real SQLite rollback", () => {
+  afterEach(() => {
+    setSqliteClientForTests(null);
+  });
+
+  it("importBackup replace rolls back when a later insert fails", async () => {
+    setSqliteClientForTests(createMemorySqliteClient());
+    const repository = new SqlRepository();
+    await repository.load();
+    await repository.createTask({ title: "Keep after rollback", dueDate: "2026-06-01" });
+    const backup = await repository.exportBackup();
+    const seed = backup.tasks[0];
+    if (!seed) {
+      throw new Error("expected a seed task in the backup");
+    }
+    backup.tasks.push({
+      ...seed,
+      id: "task_missing_project",
+      title: "Broken import",
+      projectId: "project_does_not_exist",
+    });
+    await expect(repository.importBackup(backup, "replace")).rejects.toThrow();
+    const loaded = await repository.load();
+    expect(loaded.tasks.some((task) => task.title === "Keep after rollback")).toBe(true);
+    expect(loaded.tasks.some((task) => task.title === "Broken import")).toBe(false);
   });
 });

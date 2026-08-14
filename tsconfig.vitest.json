@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vitest/globals", "node", "vite/client"]
+  },
+  "include": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.perf.test.ts",
+    "src/test/setup.ts",
+    "src/data/nodeSqliteClient.ts"
+  ],
+  "exclude": []
+}

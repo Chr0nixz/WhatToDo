@@ -1,5 +1,5 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { openManagedAttachment, revealLocalPath } from "@/lib/openLocalPath";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, ChevronDown, FolderOpen, PanelRightClose, Plus, Repeat2, Trash2, X } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
@@ -208,7 +208,7 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
     if (effectiveFolder) {
       try {
         setSaveErrorMessage(null);
-        await openPath(effectiveFolder);
+        await revealLocalPath(effectiveFolder);
         setSaveState("idle");
       } catch {
         setSaveErrorMessage(t("openFolderFailed"));
@@ -851,7 +851,7 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
                                 type="button"
                                 title={item.path}
                                 onClick={() => {
-                                  void openPath(item.path).catch(() => {
+                                  void openManagedAttachment(item.path).catch(() => {
                                     setAttachmentErrorId(item.id);
                                   });
                                 }}

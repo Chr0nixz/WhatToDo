@@ -50,6 +50,18 @@ if (!tauriConfig.plugins?.updater?.pubkey || !tauriConfig.plugins?.updater?.endp
   errors.push("tauri.conf.json must configure plugins.updater.pubkey and endpoints.");
 }
 
+const localKeyPath = resolve(root, ".tauri-updater-private-key.local");
+if (existsSync(localKeyPath)) {
+  errors.push(
+    ".tauri-updater-private-key.local is still in the repository root. Move it outside the repo and set TAURI_SIGNING_PRIVATE_KEY_PATH.",
+  );
+}
+
+const status = execFileSync("git", ["status", "--short"], { cwd: root, encoding: "utf8" }).trim();
+if (status) {
+  errors.push("Git working tree is not clean. Commit or stash changes before creating a release.");
+}
+
 const runCargo = (label, args) => {
   try {
     execFileSync("cargo", args, { cwd: resolve(root, "src-tauri"), encoding: "utf8", stdio: "pipe" });
@@ -65,10 +77,24 @@ runCargo("cargo fmt --check", ["fmt", "--check"]);
 runCargo("cargo clippy", ["clippy", "--all-targets", "--", "-D", "warnings"]);
 runCargo("cargo test --locked", ["test", "--locked"]);
 
-const status = execFileSync("git", ["status", "--short"], { cwd: root, encoding: "utf8" }).trim();
-if (status) {
-  errors.push("Git working tree is not clean. Commit or stash changes before creating a release.");
-}
+const runPnpm = (label, args) => {
+  try {
+    execFileSync("pnpm", args, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: "pipe",
+      shell: process.platform === "win32",
+    });
+  } catch (error) {
+    const stderr = error?.stderr ? String(error.stderr).trim() : "";
+    const stdout = error?.stdout ? String(error.stdout).trim() : "";
+    const detail = [stderr, stdout].filter(Boolean).join("\n").slice(0, 2000);
+    errors.push(`${label} failed.${detail ? `\n${detail}` : ""}`);
+  }
+};
+
+runPnpm("pnpm test", ["test"]);
+runPnpm("pnpm build", ["build"]);
 
 if (!process.env.TAURI_SIGNING_PRIVATE_KEY && !process.env.TAURI_SIGNING_PRIVATE_KEY_PATH) {
   errors.push("TAURI_SIGNING_PRIVATE_KEY or TAURI_SIGNING_PRIVATE_KEY_PATH is required for signed updater artifacts.");
@@ -78,8 +104,6 @@ if (process.env.TAURI_SIGNING_PRIVATE_KEY_PATH && !existsSync(process.env.TAURI_
   errors.push(`TAURI_SIGNING_PRIVATE_KEY_PATH does not exist: ${process.env.TAURI_SIGNING_PRIVATE_KEY_PATH}`);
 }
 
-// Validate the updater pubkey is well-formed. Tauri updater pubkeys are
-// base64-encoded (Djb or Ed25519) — at minimum, decode and check length.
 const pubkey = tauriConfig.plugins?.updater?.pubkey;
 if (pubkey) {
   const trimmed = pubkey.trim();
@@ -89,7 +113,6 @@ if (pubkey) {
   } else {
     try {
       const decoded = Buffer.from(trimmed, "base64");
-      // Ed25519 public key is 32 bytes; Djb (x25519) is also 32 bytes.
       if (decoded.length < 32) {
         errors.push(`tauri.conf.json plugins.updater.pubkey decoded length ${decoded.length} is too short (expected >=32 bytes).`);
       }
@@ -99,18 +122,16 @@ if (pubkey) {
   }
 }
 
-// Warn if password is required but missing. Tauri signing keys are often
-// password-protected; surface a clear error instead of letting signing fail
-// silently mid-build.
 const signingKeyProvided =
-  Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY) ||
-  Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY_PATH);
-const signingPasswordProvided =
-  Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD) ||
-  "TAURI_SIGNING_PRIVATE_KEY_PASSWORD" in process.env;
-if (signingKeyProvided && !signingPasswordProvided) {
+  Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY) || Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY_PATH);
+const signingPassword = process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
+if (signingKeyProvided && signingPassword === undefined) {
   console.warn(
     "Warning: TAURI_SIGNING_PRIVATE_KEY_PASSWORD is not set. If the signing key is password-protected, the release build will fail.",
+  );
+} else if (signingKeyProvided && signingPassword === "") {
+  errors.push(
+    "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is an empty string. Unset it for an unprotected key, or provide the real password.",
   );
 }
 

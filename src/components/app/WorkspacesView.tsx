@@ -1,6 +1,6 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { revealLocalPath } from "@/lib/openLocalPath";
 import { FolderOpen, FolderPlus, MonitorUp, Pencil, Plus, Trash2 } from "lucide-react";
 import type { CSSProperties } from "react";
 import { FormEvent, useMemo, useState } from "react";
@@ -177,7 +177,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
   const openWorkspaceFolder = async (path: string) => {
     setWorkspaceActionError(null);
     try {
-      await openPath(path);
+      await revealLocalPath(path);
     } catch {
       setWorkspaceActionError(t("openFolderFailed"));
     }

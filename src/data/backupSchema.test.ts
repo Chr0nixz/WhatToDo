@@ -119,7 +119,7 @@ describe("parseBackupPayload", () => {
   });
 
   it("rejects a backup missing required fields", () => {
-    const { workspaces, ...missingWorkspaces } = validV1Backup;
+    const { workspaces: _workspaces, ...missingWorkspaces } = validV1Backup;
     const result = parseBackupPayload(missingWorkspaces);
     expect(result.success).toBe(false);
     expect(result.error).toContain("workspaces");
@@ -156,7 +156,7 @@ describe("parseBackupPayload", () => {
   });
 
   it("rejects v2 backup missing recurringTaskTemplates", () => {
-    const { recurringTaskTemplates, ...v2WithoutTemplates } = validV2Backup;
+    const { recurringTaskTemplates: _recurringTaskTemplates, ...v2WithoutTemplates } = validV2Backup;
     const result = parseBackupPayload(v2WithoutTemplates);
     expect(result.success).toBe(false);
   });

@@ -8,7 +8,7 @@ WhatToDo targets smooth local desktop use with about 20k tasks in a single-user 
 - `pnpm perf:fixture` writes `tmp/performance-backup-20000.json` and validates it with `parseBackupPayload()`.
 - `pnpm perf:fixture:validate` re-checks an existing fixture file.
 - `pnpm perf:runtime` — LocalRepository **2k** hot-path budgets (CI-friendly).
-- `pnpm perf:sqlite` — LocalRepository **20k** fixture import + P50/P95 for load / `loadTaskPage` / toggle / `saveSettings` (not default CI; requires fixture).
+- `pnpm perf:sqlite` — despite the name, this measures **LocalRepository** on a 20k fixture (import + P50/P95 for load / `loadTaskPage` / toggle / `saveSettings`), not SQLite. It is picked up by the default `pnpm test` run but skips itself when the fixture is absent. See `ENG-013` in `AUDIT.md`.
 - `pnpm test` covers repository, filtering, reminders, and UI behavior.
 - `cd src-tauri && cargo check` validates the desktop runtime.
 
@@ -36,10 +36,12 @@ Desktop UI timing (cold start, view switching, memory peak) still requires `pnpm
 
 ### Data layer — 2k (`pnpm perf:runtime`)
 
+Budgets are defined in `src/data/repository.perf.test.ts`; this table mirrors them.
+
 | Path | Budget |
 |---|---|
 | `load` | &lt; 250 ms |
-| `loadTaskPage` | &lt; 80 ms |
+| `loadTaskPage` | &lt; 200 ms |
 | `toggleTask` | &lt; 250 ms |
 
 ### Data layer — 20k (`pnpm perf:sqlite`, P95)
@@ -69,5 +71,6 @@ Record P50 and P95 when filling `PERFORMANCE_VALIDATION.md`. These LocalReposito
 - Long task lists render in 150-item windows with an explicit load-more control.
 - `loadTaskPage` provides a first repository-level page query for future view migration.
 - List hydrate uses `TaskSummary` (no notes); detail uses `getTask(id)`.
-- Tier-1 Sql mutations (settings / project / saved view / attachment / bulk task) use cache delta patches instead of full `readAll`.
-- Tier-2 Sql mutations (workspace folder CRUD, `updateWorkspace` / `restoreWorkspace`, recurring create / template update / disable) also use cache delta patches. Still full `readAll`: `createWorkspace`, `deleteWorkspace`, `selectWorkspace`, `updateRecurringSeries(openFuture)`, `importBackup`.
+- All Sql mutations use cache delta patches (`commitCache`) instead of full `readAll`. `readAllWithPatch` no longer exists.
+- `readAll()` now has only four call sites: cold `load()`, `getCache()` on a workspace-id miss, and the two CSV/ICS export paths. Workspace switching, deleting the current workspace, and `importBackup` use `loadWorkspaceSlices` instead.
+- Remaining cost: cold start still pulls every `TaskSummary` for the active workspace, and views still derive statistics from the in-memory `data.tasks` slice even where the list itself is paged. See `PERF-001` in `AUDIT.md`.

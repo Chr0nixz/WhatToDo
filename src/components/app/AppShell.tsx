@@ -18,7 +18,7 @@ import {
   X,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { revealLocalPath } from "@/lib/openLocalPath";
 import { invoke } from "@tauri-apps/api/core";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -139,11 +139,6 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
     recurringTaskTemplates,
     attachments,
   ]);
-
-  const reminderTickData = useMemo(
-    () => (settings ? { tasks, reminders: reminderRows, settings } : null),
-    [tasks, reminderRows, settings],
-  );
 
   const [view, setView] = useState<AppView>("home");
   const [selectedDate, setSelectedDate] = useState(todayKey());
@@ -298,7 +293,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
 
   const openFolder = useCallback(async (path: string) => {
     try {
-      await openPath(path);
+      await revealLocalPath(path);
     } catch {
       setNoticeToast(t("openFolderFailed"));
       window.setTimeout(() => setNoticeToast(null), 5000);
@@ -311,7 +306,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
     const parent = dbReset.lastIndexOf(separator);
     if (parent <= 0) return;
     try {
-      await openPath(dbReset.slice(0, parent));
+      await revealLocalPath(dbReset.slice(0, parent));
     } catch {
       // Best-effort: ignore folder open failures.
     }
@@ -432,7 +427,8 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
   }, [appActions, settings]);
 
   useReminders(
-    reminderTickData,
+    Boolean(settings?.notificationsEnabled),
+    appActions.loadDueReminders,
     appActions.markReminderFired,
     appActions.markReminderFailed,
     onReminderNotified,

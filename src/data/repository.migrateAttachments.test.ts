@@ -1,11 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import Database from "@tauri-apps/plugin-sql";
-
-vi.mock("@tauri-apps/plugin-sql", () => ({
-  default: {
-    load: vi.fn(),
-  },
-}));
+import { setSqliteClientForTests } from "./sqliteClient";
 
 vi.mock("./managedAttachments", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./managedAttachments")>();
@@ -25,7 +19,7 @@ import { migrateAttachmentToManaged } from "./managedAttachments";
 
 describe("SqlRepository.migrateExternalAttachments", () => {
   beforeEach(() => {
-    vi.mocked(Database.load).mockReset();
+    setSqliteClientForTests(null);
     vi.mocked(migrateAttachmentToManaged).mockClear();
   });
 
@@ -91,7 +85,7 @@ describe("SqlRepository.migrateExternalAttachments", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();

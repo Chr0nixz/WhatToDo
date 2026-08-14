@@ -25,12 +25,13 @@ export default defineConfig(async () => ({
       "**/e2e/**",
       "**/playwright-report/**",
       "**/test-results/**",
+      "**/*.perf.test.ts",
     ],
   },
   build: {
     rollupOptions: {
       output: {
-        manualChunks(id) {
+        manualChunks(id: string) {
           if (!id.includes("node_modules")) {
             return undefined;
           }

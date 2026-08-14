@@ -28,8 +28,9 @@ vi.mock("@tauri-apps/plugin-notification", () => ({
   sendNotification: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openPath: vi.fn().mockResolvedValue(undefined),
+vi.mock("@/lib/openLocalPath", () => ({
+  revealLocalPath: vi.fn().mockResolvedValue(undefined),
+  openManagedAttachment: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@tauri-apps/plugin-process", () => ({

@@ -175,6 +175,11 @@ export type ReminderEvent = {
   createdAt: string;
 };
 
+export type DueReminder = {
+  reminder: Reminder;
+  task: Pick<TaskSummary, "id" | "title" | "dueTime" | "workspaceId">;
+};
+
 export type ImportBackupMode = "replace" | "merge";
 
 export type TaskViewFilters = {

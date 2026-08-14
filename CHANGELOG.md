@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.6
+
+- Stores the SQLite database in the app config directory on every platform, and copies an existing Linux data-directory database into that location on first launch.
+- Opens working folders and backup locations with the packaged reveal-in-folder permission, and only opens attachments that sit inside the app-managed folder.
+- Fires due reminders across workspaces, not only for the workspace currently on screen.
+
 ## 0.2.5
 
 - Stabilizes CI tests: raises the LocalRepository `loadTaskPage` budget for shared runners, lengthens HomeView list-window timeouts, and wraps ReminderCenterView async updates in `act` to clear React warnings.

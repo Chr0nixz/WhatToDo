@@ -1,11 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import Database from "@tauri-apps/plugin-sql";
-
-vi.mock("@tauri-apps/plugin-sql", () => ({
-  default: {
-    load: vi.fn(),
-  },
-}));
+import { setSqliteClientForTests } from "./sqliteClient";
 
 import { buildReminderDate } from "./date";
 import { CANNOT_DELETE_LAST_WORKSPACE, LocalRepository, SqlRepository } from "./repository";
@@ -692,7 +686,7 @@ describe("LocalRepository", () => {
 
 describe("SqlRepository", () => {
   beforeEach(() => {
-    vi.mocked(Database.load).mockReset();
+    setSqliteClientForTests(null);
   });
 
   it("updates snoozed and disabled reminder fields", async () => {
@@ -727,7 +721,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -801,7 +795,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     const result = await repository.loadTaskPage({
@@ -912,7 +906,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -976,7 +970,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -1020,7 +1014,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -1100,7 +1094,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -1162,7 +1156,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     const loaded = await repository.load();
@@ -1204,7 +1198,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -1249,7 +1243,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const filters = {
       scope: "open" as const,
@@ -1354,7 +1348,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -1398,7 +1392,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -1439,7 +1433,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -1484,7 +1478,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -1560,7 +1554,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -1602,7 +1596,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -1656,7 +1650,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -1742,7 +1736,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -1813,7 +1807,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -1853,7 +1847,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -1984,7 +1978,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     const settingsSelectsAfterLoad = settingsSelectCount;
@@ -2048,7 +2042,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -2109,7 +2103,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -2165,7 +2159,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -2233,7 +2227,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
 
     const repository = new SqlRepository();
     await repository.load();
@@ -2249,7 +2243,7 @@ describe("SqlRepository", () => {
 
   it("creates a workspace with INSERT sql", async () => {
     const db = makeEmptySqlDb();
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     const result = await repository.createWorkspace({ name: "Team", color: "#ff0000" });
@@ -2262,7 +2256,7 @@ describe("SqlRepository", () => {
 
   it("updates a workspace name and color", async () => {
     const db = makeEmptySqlDb();
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     const result = await repository.updateWorkspace("local-workspace", { name: "Renamed", color: "#00ff00" });
@@ -2311,7 +2305,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.deleteWorkspace("local-workspace");
@@ -2323,7 +2317,7 @@ describe("SqlRepository", () => {
 
   it("creates a project linked to workspace", async () => {
     const db = makeEmptySqlDb();
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     const result = await repository.createProject({ name: "Web", color: "#abc", workingFolder: "D:\\web" });
@@ -2336,7 +2330,7 @@ describe("SqlRepository", () => {
 
   it("updates project status to archived", async () => {
     const db = makeEmptySqlDb();
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.archiveProject("project_a");
@@ -2348,7 +2342,7 @@ describe("SqlRepository", () => {
 
   it("archives a project as soft-delete equivalent", async () => {
     const db = makeEmptySqlDb();
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     // deleteProject 不存在，用 archiveProject 验证归档路径
@@ -2361,7 +2355,7 @@ describe("SqlRepository", () => {
 
   it("creates a task with reminderOffset", async () => {
     const db = makeEmptySqlDb();
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     const result = await repository.createTask({
@@ -2386,7 +2380,7 @@ describe("SqlRepository", () => {
     const db = makeSqlDbWithTasks([
       makeTaskRow("task_a", "todo", null),
     ]);
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.updateTask("task_a", { title: "Updated", dueDate: "2026-06-05" });
@@ -2401,7 +2395,7 @@ describe("SqlRepository", () => {
     const db = makeSqlDbWithTasks([
       makeTaskRow("task_a", "todo", null),
     ]);
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.toggleTask("task_a");
@@ -2415,7 +2409,7 @@ describe("SqlRepository", () => {
     const db = makeSqlDbWithTasks([
       makeTaskRow("task_a", "todo", null),
     ]);
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.deleteTask("task_a");
@@ -2429,7 +2423,7 @@ describe("SqlRepository", () => {
     const db = makeSqlDbWithTasks([
       makeTaskRow("task_a", "todo", null),
     ]);
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.setTaskStatus("task_a", "in_progress");
@@ -2444,7 +2438,7 @@ describe("SqlRepository", () => {
       makeTaskRow("task_a", "todo", null),
       makeTaskRow("task_b", "todo", null),
     ]);
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.bulkSetTaskStatus(["task_a", "task_b"], "completed");
@@ -2459,7 +2453,7 @@ describe("SqlRepository", () => {
       makeTaskRow("task_a", "todo", null),
       makeTaskRow("task_b", "todo", null),
     ]);
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.bulkDeleteTasks(["task_a", "task_b"]);
@@ -2474,7 +2468,7 @@ describe("SqlRepository", () => {
       makeTaskRow("task_a", "todo", null),
       makeTaskRow("task_b", "todo", null),
     ]);
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.bulkMoveTasksToProject(["task_a", "task_b"], "project_x");
@@ -2486,7 +2480,7 @@ describe("SqlRepository", () => {
 
   it("creates a recurring task template", async () => {
     const db = makeEmptySqlDb();
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     const result = await repository.createRecurringTask({
@@ -2505,7 +2499,7 @@ describe("SqlRepository", () => {
 
   it("updates recurring template frequency", async () => {
     const db = makeSqlDbWithTemplates();
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.updateRecurringTaskTemplate("template_a", { frequency: "daily" });
@@ -2576,7 +2570,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.updateRecurringSeries("template_a", { title: "Synced" }, "openFuture");
@@ -2588,7 +2582,7 @@ describe("SqlRepository", () => {
 
   it("saves per-workspace settings", async () => {
     const db = makeEmptySqlDb();
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     const result = await repository.saveSettings({
@@ -2611,7 +2605,7 @@ describe("SqlRepository", () => {
 
   it("creates and deletes a saved view", async () => {
     const db = makeEmptySqlDb();
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.createSavedView({
@@ -2642,7 +2636,7 @@ describe("SqlRepository", () => {
 
   it("imports backup transaction commits all inserts", async () => {
     const db = makeEmptySqlDbWithSettings();
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
 
@@ -2659,7 +2653,7 @@ describe("SqlRepository", () => {
 
   it("merge import upserts without deleting task tables", async () => {
     const db = makeEmptySqlDbWithSettings();
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
 
@@ -2723,7 +2717,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.markReminderFailed("reminder_a", "boom");
@@ -2747,7 +2741,7 @@ describe("SqlRepository", () => {
 
   it("importBackup reads normalized backup settings not payload", async () => {
     const db = makeEmptySqlDbWithSettings();
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
 
@@ -2796,7 +2790,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     const recovery = await repository.loadRecoveryItems();
@@ -2805,7 +2799,7 @@ describe("SqlRepository", () => {
 
   it("restores a soft-deleted task", async () => {
     const db = makeSqlDbWithTasks([makeTaskRow("task_a", "todo", "2026-06-02T00:00:00.000Z")]);
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.restoreTask("task_a");
@@ -2856,7 +2850,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
 
@@ -2951,7 +2945,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.toggleTask("task_a");
@@ -3024,7 +3018,7 @@ describe("SqlRepository", () => {
         return [];
       }),
     };
-    vi.mocked(Database.load).mockResolvedValue(db as never);
+    setSqliteClientForTests(db);
     const repository = new SqlRepository();
     await repository.load();
     await repository.disableRecurringTaskTemplate("template_a");

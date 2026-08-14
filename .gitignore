@@ -32,3 +32,12 @@ src-tauri/target
 *.njsproj
 *.sln
 *.sw?
+
+# Updater signing keys — never commit
+.tauri-updater-private-key*
+*.key
+
+# Coverage
+coverage
+*.tsbuildinfo
+

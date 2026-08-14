@@ -1,4 +1,4 @@
-import { openPath } from "@tauri-apps/plugin-opener";
+import { revealLocalPath } from "@/lib/openLocalPath";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { ChevronDown, ChevronUp, FolderOpen, GripHorizontal, Pin, PinOff, X } from "lucide-react";
@@ -143,7 +143,7 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
   const openFolder = async (path: string) => {
     setError(null);
     try {
-      await openPath(path);
+      await revealLocalPath(path);
     } catch {
       setError(t("openFolderFailed"));
     }

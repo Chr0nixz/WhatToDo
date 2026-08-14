@@ -1,6 +1,6 @@
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { revealLocalPath } from "@/lib/openLocalPath";
 import { ArchiveRestore, Bell, Check, Database, Download, FolderOpen, HelpCircle, Keyboard, Languages, Moon, Palette, RotateCw, Upload, Wand2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -173,7 +173,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
 
     if (folder) {
       try {
-        await openPath(folder);
+        await revealLocalPath(folder);
         setSaveState("idle");
       } catch {
         setSaveState("error");

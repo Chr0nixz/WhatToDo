@@ -22,7 +22,7 @@ jobs:
   prepare:
     name: Prepare release
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
 
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -49,6 +49,16 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -158,6 +168,11 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -172,6 +187,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Test and build
+        shell: bash
         run: |
           pnpm test
           pnpm build
@@ -316,27 +332,48 @@ jobs:
       - name: Publish GitHub Release
         shell: pwsh
         run: |
-          $assetPaths = Get-ChildItem release-artifacts -Recurse -File |
+          $ErrorActionPreference = 'Stop'
+          $assetPaths = @(Get-ChildItem release-artifacts -Recurse -File |
             Where-Object { $_.Name -notlike "platform-*.json" } |
-            ForEach-Object { $_.FullName }
+            ForEach-Object { $_.FullName })
 
-          # Delete any existing release for this tag to avoid asset name collisions
           gh release view $env:RELEASE_TAG --repo ${{ github.repository }} *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release delete $env:RELEASE_TAG --repo ${{ github.repository }} --yes
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:RELEASE_TAG `
+              --repo ${{ github.repository }} `
+              --target ${{ github.sha }} `
+              --title "$env:RELEASE_TITLE" `
+              --notes-file release-notes.md `
+              --draft
           }
 
-          gh release create $env:RELEASE_TAG $assetPaths `
+          gh release upload $env:RELEASE_TAG @assetPaths --repo ${{ github.repository }} --clobber
+
+          gh release edit $env:RELEASE_TAG `
             --repo ${{ github.repository }} `
-            --target ${{ github.sha }} `
+            --draft=false `
+            --latest `
             --title "$env:RELEASE_TITLE" `
             --notes-file release-notes.md `
-            --latest
+            --target ${{ github.sha }}
 
       - name: Verify updater endpoint
         shell: pwsh
         run: |
-          $metadata = Invoke-RestMethod "https://github.com/${{ github.repository }}/releases/latest/download/latest.json"
+          $ErrorActionPreference = 'Stop'
+          $url = "https://github.com/${{ github.repository }}/releases/download/$env:RELEASE_TAG/latest.json"
+          $metadata = $null
+          for ($attempt = 1; $attempt -le 5; $attempt++) {
+            try {
+              $metadata = Invoke-RestMethod $url
+              break
+            } catch {
+              if ($attempt -eq 5) {
+                throw
+              }
+              Start-Sleep -Seconds ([Math]::Pow(2, $attempt))
+            }
+          }
           if ($metadata.version -ne $env:APP_VERSION) {
             throw "latest.json version '$($metadata.version)' does not match '$env:APP_VERSION'."
           }

@@ -9,6 +9,7 @@ import type {
   CreateWorkspaceInput,
   CreateProjectInput,
   CreateTaskInput,
+  DueReminder,
   ImportBackupMode,
   Project,
   RecoveryItems,
@@ -105,6 +106,7 @@ export interface TodoRepository {
   loadAvailableTasks(workspaceId?: string): Promise<TaskSummary[]>;
   loadRecoveryItems(): Promise<RecoveryItems>;
   loadTaskPage(input: TaskPageInput): Promise<TaskPageResult>;
+  loadDueReminders(nowIso: string): Promise<DueReminder[]>;
   getTask(id: string): Promise<Task | null>;
   loadDueDateCounts(input: { workspaceId?: string; from: string; to: string }): Promise<Record<string, number>>;
   createWorkspace(input: CreateWorkspaceInput): Promise<RepositoryResult>;

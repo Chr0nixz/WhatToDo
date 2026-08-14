@@ -1,6 +1,6 @@
 import { Archive, FolderKanban, FolderOpen, Pencil, Plus } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { revealLocalPath } from "@/lib/openLocalPath";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -175,7 +175,7 @@ export function ProjectsView({
 
     if (path) {
       try {
-        await openPath(path);
+        await revealLocalPath(path);
         setProjectActionError(null);
       } catch {
         setProjectActionError(t("openFolderFailed"));

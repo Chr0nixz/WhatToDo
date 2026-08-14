@@ -24,6 +24,6 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.perf.test.ts"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/*.perf.test.ts", "src/data/nodeSqliteClient.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

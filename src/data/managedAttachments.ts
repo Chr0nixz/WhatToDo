@@ -12,6 +12,10 @@ export const isManagedAttachmentPath = (path: string): boolean => {
 export const listExternalAttachments = (attachments: ReadonlyArray<Attachment>): Attachment[] =>
   attachments.filter((attachment) => !isManagedAttachmentPath(attachment.path));
 
+/** Keep metadata, drop executable/arbitrary paths that are not in the managed folder. */
+export const sanitizeImportedAttachment = <T extends { path: string }>(attachment: T): T =>
+  isManagedAttachmentPath(attachment.path) ? attachment : { ...attachment, path: "" };
+
 export const prepareManagedAttachmentPath = async (
   sourcePath: string,
   attachmentId: string,

@@ -70,13 +70,15 @@ cd src-tauri
 cargo check
 ```
 
-Current automated baseline:
+Automated checks:
 
-- `pnpm test`: 14 test files, 50 tests.
-- `pnpm build`: frontend type-check and production build; current main JS chunk is about 100.8 kB.
+- `pnpm test`: Vitest suite.
+- `pnpm build`: frontend type-check and production build.
 - `pnpm perf:build`: build-size baseline check with a 500 kB main JS limit.
 - `pnpm perf:fixture`: generates a 20k task backup for desktop performance validation.
 - `cargo check`: Tauri backend compile check.
+
+For the measured baseline (test counts, bundle sizes) and known gaps, see [`docs/AUDIT.md`](docs/AUDIT.md). Do not duplicate those numbers here — they go stale.
 
 Recommended browser smoke checks:
 
@@ -109,7 +111,7 @@ Key areas:
 
 Storage:
 
-- Tauri runtime uses SQLite via `@tauri-apps/plugin-sql`.
+- Desktop persistence uses a single rusqlite connection behind `db_execute` / `db_select` commands.
 - Browser development and tests use localStorage fallback.
 - Repository behavior should stay semantically consistent between Local and SQLite implementations.
 
@@ -147,11 +149,8 @@ Before publishing a release:
 
 The generated updater private key and password are intentionally local-only in `.tauri-updater-private-key.local` and `.tauri-updater-private-key-password.local`. The public key is committed in `src-tauri/tauri.conf.json`; the private key and password must stay in GitHub Secrets or another secure secret store.
 
-## Current Priorities
+## Project Status
 
-See `docs/PROJECT_ANALYSIS.md` for the detailed project analysis and roadmap. The current short-term priorities are:
+[`docs/AUDIT.md`](docs/AUDIT.md) is the single source of truth for the current state, known issues, and priorities. It is kept current with measured command results rather than estimates.
 
-1. Complete the `docs/DESKTOP_VALIDATION.md` desktop runtime checklist and record any failures.
-2. Expand SqlRepository tests for recurring tasks, backup import, failed reminders, workspace filtering, and soft-delete recovery.
-3. Add a compact command panel for quick add, task search, folder opening, and workspace switching.
-4. Run the 20k-task desktop performance validation and decide whether any view needs deeper query-level pagination or virtualization.
+Release-blocking issues are tracked there under "P0 发货级缺陷". Do not publish a release while any of them is open.

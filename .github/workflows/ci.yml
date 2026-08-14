@@ -7,7 +7,6 @@ on:
       - main
     paths-ignore:
       - "**/*.md"
-      - "PROJECT_ANALYSIS.md"
 
 permissions:
   contents: read
@@ -53,6 +52,11 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -68,6 +72,12 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+      - name: Typecheck
+        run: pnpm lint
+
+      - name: ESLint
+        run: pnpm lint:eslint
 
       - name: Build frontend
         run: pnpm build

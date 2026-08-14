@@ -11,9 +11,8 @@ import { defineConfig, devices } from "@playwright/test";
  *   run; smoke tests assert the React tree mounts and renders a sane state
  *   (loading / error / shell), not full data flow.
  *
- * Coverage threshold: the smoke suite must maintain at least 10 passing
- * tests. This guards against accidental removal of view/nav coverage. The
- * check runs as a post-suite assertion in CI; locally it is informational.
+ * Only Chromium is covered. Tauri uses WKWebView on macOS and WebKitGTK on
+ * Linux, so engine-specific regressions on those platforms are not caught here.
  */
 export default defineConfig({
   testDir: "./e2e",

@@ -16,9 +16,9 @@ Product principles:
 
 Read these docs before planning larger changes:
 
+- `docs/AUDIT.md` — current state, known issues, and priorities. This is the authoritative status document; read it first.
 - `docs/PRODUCT.md`
 - `docs/DESIGN.md`
-- `docs/PROJECT_ANALYSIS.md`
 - `README.md`
 
 ## Commands
@@ -78,16 +78,24 @@ Reminder fields:
 Current reminder actions:
 
 - `markReminderFired(id)`
+- `markReminderFailed(id, reason)`
 - `snoozeReminder(id, untilIso)`
 - `disableReminder(id)`
+- `createTaskReminder(taskId, offsetMinutes)`
+- `updateTaskReminder(taskId, offsetMinutes)`
+- `deleteReminder(id)`
+- `loadReminderEvents(reminderId)`
 
 Reminder center rules:
 
 - Effective time is `snoozedUntil ?? remindAt`.
-- Groups are missed, upcoming, and fired.
+- Groups are failed, missed, upcoming, and fired (see `src/data/reminderCenter.ts`).
 - Deleted tasks are hidden.
 - Completed tasks are excluded from missed/upcoming.
 - Snooze choices are fixed: 10 minutes, 1 hour, tomorrow at 09:00 local time.
+
+Known defect: reminders are scoped to the active workspace, so reminders for other
+workspaces never fire. See `FUN-009` in `docs/AUDIT.md` before touching this area.
 
 ## Testing Expectations
 
@@ -110,11 +118,14 @@ When touching UI:
 
 ## Current Known Gaps
 
-- Tauri desktop runtime validation is not fully complete.
-- SqlRepository still needs broader semantic tests for recurring tasks, backup import, failed reminders, workspace filtering, and soft-delete recovery.
-- Recurring task rules and future-instance update semantics are still basic.
-- Saved views, projects, and workspaces still need fuller edit/delete/default management.
-- Large-task performance still needs real 20k-task desktop validation and migration of more views to query-level pagination; available-task loading, recovery data loading, major view code splitting, first-pass list windowing, and `loadTaskPage()` are implemented.
+Maintained in `docs/AUDIT.md`, not here. Read section 4 (P0 发货级缺陷) and section 11
+(分阶段整改路线) before planning work.
+
+Two constraints that affect almost any change:
+
+- Section 4 P0s are fixed in 0.2.6. Do not publish a later release while any of them is open again.
+- `docs/DESKTOP_VALIDATION.md` has never been executed (0/24). Anything that depends on real
+  Tauri runtime behavior is unverified — treat code reading as a hypothesis, not evidence.
 
 ## Release Notes
 

@@ -1,5 +1,7 @@
-use rusqlite::Connection;
+use rusqlite::types::ValueRef;
+use rusqlite::{params_from_iter, Connection, ToSql};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Number, Value};
 use std::fs;
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::Write;
@@ -16,6 +18,7 @@ use tauri::{
     webview::PageLoadEvent,
     Manager, WebviewUrl, WebviewWindowBuilder,
 };
+use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_window_state::StateFlags;
 
 const DB_FILE: &str = "ddl_todo.db";
@@ -63,6 +66,33 @@ impl DbInitStatus {
 }
 
 struct DbInitState(Mutex<DbInitStatus>);
+
+struct AppDb(Mutex<Option<Connection>>);
+
+#[derive(Debug)]
+enum SqlArg {
+    Null,
+    Integer(i64),
+    Real(f64),
+    Text(String),
+}
+
+impl ToSql for SqlArg {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(match self {
+            SqlArg::Null => rusqlite::types::ToSqlOutput::Owned(rusqlite::types::Value::Null),
+            SqlArg::Integer(value) => {
+                rusqlite::types::ToSqlOutput::Owned(rusqlite::types::Value::Integer(*value))
+            }
+            SqlArg::Real(value) => {
+                rusqlite::types::ToSqlOutput::Owned(rusqlite::types::Value::Real(*value))
+            }
+            SqlArg::Text(value) => {
+                rusqlite::types::ToSqlOutput::Owned(rusqlite::types::Value::Text(value.clone()))
+            }
+        })
+    }
+}
 
 const INIT_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS projects (
@@ -421,6 +451,57 @@ fn write_text_file(path: String, contents: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn db_execute(
+    db: tauri::State<'_, AppDb>,
+    query: String,
+    values: Option<Vec<Value>>,
+) -> Result<u64, String> {
+    with_app_db(&db, |conn| {
+        let params = json_params_to_sql(values.as_deref().unwrap_or(&[]))?;
+        conn.execute(&query, params_from_iter(params.iter()))
+            .map(|rows| rows as u64)
+            .map_err(|err| format!("Failed to execute SQL: {err}"))
+    })
+}
+
+#[tauri::command]
+fn db_select(
+    db: tauri::State<'_, AppDb>,
+    query: String,
+    values: Option<Vec<Value>>,
+) -> Result<Vec<Map<String, Value>>, String> {
+    with_app_db(&db, |conn| {
+        let params = json_params_to_sql(values.as_deref().unwrap_or(&[]))?;
+        let mut stmt = conn
+            .prepare(&query)
+            .map_err(|err| format!("Failed to prepare SQL: {err}"))?;
+        let names: Vec<String> = stmt
+            .column_names()
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect();
+        let mut rows = stmt
+            .query(params_from_iter(params.iter()))
+            .map_err(|err| format!("Failed to query SQL: {err}"))?;
+        let mut results = Vec::new();
+        while let Some(row) = rows
+            .next()
+            .map_err(|err| format!("Failed to read SQL row: {err}"))?
+        {
+            let mut map = Map::new();
+            for (index, name) in names.iter().enumerate() {
+                let value = row
+                    .get_ref(index)
+                    .map_err(|err| format!("Failed to read SQL column {name}: {err}"))?;
+                map.insert(name.clone(), sql_to_json(value)?);
+            }
+            results.push(map);
+        }
+        Ok(results)
+    })
+}
+
+#[tauri::command]
 async fn open_workspace_window(
     app: tauri::AppHandle,
     workspace_id: String,
@@ -582,32 +663,123 @@ JSON.stringify({
         .map_err(|err| err.to_string())
 }
 
-fn resolve_db_path() -> Result<PathBuf, String> {
-    let data_dir = if cfg!(target_os = "windows") {
-        std::env::var("APPDATA")
-            .map(PathBuf::from)
-            .map_err(|_| "APPDATA environment variable not set".to_string())
-    } else if cfg!(target_os = "macos") {
-        std::env::var("HOME")
-            .map(|home| {
-                PathBuf::from(home)
-                    .join("Library")
-                    .join("Application Support")
-            })
-            .map_err(|_| "HOME environment variable not set".to_string())
-    } else {
-        std::env::var("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|_| {
-                std::env::var("HOME")
-                    .map(|home| PathBuf::from(home).join(".local").join("share"))
-                    .map_err(|_| {
-                        "Neither XDG_DATA_HOME nor HOME environment variable set".to_string()
-                    })
-            })
-    }?;
+fn resolve_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map(|dir| dir.join(DB_FILE))
+        .map_err(|err| format!("Unable to resolve app config directory: {err}"))
+}
 
-    Ok(data_dir.join("com.chronix.whattodo").join(DB_FILE))
+fn legacy_linux_data_db_path() -> Option<PathBuf> {
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let data_dir = std::env::var("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .ok()
+            .or_else(|| {
+                std::env::var("HOME")
+                    .ok()
+                    .map(|home| PathBuf::from(home).join(".local").join("share"))
+            })?;
+        Some(data_dir.join("com.chronix.whattodo").join(DB_FILE))
+    }
+}
+
+/// Copy a SQLite database and its WAL/SHM sidecars from `from_db` to `to_db`.
+/// Returns true when a copy happened. Never overwrites an existing destination.
+fn migrate_db_sidecar_files(from_db: &Path, to_db: &Path) -> Result<bool, String> {
+    if from_db == to_db {
+        return Ok(false);
+    }
+    if to_db.exists() || !from_db.is_file() {
+        return Ok(false);
+    }
+    if let Some(parent) = to_db.parent() {
+        create_dir_all(parent)
+            .map_err(|err| format!("Failed to create config database directory: {err}"))?;
+    }
+    for (source, dest) in database_sidecar_paths(from_db)
+        .into_iter()
+        .zip(database_sidecar_paths(to_db))
+    {
+        if source.is_file() {
+            fs::copy(&source, &dest)
+                .map_err(|err| format!("Failed to migrate database file {source:?}: {err}"))?;
+        }
+    }
+    Ok(true)
+}
+
+fn migrate_legacy_linux_db(config_db: &Path) -> Result<bool, String> {
+    let Some(legacy) = legacy_linux_data_db_path() else {
+        return Ok(false);
+    };
+    migrate_db_sidecar_files(&legacy, config_db)
+}
+
+fn json_to_sql_arg(value: &Value) -> Result<SqlArg, String> {
+    match value {
+        Value::Null => Ok(SqlArg::Null),
+        Value::Bool(flag) => Ok(SqlArg::Integer(i64::from(*flag))),
+        Value::Number(number) => {
+            if let Some(int) = number.as_i64() {
+                Ok(SqlArg::Integer(int))
+            } else if let Some(uint) = number.as_u64() {
+                i64::try_from(uint)
+                    .map(SqlArg::Integer)
+                    .map_err(|_| "SQL integer parameter is out of range.".to_string())
+            } else if let Some(real) = number.as_f64() {
+                Ok(SqlArg::Real(real))
+            } else {
+                Err("Unsupported SQL number parameter.".to_string())
+            }
+        }
+        Value::String(text) => Ok(SqlArg::Text(text.clone())),
+        other => Err(format!("Unsupported SQL parameter type: {other}")),
+    }
+}
+
+fn sql_to_json(value: ValueRef<'_>) -> Result<Value, String> {
+    match value {
+        ValueRef::Null => Ok(Value::Null),
+        ValueRef::Integer(int) => Ok(Value::Number(int.into())),
+        ValueRef::Real(real) => Number::from_f64(real)
+            .map(Value::Number)
+            .ok_or_else(|| "SQL real value is not a valid JSON number.".to_string()),
+        ValueRef::Text(text) => Ok(Value::String(String::from_utf8_lossy(text).into_owned())),
+        ValueRef::Blob(_) => Ok(Value::Null),
+    }
+}
+
+fn json_params_to_sql(params: &[Value]) -> Result<Vec<SqlArg>, String> {
+    params.iter().map(json_to_sql_arg).collect()
+}
+
+fn with_app_db<T>(
+    state: &AppDb,
+    operation: impl FnOnce(&Connection) -> Result<T, String>,
+) -> Result<T, String> {
+    let guard = state
+        .0
+        .lock()
+        .map_err(|_| "Database lock is poisoned.".to_string())?;
+    let conn = guard
+        .as_ref()
+        .ok_or_else(|| "Database is not available.".to_string())?;
+    operation(conn)
+}
+
+fn replace_app_db_connection(state: &AppDb, conn: Option<Connection>) -> Result<(), String> {
+    let mut guard = state
+        .0
+        .lock()
+        .map_err(|_| "Database lock is poisoned.".to_string())?;
+    *guard = conn;
+    Ok(())
 }
 
 fn table_exists(conn: &Connection, name: &str) -> bool {
@@ -1038,7 +1210,10 @@ fn apply_connection_pragmas(conn: &Connection) {
     }
 }
 
-fn open_and_migrate(db_path: &Path, migrations: &[(i64, &str, &str)]) -> Result<(), String> {
+fn open_and_migrate(
+    db_path: &Path,
+    migrations: &[(i64, &str, &str)],
+) -> Result<Connection, String> {
     let conn = Connection::open(db_path).map_err(|e| format!("Failed to open database: {e}"))?;
     apply_connection_pragmas(&conn);
     apply_migrations(&conn, migrations)?;
@@ -1060,42 +1235,62 @@ fn open_and_migrate(db_path: &Path, migrations: &[(i64, &str, &str)]) -> Result<
     // Heal DBs that recorded a version while schema objects were still missing (ARC-002).
     repair_schema(&conn)?;
 
-    Ok(())
+    Ok(conn)
 }
 
-/// Initialize the database without deleting it on failure.
-fn init_database_at(db_path: &Path, migrations: &[(i64, &str, &str)]) -> DbInitStatus {
+fn init_database_with_connection(
+    db_path: &Path,
+    migrations: &[(i64, &str, &str)],
+) -> (DbInitStatus, Option<Connection>) {
     if let Some(parent) = db_path.parent() {
         if let Err(e) = create_dir_all(parent) {
-            return DbInitStatus::failed(
-                format!("Failed to create data directory: {e}"),
-                Some(db_path),
+            return (
+                DbInitStatus::failed(
+                    format!("Failed to create data directory: {e}"),
+                    Some(db_path),
+                    None,
+                ),
                 None,
             );
         }
     }
 
     match open_and_migrate(db_path, migrations) {
-        Ok(()) => DbInitStatus::ready(db_path),
+        Ok(conn) => (DbInitStatus::ready(db_path), Some(conn)),
         Err(err) => {
             eprintln!("Database initialization failed (original database preserved): {err}");
-            DbInitStatus::failed(err, Some(db_path), None)
+            (DbInitStatus::failed(err, Some(db_path), None), None)
         }
     }
 }
 
-fn init_database(migrations: &[(i64, &str, &str)]) -> DbInitStatus {
-    match resolve_db_path() {
-        Ok(db_path) => init_database_at(&db_path, migrations),
-        Err(err) => DbInitStatus::failed(err, None, None),
-    }
+/// Initialize the database without deleting it on failure.
+#[cfg(test)]
+fn init_database_at(db_path: &Path, migrations: &[(i64, &str, &str)]) -> DbInitStatus {
+    let (status, _conn) = init_database_with_connection(db_path, migrations);
+    status
+}
+
+fn initialize_persistent_store(app: &tauri::AppHandle) {
+    let migrations = app_migrations();
+    let (status, conn) = match resolve_db_path(app) {
+        Ok(db_path) => {
+            if let Err(err) = migrate_legacy_linux_db(&db_path) {
+                eprintln!("Legacy database migration failed: {err}");
+            }
+            init_database_with_connection(&db_path, &migrations)
+        }
+        Err(err) => (DbInitStatus::failed(err, None, None), None),
+    };
+    app.manage(DbInitState(Mutex::new(status)));
+    app.manage(AppDb(Mutex::new(conn)));
 }
 
 fn confirm_reset_database_at(
     db_path: &Path,
     backup_path: &Path,
     migrations: &[(i64, &str, &str)],
-) -> Result<DbInitStatus, String> {
+) -> Result<(DbInitStatus, Connection), String> {
     if !backup_path.is_file() {
         return Err(
             "Verified backup file is missing. Create a backup before resetting.".to_string(),
@@ -1104,8 +1299,8 @@ fn confirm_reset_database_at(
     verify_backup_integrity(backup_path)?;
 
     reset_database(db_path);
-    open_and_migrate(db_path, migrations)?;
-    Ok(DbInitStatus::reset_completed(db_path, backup_path))
+    let conn = open_and_migrate(db_path, migrations)?;
+    Ok((DbInitStatus::reset_completed(db_path, backup_path), conn))
 }
 
 fn app_migrations() -> Vec<(i64, &'static str, &'static str)> {
@@ -1232,6 +1427,38 @@ fn is_path_within_root_lenient(path: &Path, root: &Path) -> bool {
     }
     // Fall back when the file does not exist yet or canonicalize fails.
     path.starts_with(root)
+}
+
+fn validate_managed_attachment_path(path: &Path, root: &Path) -> Result<(), String> {
+    if path.as_os_str().is_empty() {
+        return Err("Attachment path is required.".to_string());
+    }
+    if !root.exists() {
+        return Err("Managed attachments directory does not exist.".to_string());
+    }
+    if !is_path_within_root(path, root) {
+        return Err(
+            "Refusing to open a path outside the managed attachments directory.".to_string(),
+        );
+    }
+    if !path.is_file() {
+        return Err("Attachment file was not found.".to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_managed_attachment(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Attachment path is required.".to_string());
+    }
+    let target = PathBuf::from(trimmed);
+    let root = managed_attachments_root(&app)?;
+    validate_managed_attachment_path(&target, &root)?;
+    app.opener()
+        .open_path(target.to_string_lossy().as_ref(), None::<&str>)
+        .map_err(|err| format!("Unable to open attachment: {err}"))
 }
 
 #[tauri::command]
@@ -1476,7 +1703,13 @@ fn get_db_init_status(state: tauri::State<'_, DbInitState>) -> Result<DbInitStat
 #[tauri::command]
 fn backup_database_for_recovery(
     state: tauri::State<'_, DbInitState>,
+    db: tauri::State<'_, AppDb>,
 ) -> Result<DbInitStatus, String> {
+    let _ = with_app_db(&db, |conn| {
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+            .map_err(|err| err.to_string())
+    });
+
     let mut status = state
         .0
         .lock()
@@ -1497,21 +1730,32 @@ fn backup_database_for_recovery(
 }
 
 #[tauri::command]
-fn retry_database_migration(state: tauri::State<'_, DbInitState>) -> Result<DbInitStatus, String> {
-    let mut status = state
-        .0
-        .lock()
-        .map_err(|_| "Database init state lock is poisoned.".to_string())?;
+fn retry_database_migration(
+    state: tauri::State<'_, DbInitState>,
+    db: tauri::State<'_, AppDb>,
+) -> Result<DbInitStatus, String> {
+    replace_app_db_connection(&db, None)?;
 
-    let db_path = status
-        .db_path
-        .as_ref()
-        .map(PathBuf::from)
-        .ok_or_else(|| "Database path is unknown; cannot retry migration.".to_string())?;
+    let db_path = {
+        let status = state
+            .0
+            .lock()
+            .map_err(|_| "Database init state lock is poisoned.".to_string())?;
+        status
+            .db_path
+            .as_ref()
+            .map(PathBuf::from)
+            .ok_or_else(|| "Database path is unknown; cannot retry migration.".to_string())?
+    };
 
     let migrations = app_migrations();
     match open_and_migrate(&db_path, &migrations) {
-        Ok(()) => {
+        Ok(conn) => {
+            replace_app_db_connection(&db, Some(conn))?;
+            let mut status = state
+                .0
+                .lock()
+                .map_err(|_| "Database init state lock is poisoned.".to_string())?;
             *status = DbInitStatus {
                 state: "ready".to_string(),
                 reason: None,
@@ -1521,6 +1765,10 @@ fn retry_database_migration(state: tauri::State<'_, DbInitState>) -> Result<DbIn
             Ok(status.clone())
         }
         Err(err) => {
+            let mut status = state
+                .0
+                .lock()
+                .map_err(|_| "Database init state lock is poisoned.".to_string())?;
             status.state = "failed".to_string();
             status.reason = Some(err.clone());
             Err(err)
@@ -1529,47 +1777,54 @@ fn retry_database_migration(state: tauri::State<'_, DbInitState>) -> Result<DbIn
 }
 
 #[tauri::command]
-fn confirm_reset_database(state: tauri::State<'_, DbInitState>) -> Result<DbInitStatus, String> {
+fn confirm_reset_database(
+    state: tauri::State<'_, DbInitState>,
+    db: tauri::State<'_, AppDb>,
+) -> Result<DbInitStatus, String> {
+    replace_app_db_connection(&db, None)?;
+
+    let (db_path, backup_path) = {
+        let status = state
+            .0
+            .lock()
+            .map_err(|_| "Database init state lock is poisoned.".to_string())?;
+        let db_path = status
+            .db_path
+            .as_ref()
+            .map(PathBuf::from)
+            .ok_or_else(|| "Database path is unknown; cannot reset.".to_string())?;
+        let backup_path = status
+            .backup_path
+            .as_ref()
+            .map(PathBuf::from)
+            .ok_or_else(|| {
+                "No verified backup is available. Create a backup before resetting the database."
+                    .to_string()
+            })?;
+        (db_path, backup_path)
+    };
+
+    let migrations = app_migrations();
+    let (next, conn) = confirm_reset_database_at(&db_path, &backup_path, &migrations)?;
+    replace_app_db_connection(&db, Some(conn))?;
     let mut status = state
         .0
         .lock()
         .map_err(|_| "Database init state lock is poisoned.".to_string())?;
-
-    let db_path = status
-        .db_path
-        .as_ref()
-        .map(PathBuf::from)
-        .ok_or_else(|| "Database path is unknown; cannot reset.".to_string())?;
-    let backup_path = status
-        .backup_path
-        .as_ref()
-        .map(PathBuf::from)
-        .ok_or_else(|| {
-            "No verified backup is available. Create a backup before resetting the database."
-                .to_string()
-        })?;
-
-    let migrations = app_migrations();
-    let next = confirm_reset_database_at(&db_path, &backup_path, &migrations)?;
     *status = next;
     Ok(status.clone())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let migrations = app_migrations();
-    let db_init = init_database(&migrations);
-
     tauri::Builder::default()
         .manage(CloseToTray(Arc::new(AtomicBool::new(true))))
-        .manage(DbInitState(Mutex::new(db_init)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(StateFlags::all())
@@ -1577,6 +1832,8 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            initialize_persistent_store(app.handle());
+
             let open = MenuItem::with_id(app, "open", "Open WhatToDo", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &quit])?;
@@ -1614,9 +1871,12 @@ pub fn run() {
             open_workspace_window,
             read_text_file,
             write_text_file,
+            db_execute,
+            db_select,
             join_backup_path,
             copy_managed_attachment,
             delete_managed_attachment,
+            open_managed_attachment,
             export_attachment_sidecar,
             import_attachment_sidecar,
             cleanup_auto_backups,
@@ -1653,8 +1913,9 @@ mod tests {
         apply_migrations, apply_version_schema, backup_database_verified, cleanup_auto_backups,
         column_exists, confirm_reset_database_at, database_sidecar_paths, ensure_column,
         export_attachment_sidecar, init_database_at, is_path_within_root_lenient, join_backup_path,
-        repair_schema, sanitize_attachment_filename, sanitize_attachment_id,
-        sidecar_dir_for_backup_json, table_exists, validate_text_file_path, INIT_SQL,
+        migrate_db_sidecar_files, repair_schema, sanitize_attachment_filename,
+        sanitize_attachment_id, sidecar_dir_for_backup_json, table_exists,
+        validate_managed_attachment_path, validate_text_file_path, INIT_SQL,
     };
     use rusqlite::Connection;
     use std::fs;
@@ -1801,7 +2062,9 @@ mod tests {
         assert!(backup.exists());
 
         let migrations = [(1, "create_initial_whattodo_tables", INIT_SQL)];
-        let status = confirm_reset_database_at(&db_path, &backup, &migrations).expect("reset");
+        let (status, reset_conn) =
+            confirm_reset_database_at(&db_path, &backup, &migrations).expect("reset");
+        drop(reset_conn);
         assert_eq!(status.state, "reset_completed");
         assert_eq!(
             status.backup_path.as_deref(),
@@ -2006,5 +2269,66 @@ mod tests {
 
         assert!(is_path_within_root_lenient(&inside, &root));
         assert!(!is_path_within_root_lenient(&outside, &root));
+        assert!(validate_managed_attachment_path(&inside, &root).is_ok());
+        let err = validate_managed_attachment_path(&outside, &root).expect_err("outside");
+        assert!(err.contains("outside the managed attachments directory"));
+    }
+
+    #[test]
+    fn migrate_db_copies_sidecars_when_destination_missing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from_dir = dir.path().join("old");
+        let to_dir = dir.path().join("new");
+        fs::create_dir_all(&from_dir).expect("mkdir old");
+        let from_db = from_dir.join("ddl_todo.db");
+        let to_db = to_dir.join("ddl_todo.db");
+        fs::write(&from_db, b"main-db").expect("write db");
+        fs::write(from_db.with_extension("db-wal"), b"wal").expect("write wal");
+        fs::write(from_db.with_extension("db-shm"), b"shm").expect("write shm");
+
+        assert!(migrate_db_sidecar_files(&from_db, &to_db).expect("migrate"));
+        assert_eq!(fs::read(&to_db).expect("read dest"), b"main-db");
+        assert_eq!(
+            fs::read(to_db.with_extension("db-wal")).expect("read wal"),
+            b"wal"
+        );
+        assert_eq!(
+            fs::read(to_db.with_extension("db-shm")).expect("read shm"),
+            b"shm"
+        );
+    }
+
+    #[test]
+    fn migrate_db_does_not_overwrite_existing_destination() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from_db = dir.path().join("old.db");
+        let to_db = dir.path().join("new.db");
+        fs::write(&from_db, b"old").expect("write old");
+        fs::write(&to_db, b"existing").expect("write new");
+
+        assert!(!migrate_db_sidecar_files(&from_db, &to_db).expect("migrate"));
+        assert_eq!(fs::read(&to_db).expect("read dest"), b"existing");
+    }
+
+    #[test]
+    fn single_connection_transaction_rolls_back() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("ddl_todo.db");
+        seed_db(&db_path);
+
+        let conn = Connection::open(&db_path).expect("open");
+        conn.execute_batch("BEGIN").expect("begin");
+        conn.execute(
+            "INSERT INTO projects (id, workspace_id, name, color, status, created_at, updated_at)
+             VALUES ('p2', 'w1', 'Temp', '#fff', 'active', '0', '0')",
+            [],
+        )
+        .expect("insert");
+        conn.execute_batch("ROLLBACK").expect("rollback");
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM projects", [], |row| row.get(0))
+            .expect("count");
+        assert_eq!(count, 1);
     }
 }

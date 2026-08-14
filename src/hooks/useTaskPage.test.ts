@@ -55,8 +55,69 @@ describe("useTaskPage", () => {
     rerender({ reloadKey: 1 });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(loadTaskPage).toHaveBeenCalledWith(expect.objectContaining({ limit: 20, offset: 0 }));
+    expect(loadTaskPage).toHaveBeenCalledWith(expect.objectContaining({ limit: 10, offset: 0 }));
+    expect(loadTaskPage).toHaveBeenCalledWith(expect.objectContaining({ limit: 10, offset: 10 }));
     expect(result.current.tasks).toHaveLength(20);
+  });
+
+  it("reloads 600 already-loaded tasks by paging instead of a single oversized limit", async () => {
+    const loadTaskPage = vi.fn(async ({ limit, offset }: { limit: number; offset: number }) => {
+      const start = offset;
+      const tasks = Array.from({ length: limit }, (_, index) => ({
+        id: `task_${start + index}`,
+        workspaceId: "ws",
+        projectId: null,
+        workingFolder: null,
+        title: `Task ${start + index}`,
+        notes: "",
+        dueDate: "2026-06-01",
+        dueTime: null,
+        timezone: "UTC",
+        priority: "medium" as const,
+        status: "todo" as const,
+        completedAt: null,
+        createdAt: "2026-06-01T00:00:00.000Z",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+        deletedAt: null,
+        recurrenceTemplateId: null,
+        recurrenceInstanceDate: null,
+        parentId: null,
+        tags: [] as string[],
+      }));
+      return { tasks, total: 800, reminders: [] };
+    });
+
+    const { result, rerender } = renderHook(
+      ({ reloadKey }) =>
+        useTaskPage({
+          actions: { loadTaskPage },
+          input: { workspaceId: "ws", scope: "open", sort: "overview" },
+          pageSize: 150,
+          reloadKey,
+        }),
+      { initialProps: { reloadKey: 0 } },
+    );
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await act(async () => {
+      await result.current.loadMore();
+    });
+    await act(async () => {
+      await result.current.loadMore();
+    });
+    await act(async () => {
+      await result.current.loadMore();
+    });
+    expect(result.current.tasks).toHaveLength(600);
+
+    loadTaskPage.mockClear();
+    rerender({ reloadKey: 1 });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(loadTaskPage.mock.calls).toHaveLength(4);
+    expect(loadTaskPage.mock.calls.every((call) => call[0].limit === 150)).toBe(true);
+    expect(loadTaskPage.mock.calls.map((call) => call[0].offset)).toEqual([0, 150, 300, 450]);
+    expect(result.current.tasks).toHaveLength(600);
   });
 
   it("resets to pageSize when input filters change", async () => {

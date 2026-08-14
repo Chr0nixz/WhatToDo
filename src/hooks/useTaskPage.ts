@@ -15,6 +15,34 @@ type UseTaskPageOptions = {
 const DEFAULT_PAGE_SIZE = 150;
 const EMPTY_PAGE: TaskPageResult = { tasks: [], total: 0, reminders: [] };
 
+const mergePages = (pages: TaskPageResult[]): TaskPageResult => {
+  const tasks: TaskPageResult["tasks"] = [];
+  const reminders: TaskPageResult["reminders"] = [];
+  const seenTaskIds = new Set<string>();
+  const seenReminderIds = new Set<string>();
+  let total = 0;
+
+  for (const page of pages) {
+    total = page.total;
+    for (const task of page.tasks) {
+      if (seenTaskIds.has(task.id)) {
+        continue;
+      }
+      seenTaskIds.add(task.id);
+      tasks.push(task);
+    }
+    for (const reminder of page.reminders) {
+      if (seenReminderIds.has(reminder.id)) {
+        continue;
+      }
+      seenReminderIds.add(reminder.id);
+      reminders.push(reminder);
+    }
+  }
+
+  return { tasks, reminders, total };
+};
+
 export function useTaskPage({
   actions,
   enabled = true,
@@ -50,16 +78,31 @@ export function useTaskPage({
 
     const inputChanged = prevInputKeyRef.current !== inputKey;
     prevInputKeyRef.current = inputKey;
-
-    // Filters / workspace / query changed: reset to first page.
-    // tasksRevision (reloadKey) or other effect re-runs: keep loaded depth.
-    const limit = inputChanged ? pageSize : Math.max(pageSize, loadedCountRef.current || pageSize);
+    const targetCount = inputChanged ? pageSize : Math.max(pageSize, loadedCountRef.current || pageSize);
 
     let active = true;
     setIsLoading(true);
     setError(null);
 
-    loadPage(0, limit)
+    const loadUntilDepth = async () => {
+      const pages: TaskPageResult[] = [];
+      let loaded = 0;
+      let total = Number.POSITIVE_INFINITY;
+
+      while (loaded < targetCount && loaded < total) {
+        const next = await loadPage(loaded, pageSize);
+        pages.push(next);
+        total = next.total;
+        loaded += next.tasks.length;
+        if (next.tasks.length === 0) {
+          break;
+        }
+      }
+
+      return mergePages(pages);
+    };
+
+    loadUntilDepth()
       .then((next) => {
         if (active) {
           setResult(next);

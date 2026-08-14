@@ -63,6 +63,28 @@ describe("managedAttachments", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
+  it("clears unmanaged attachment paths on import sanitization", async () => {
+    const { sanitizeImportedAttachment } = await import("./managedAttachments");
+    expect(
+      sanitizeImportedAttachment({
+        id: "a1",
+        path: String.raw`C:\Windows\System32\calc.exe`,
+        filename: "calc.exe",
+      }),
+    ).toEqual({
+      id: "a1",
+      path: "",
+      filename: "calc.exe",
+    });
+    expect(
+      sanitizeImportedAttachment({
+        id: "a2",
+        path: "/app/attachments/a2/notes.pdf",
+        filename: "notes.pdf",
+      }).path,
+    ).toBe("/app/attachments/a2/notes.pdf");
+  });
+
   it("lists only external attachments", async () => {
     const { listExternalAttachments } = await import("./managedAttachments");
     const listed = listExternalAttachments([

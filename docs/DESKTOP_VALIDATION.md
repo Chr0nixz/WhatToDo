@@ -72,5 +72,8 @@ Automated webview smoke tests live under `e2e/` and run via Playwright against t
 
 ## Release Notes
 
-- Record any failed item in `PROJECT_ANALYSIS.md` or the release checklist before publishing.
+- Record any failed item in [`AUDIT.md`](AUDIT.md) before publishing.
+- This checklist has never been executed end to end. Three release-blocking defects found by the
+  2026-08-13 audit (`SEC-001`, `SEC-002`, `FUN-009`) are all failures this checklist would have
+  caught. Treat an unexecuted checklist as "known broken", not "probably fine".
 - Run `pnpm test`, `pnpm test:e2e`, `pnpm build`, and `cd src-tauri && cargo check` after fixing desktop validation findings.

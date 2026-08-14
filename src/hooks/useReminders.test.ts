@@ -137,8 +137,16 @@ describe("useReminders notification failure", () => {
       [makeTask({ id: "task-a", title: "Alpha" })],
       [makeReminder({ id: "reminder-a", taskId: "task-a", remindAt: past })],
     );
+    const loadDueReminders = vi.fn(async () => [
+      {
+        reminder: data.reminders[0]!,
+        task: { id: "task-a", title: "Alpha", dueTime: null, workspaceId: "workspace" },
+      },
+    ]);
 
-    renderHook(() => useReminders(data, markReminderFired, markReminderFailed));
+    renderHook(() =>
+      useReminders(true, loadDueReminders, markReminderFired, markReminderFailed),
+    );
 
     await waitFor(() => {
       expect(markReminderFailed).toHaveBeenCalledWith("reminder-a", "notify boom");
@@ -161,8 +169,16 @@ describe("useReminders notification failure", () => {
       [makeTask({ id: "task-a", title: "Alpha" })],
       [makeReminder({ id: "reminder-a", taskId: "task-a", remindAt: past })],
     );
+    const loadDueReminders = vi.fn(async () => [
+      {
+        reminder: data.reminders[0]!,
+        task: { id: "task-a", title: "Alpha", dueTime: null, workspaceId: "workspace" },
+      },
+    ]);
 
-    renderHook(() => useReminders(data, markReminderFired, markReminderFailed, onReminderNotified));
+    renderHook(() =>
+      useReminders(true, loadDueReminders, markReminderFired, markReminderFailed, onReminderNotified),
+    );
 
     await waitFor(() => {
       expect(onReminderNotified).toHaveBeenCalledWith({ id: "task-a", title: "Alpha" });

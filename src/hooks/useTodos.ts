@@ -15,6 +15,7 @@ import type {
   CreateTaskInput,
   CreateWorkspaceFolderInput,
   CreateWorkspaceInput,
+  DueReminder,
   ImportBackupMode,
   Project,
   RecoveryItems,
@@ -55,6 +56,7 @@ export type TodoActions = {
   loadAvailableTasks: (workspaceId?: string) => Promise<TaskSummary[]>;
   loadRecoveryItems: () => Promise<RecoveryItems>;
   loadTaskPage: (input: TaskPageInput) => Promise<TaskPageResult>;
+  loadDueReminders: (nowIso: string) => Promise<DueReminder[]>;
   getTask: (id: string) => Promise<Task | null>;
   loadDueDateCounts: (input: { workspaceId?: string; from: string; to: string }) => Promise<Record<string, number>>;
   createWorkspace: (input: CreateWorkspaceInput) => Promise<AppData>;
@@ -202,6 +204,8 @@ export const useTodos = () => {
         measureDevAsync("repository.loadAvailableTasks", () => repository.loadAvailableTasks(workspaceId)),
       loadRecoveryItems: () => measureDevAsync("repository.loadRecoveryItems", () => repository.loadRecoveryItems()),
       loadTaskPage: (input: TaskPageInput) => measureDevAsync("repository.loadTaskPage", () => repository.loadTaskPage(input)),
+      loadDueReminders: (nowIso: string) =>
+        measureDevAsync("repository.loadDueReminders", () => repository.loadDueReminders(nowIso)),
       getTask: (id: string) => measureDevAsync("repository.getTask", () => repository.getTask(id)),
       loadDueDateCounts: (input: { workspaceId?: string; from: string; to: string }) =>
         repository.loadDueDateCounts(input),

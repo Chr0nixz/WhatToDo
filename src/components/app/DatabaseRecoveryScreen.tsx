@@ -1,4 +1,4 @@
-import { openPath } from "@tauri-apps/plugin-opener";
+import { revealLocalPath } from "@/lib/openLocalPath";
 import { invoke } from "@tauri-apps/api/core";
 import { Loader2, TriangleAlert } from "lucide-react";
 import { useState } from "react";
@@ -49,7 +49,7 @@ export function DatabaseRecoveryScreen({ status, onStatusChange }: Props) {
     const separator = status.backupPath.includes("\\") ? "\\" : "/";
     const parent = status.backupPath.lastIndexOf(separator);
     if (parent > 0) {
-      await openPath(status.backupPath.slice(0, parent));
+      await revealLocalPath(status.backupPath.slice(0, parent));
     }
   };
 

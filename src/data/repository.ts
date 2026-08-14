@@ -1,4 +1,5 @@
-import Database from "@tauri-apps/plugin-sql";
+import { deleteManagedAttachmentFile, listExternalAttachments, migrateAttachmentToManaged, sanitizeImportedAttachment } from "./managedAttachments";
+import { getSqliteClient, type SqliteClient } from "./sqliteClient";
 
 import { endOfWeek } from "date-fns";
 
@@ -16,7 +17,6 @@ import {
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_NAME,
   diffPatch,
-  DB_URL,
   isTauriRuntime,
   LEGACY_LOCAL_KEY,
   LOCAL_KEY,
@@ -134,7 +134,7 @@ const snapshotAppDataFromStore = (data: LocalData, workspaceId: string): AppData
   };
 };
 
-type DatabaseHandle = Awaited<ReturnType<typeof Database.load>>;
+type DatabaseHandle = SqliteClient;
 
 const normalizeData = (data: Partial<AppData> | null): LocalData => ({
   workspaceId: data?.workspaceId ?? DEFAULT_WORKSPACE_ID,
@@ -1305,6 +1305,42 @@ class LocalRepository implements TodoRepository {
     return this.persist();
   }
 
+  async loadDueReminders(nowIso: string) {
+    const now = new Date(nowIso).getTime();
+    const activeWorkspaceIds = new Set(
+      this.data.workspaces.filter((workspace) => workspace.deletedAt === null).map((workspace) => workspace.id),
+    );
+    const tasksById = new Map(this.data.tasks.map((task) => [task.id, task]));
+
+    return this.data.reminders.flatMap((reminder) => {
+      const task = tasksById.get(reminder.taskId);
+      if (
+        !task ||
+        task.deletedAt !== null ||
+        !activeWorkspaceIds.has(task.workspaceId) ||
+        !reminder.enabled ||
+        reminder.firedAt !== null ||
+        reminder.failedAt !== null ||
+        (task.status !== "todo" && task.status !== "in_progress") ||
+        new Date(reminder.snoozedUntil ?? reminder.remindAt).getTime() > now
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          reminder,
+          task: {
+            id: task.id,
+            title: task.title,
+            dueTime: task.dueTime,
+            workspaceId: task.workspaceId,
+          },
+        },
+      ];
+    });
+  }
+
   async loadReminderEvents(reminderId: string) {
     return this.reminderEvents
       .filter((event) => event.reminderId === reminderId)
@@ -1586,9 +1622,11 @@ class SqlRepository implements TodoRepository {
   }
 
   async load(workspaceId?: string) {
-    await this.connect();
-    this.workspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
-    return this.readAll();
+    return this.enqueueMutation(async () => {
+      await this.connect();
+      this.workspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
+      return this.readAll();
+    });
   }
 
   async selectWorkspace(workspaceId: string) {
@@ -1617,50 +1655,57 @@ class SqlRepository implements TodoRepository {
   }
 
   async loadAvailableTasks(workspaceId = this.workspaceId) {
-    const db = await this.connect();
-    const tasks = (await db.select(
-      `SELECT ${TASK_LIST_COLUMNS} FROM tasks WHERE workspace_id != ? AND deleted_at IS NULL ORDER BY created_at DESC`,
-      [workspaceId],
-    )) as Record<string, unknown>[];
+    return this.enqueueMutation(async () => {
+      const db = await this.connect();
+      const tasks = (await db.select(
+        `SELECT ${TASK_LIST_COLUMNS} FROM tasks WHERE workspace_id != ? AND deleted_at IS NULL ORDER BY created_at DESC`,
+        [workspaceId],
+      )) as Record<string, unknown>[];
 
-    return tasks.map(rowToTaskSummary);
+      return tasks.map(rowToTaskSummary);
+    });
   }
 
   async loadRecoveryItems() {
-    const db = await this.connect();
-    const deletedTasks = (await db.select(
-      `SELECT ${TASK_LIST_COLUMNS} FROM tasks WHERE workspace_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC`,
-      [this.workspaceId],
-    )) as Record<string, unknown>[];
-    const deletedWorkspaceFolders = (await db.select(
-      "SELECT * FROM workspace_folders WHERE workspace_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
-      [this.workspaceId],
-    )) as Record<string, unknown>[];
-    const archivedProjects = (await db.select(
-      "SELECT * FROM projects WHERE workspace_id = ? AND status = 'archived' AND deleted_at IS NULL ORDER BY updated_at DESC",
-      [this.workspaceId],
-    )) as Record<string, unknown>[];
+    return this.enqueueMutation(async () => {
+      const db = await this.connect();
+      const deletedTasks = (await db.select(
+        `SELECT ${TASK_LIST_COLUMNS} FROM tasks WHERE workspace_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC`,
+        [this.workspaceId],
+      )) as Record<string, unknown>[];
+      const deletedWorkspaceFolders = (await db.select(
+        "SELECT * FROM workspace_folders WHERE workspace_id = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+        [this.workspaceId],
+      )) as Record<string, unknown>[];
+      const archivedProjects = (await db.select(
+        "SELECT * FROM projects WHERE workspace_id = ? AND status = 'archived' AND deleted_at IS NULL ORDER BY updated_at DESC",
+        [this.workspaceId],
+      )) as Record<string, unknown>[];
 
-    return {
-      deletedTasks: deletedTasks.map(rowToTaskSummary),
-      deletedWorkspaceFolders: deletedWorkspaceFolders.map(rowToWorkspaceFolder),
-      deletedWorkspaces: (
-        (await db.select("SELECT * FROM workspaces WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")) as Record<
-          string,
-          unknown
-        >[]
-      ).map(rowToWorkspace),
-      archivedProjects: archivedProjects.map(rowToProject),
-    };
+      return {
+        deletedTasks: deletedTasks.map(rowToTaskSummary),
+        deletedWorkspaceFolders: deletedWorkspaceFolders.map(rowToWorkspaceFolder),
+        deletedWorkspaces: (
+          (await db.select("SELECT * FROM workspaces WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")) as Record<
+            string,
+            unknown
+          >[]
+        ).map(rowToWorkspace),
+        archivedProjects: archivedProjects.map(rowToProject),
+      };
+    });
   }
 
   async getTask(id: string) {
-    const db = await this.connect();
-    const rows = (await db.select("SELECT * FROM tasks WHERE id = ? LIMIT 1", [id])) as Record<string, unknown>[];
-    return rows[0] ? rowToTask(rows[0]) : null;
+    return this.enqueueMutation(async () => {
+      const db = await this.connect();
+      const rows = (await db.select("SELECT * FROM tasks WHERE id = ? LIMIT 1", [id])) as Record<string, unknown>[];
+      return rows[0] ? rowToTask(rows[0]) : null;
+    });
   }
 
   async loadTaskPage(input: TaskPageInput) {
+    return this.enqueueMutation(async () => {
     const db = await this.connect();
     const normalized = normalizeTaskPageInput(input, this.workspaceId);
     const where = ["deleted_at IS NULL"];
@@ -1774,9 +1819,56 @@ class SqlRepository implements TodoRepository {
       total: Number(countRows[0]?.total ?? 0),
       reminders: reminders.map(rowToReminder),
     };
+    });
+  }
+
+  async loadDueReminders(nowIso: string) {
+    return this.enqueueMutation(async () => {
+      const db = await this.connect();
+      const rows = (await db.select(
+        `SELECT
+           reminders.id,
+           reminders.task_id,
+           reminders.remind_at,
+           reminders.offset_minutes,
+           reminders.snoozed_until,
+           reminders.fired_at,
+           reminders.failed_at,
+           reminders.last_error,
+           reminders.last_attempted_at,
+           reminders.enabled,
+           tasks.id AS task_id_full,
+           tasks.title AS task_title,
+           tasks.due_time AS task_due_time,
+           tasks.workspace_id AS task_workspace_id
+         FROM reminders
+         INNER JOIN tasks ON tasks.id = reminders.task_id
+         INNER JOIN workspaces ON workspaces.id = tasks.workspace_id
+         WHERE reminders.enabled = 1
+           AND reminders.fired_at IS NULL
+           AND reminders.failed_at IS NULL
+           AND tasks.deleted_at IS NULL
+           AND tasks.status IN ('todo', 'in_progress')
+           AND workspaces.deleted_at IS NULL
+           AND COALESCE(reminders.snoozed_until, reminders.remind_at) <= ?
+         ORDER BY COALESCE(reminders.snoozed_until, reminders.remind_at) ASC`,
+        [nowIso],
+      )) as Record<string, unknown>[];
+
+      return rows.map((row) => ({
+        reminder: rowToReminder(row),
+        task: {
+          id: String(row.task_id_full ?? row.task_id),
+          title: String(row.task_title ?? ""),
+          dueTime: row.task_due_time ? String(row.task_due_time) : null,
+          workspaceId: String(row.task_workspace_id ?? ""),
+        },
+      }));
+    });
   }
 
   async loadDueDateCounts(input: { workspaceId?: string; from: string; to: string }) {
+    return this.enqueueMutation(async () => {
     const db = await this.connect();
     const workspaceId = input.workspaceId ?? this.workspaceId;
     const rows = (await db.select(
@@ -1791,6 +1883,7 @@ class SqlRepository implements TodoRepository {
       counts[String(row.dueDate)] = Number(row.total ?? 0);
     }
     return counts;
+    });
   }
 
   async createWorkspace(input: CreateWorkspaceInput) {
@@ -2417,13 +2510,13 @@ class SqlRepository implements TodoRepository {
       await this.withTransaction(db, async () => {
         await db.execute(
           `UPDATE tasks
-           SET project_id = ?, working_folder = ?, title = ?, notes = ?, due_date = ?, due_time = ?, priority = ?, tags = ?, updated_at = ?
+           SET project_id = ?, working_folder = ?, title = ?, notes = COALESCE(?, notes), due_date = ?, due_time = ?, priority = ?, tags = ?, updated_at = ?
            WHERE id = ?`,
           [
             nextTask.projectId,
             nextTask.workingFolder,
             nextTask.title,
-            nextTask.notes,
+            patch.notes !== undefined ? patch.notes : null,
             nextTask.dueDate,
             nextTask.dueTime,
             nextTask.priority,
@@ -2529,7 +2622,6 @@ class SqlRepository implements TodoRepository {
       const cache = await this.getCache();
       const current = cache.attachments.find((attachment) => attachment.id === id);
       if (current) {
-        const { deleteManagedAttachmentFile } = await import("./managedAttachments");
         await deleteManagedAttachmentFile(current.path);
       }
       const db = await this.connect();
@@ -2566,7 +2658,6 @@ class SqlRepository implements TodoRepository {
   async migrateExternalAttachments() {
     return this.enqueueMutation(async () => {
       const cache = await this.getCache();
-      const { listExternalAttachments, migrateAttachmentToManaged } = await import("./managedAttachments");
       const report = { migrated: 0, skipped: 0, failed: 0 };
       let attachments = cache.attachments ?? [];
 
@@ -3057,15 +3148,17 @@ class SqlRepository implements TodoRepository {
   }
 
   async loadReminderEvents(reminderId: string) {
-    const db = await this.connect();
-    const rows = (await db.select(
-      `SELECT id, reminder_id, task_id, event_type, detail, created_at
-       FROM reminder_events
-       WHERE reminder_id = ?
-       ORDER BY created_at DESC`,
-      [reminderId],
-    )) as Record<string, unknown>[];
-    return rows.map(rowToReminderEvent);
+    return this.enqueueMutation(async () => {
+      const db = await this.connect();
+      const rows = (await db.select(
+        `SELECT id, reminder_id, task_id, event_type, detail, created_at
+         FROM reminder_events
+         WHERE reminder_id = ?
+         ORDER BY created_at DESC`,
+        [reminderId],
+      )) as Record<string, unknown>[];
+      return rows.map(rowToReminderEvent);
+    });
   }
 
   async createSavedView(input: CreateSavedTaskViewInput) {
@@ -3177,6 +3270,7 @@ class SqlRepository implements TodoRepository {
   }
 
   async exportBackup() {
+    return this.enqueueMutation(async () => {
     const db = await this.connect();
     const workspaces = ((await db.select("SELECT * FROM workspaces ORDER BY created_at DESC")) as Record<string, unknown>[]).map(
       rowToWorkspace,
@@ -3214,6 +3308,7 @@ class SqlRepository implements TodoRepository {
       settingsByWorkspace,
       reminderEvents,
     );
+    });
   }
 
   async importBackup(payload: BackupPayload, mode: ImportBackupMode = "replace") {
@@ -3373,31 +3468,35 @@ class SqlRepository implements TodoRepository {
   }
 
   async exportCurrentWorkspaceCsv() {
-    const db = await this.connect();
-    const taskRows = (await db.select(
-      "SELECT * FROM tasks WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY created_at DESC",
-      [this.workspaceId],
-    )) as Record<string, unknown>[];
-    const cache = this.cachedData ?? (await this.readAll());
-    return buildTasksCsv({ projects: cache.projects, tasks: taskRows.map(rowToTask) });
+    return this.enqueueMutation(async () => {
+      const db = await this.connect();
+      const taskRows = (await db.select(
+        "SELECT * FROM tasks WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY created_at DESC",
+        [this.workspaceId],
+      )) as Record<string, unknown>[];
+      const cache = this.cachedData ?? (await this.readAll());
+      return buildTasksCsv({ projects: cache.projects, tasks: taskRows.map(rowToTask) });
+    });
   }
 
   async exportCurrentWorkspaceIcs() {
-    const db = await this.connect();
-    const taskRows = (await db.select(
-      "SELECT * FROM tasks WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY created_at DESC",
-      [this.workspaceId],
-    )) as Record<string, unknown>[];
-    const cache = this.cachedData ?? (await this.readAll());
-    return buildTasksIcs({
-      projects: cache.projects,
-      tasks: taskRows.map(rowToTask),
-      reminders: cache.reminders,
+    return this.enqueueMutation(async () => {
+      const db = await this.connect();
+      const taskRows = (await db.select(
+        "SELECT * FROM tasks WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY created_at DESC",
+        [this.workspaceId],
+      )) as Record<string, unknown>[];
+      const cache = this.cachedData ?? (await this.readAll());
+      return buildTasksIcs({
+        projects: cache.projects,
+        tasks: taskRows.map(rowToTask),
+        reminders: cache.reminders,
+      });
     });
   }
 
   private async connect() {
-    this.db ??= await Database.load(DB_URL);
+    this.db ??= getSqliteClient();
     return this.db;
   }
 
@@ -4059,7 +4158,7 @@ const normalizeBackupPayload = (payload: BackupPayload): LocalData => {
 
   const attachments =
     payload.whattodoBackupVersion === 2 || payload.whattodoBackupVersion === 3
-      ? (payload.attachments ?? [])
+      ? (payload.attachments ?? []).map(sanitizeImportedAttachment)
       : [];
 
   return normalizeData({
