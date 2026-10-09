@@ -35,10 +35,14 @@ export const useCommandPalette = ({ buildItems, searchTasks, onOpenTask, onClose
 
   const recentStore = useMemo(() => {
     void recentTick;
+    void open;
     return loadCommandRecent();
   }, [recentTick, open]);
 
-  const builtItems = useMemo(() => buildItems(), [buildItems, open]);
+  const builtItems = useMemo(() => {
+    void open;
+    return buildItems();
+  }, [buildItems, open]);
 
   const commandItems = useMemo(() => {
     const filtered = filterCommandItems(builtItems, query);
@@ -133,21 +137,31 @@ export const useCommandPalette = ({ buildItems, searchTasks, onOpenTask, onClose
 
     setIsSearchingTasks(true);
     setTaskSearchError(null);
+    let active = true;
     const timer = window.setTimeout(() => {
       void searchTasks(trimmed, taskSearchScope)
         .then((items) => {
-          setTaskItems(items);
+          if (active) {
+            setTaskItems(items);
+          }
         })
         .catch(() => {
-          setTaskItems([]);
-          setTaskSearchError("operationFailed");
+          if (active) {
+            setTaskItems([]);
+            setTaskSearchError("operationFailed");
+          }
         })
         .finally(() => {
-          setIsSearchingTasks(false);
+          if (active) {
+            setIsSearchingTasks(false);
+          }
         });
     }, 180);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
   }, [mode, open, query, recentTaskItems, searchTasks, taskSearchScope]);
 
   useEffect(() => {

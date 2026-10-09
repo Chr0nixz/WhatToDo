@@ -1,9 +1,10 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Bell, ChevronDown, FolderOpen, Plus, Wand2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { isReminderInPast, parseDateKey } from "@/data/date";
 import { formatTaskDate } from "@/data/dateFormat";
 import { parseQuickAdd } from "@/data/quickAdd";
 import type { QuickAddMatch } from "@/data/quickAdd";
@@ -48,7 +49,9 @@ export function TaskComposer({
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [projectId, setProjectId] = useState(defaultProjectId ?? "none");
   const [workingFolder, setWorkingFolder] = useState("");
-  const [useReminder, setUseReminder] = useState(true);
+  const [useReminder, setUseReminder] = useState(
+    () => !isReminderInPast({ dueDate: defaultDate, dueTime: null }, settings.defaultReminderOffset),
+  );
   const [reminderOffset, setReminderOffset] = useState(settings.defaultReminderOffset);
   const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency | "none">("none");
   const [recurrenceInterval, setRecurrenceInterval] = useState(1);
@@ -65,7 +68,13 @@ export function TaskComposer({
     setDueDate(defaultDate);
     setProjectId(defaultProjectId ?? "none");
     setReminderOffset(settings.defaultReminderOffset);
+    setUseReminder(!isReminderInPast({ dueDate: defaultDate, dueTime: null }, settings.defaultReminderOffset));
   }, [defaultDate, defaultProjectId, settings.defaultReminderOffset]);
+
+  const reminderWouldBePast = useMemo(
+    () => isReminderInPast({ dueDate, dueTime: dueTime || null }, reminderOffset),
+    [dueDate, dueTime, reminderOffset],
+  );
 
   const handleTitleFocus = () => {
     if (localStorage.getItem("whattodo:quickAddHintSeen") === null) {
@@ -139,18 +148,38 @@ export function TaskComposer({
       return;
     }
 
+    const parsed = parseQuickAdd({
+      input: nextTitle,
+      projects,
+      defaultReminderOffset: settings.defaultReminderOffset,
+      referenceDate: parseDateKey(dueDate || defaultDate),
+    });
+    const resolvedTitle = parsed.draft.title.trim();
+    if (!resolvedTitle) {
+      setSubmitError(t("titleRequired"));
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
       const input = {
-        title: nextTitle,
-        dueDate,
-        dueTime: dueTime || null,
-        priority,
-        projectId: projectId === "none" ? null : projectId,
+        title: resolvedTitle,
+        dueDate: parsed.matched.date ? parsed.draft.dueDate : dueDate,
+        dueTime: parsed.matched.time ? parsed.draft.dueTime ?? null : dueTime || null,
+        priority: parsed.matched.priority ? parsed.draft.priority : priority,
+        projectId: parsed.matched.project
+          ? parsed.draft.projectId
+          : projectId === "none"
+            ? null
+            : projectId,
         workingFolder: workingFolder.trim() || null,
-        reminderOffset: useReminder ? reminderOffset : null,
+        reminderOffset: parsed.matched.reminder
+          ? parsed.draft.reminderOffset
+          : useReminder
+            ? reminderOffset
+            : null,
       };
 
       if (recurrenceFrequency === "none") {
@@ -172,6 +201,7 @@ export function TaskComposer({
       setProjectId(defaultProjectId ?? "none");
       setWorkingFolder("");
       setReminderOffset(settings.defaultReminderOffset);
+      setUseReminder(!isReminderInPast({ dueDate: defaultDate, dueTime: null }, settings.defaultReminderOffset));
       setRecurrenceFrequency("none");
       setRecurrenceInterval(1);
       setRecurrenceByWeekday([]);
@@ -286,6 +316,9 @@ export function TaskComposer({
             <span>{t("reminder")}</span>
           </Button>
         </div>
+        {useReminder && reminderWouldBePast && (
+          <p className="text-xs text-warning-foreground">{t("reminderAlreadyPast")}</p>
+        )}
 
         {detailsOpen && (
           <div className="motion-status grid grid-cols-2 gap-3 border-t border-border pt-3 max-sm:grid-cols-1">
@@ -570,6 +603,9 @@ export function TaskComposer({
           </option>
         ))}
       </select>
+      {useReminder && reminderWouldBePast && (
+        <p className="col-span-full text-xs text-warning-foreground">{t("reminderAlreadyPast")}</p>
+      )}
       <Button
         aria-label={t("add")}
         className="relative"

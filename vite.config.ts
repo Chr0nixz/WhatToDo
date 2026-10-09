@@ -29,6 +29,8 @@ export default defineConfig(async () => ({
     ],
   },
   build: {
+    target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : ["es2021", "safari13"],
+    sourcemap: "hidden" as const,
     rollupOptions: {
       output: {
         manualChunks(id: string) {
@@ -36,20 +38,31 @@ export default defineConfig(async () => ({
             return undefined;
           }
 
-          if (id.includes("react") || id.includes("scheduler")) {
-            return "react-vendor";
+          if (id.includes("@radix-ui") || id.includes("radix-ui") || id.includes("lucide-react")) {
+            return "ui-vendor";
           }
 
           if (id.includes("@tauri-apps")) {
             return "tauri-vendor";
           }
 
-          if (id.includes("@radix-ui") || id.includes("lucide-react")) {
-            return "ui-vendor";
-          }
-
           if (id.includes("date-fns")) {
             return "date-vendor";
+          }
+
+          if (
+            id.includes("/react/") ||
+            id.includes("\\react\\") ||
+            id.includes("/react-dom/") ||
+            id.includes("\\react-dom\\") ||
+            id.includes("/scheduler/") ||
+            id.includes("\\scheduler\\") ||
+            id.includes(".pnpm/react@") ||
+            id.includes(".pnpm/react-dom@") ||
+            id.includes(".pnpm/scheduler@") ||
+            id.includes("react-i18next")
+          ) {
+            return "react-vendor";
           }
 
           return "vendor";

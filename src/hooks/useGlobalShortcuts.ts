@@ -16,6 +16,11 @@ export const runGlobalShortcut = (handler: () => void) => {
   if (shouldDeferToDomShortcuts()) {
     return;
   }
+  if (isTauriRuntime()) {
+    void import("@tauri-apps/api/core")
+      .then(({ invoke }) => invoke("show_main_window_cmd"))
+      .catch(() => undefined);
+  }
   handler();
 };
 

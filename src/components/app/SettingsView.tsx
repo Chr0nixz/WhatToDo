@@ -1,7 +1,7 @@
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { revealLocalPath } from "@/lib/openLocalPath";
-import { ArchiveRestore, Bell, Check, Database, Download, FolderOpen, HelpCircle, Keyboard, Languages, Moon, Palette, RotateCw, Upload, Wand2 } from "lucide-react";
+import { Bell, Check, FolderOpen, HelpCircle, Keyboard, Languages, Moon, Palette } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -19,7 +19,6 @@ import {
   AUTO_BACKUP_LAST_ERROR_KEY,
   applyAutoBackupPreferencesFromBackup,
   loadAutoBackupConfig,
-  loadAutoBackupLastError,
   saveAutoBackupConfig,
   toAutoBackupPreferences,
   type AutoBackupConfig,
@@ -27,17 +26,22 @@ import {
 import { cn } from "@/lib/utils";
 import { ImportPreviewDialog } from "./ImportPreviewDialog";
 import { UpdateSettingsPanel } from "./UpdateSettingsPanel";
-import { formatTaskDate } from "@/data/dateFormat";
+import { AutoBackupPanel } from "./settings/AutoBackupPanel";
+import { DataManagementPanel } from "./settings/DataManagementPanel";
+import { RecoveryCenterPanel } from "./settings/RecoveryCenterPanel";
+import { Segmented } from "./settings/Segmented";
+import { ToggleRow } from "./settings/ToggleRow";
 
 type SettingsViewProps = {
   data: AppData;
   actions: TodoActions;
+  onOpenHelp?: () => void;
 };
 
 const accentOptions = accentSwatches.map((swatch) => ({
   value: swatch.id,
   labelKey: swatch.labelKey,
-  swatch: swatch.value,
+  swatch: swatch.id === "blue" ? "var(--primary)" : swatch.value,
 })) satisfies { value: AccentColor; labelKey: string; swatch: string }[];
 
 const LANGUAGE_STORAGE_KEY = "whattodo:language";
@@ -54,7 +58,7 @@ const downloadText = (filename: string, contents: string, mimeType: string) => {
   URL.revokeObjectURL(url);
 };
 
-export function SettingsView({ data, actions }: SettingsViewProps) {
+export function SettingsView({ data, actions, onOpenHelp }: SettingsViewProps) {
   const { i18n, t } = useTranslation();
   const settings = data.settings;
   const [defaultWorkingFolder, setDefaultWorkingFolder] = useState(settings.defaultWorkingFolder ?? "");
@@ -124,8 +128,26 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
   };
 
   useEffect(() => {
-    void loadRecoveryItems();
-  }, [data.workspaceId]);
+    let active = true;
+    setRecoveryState("loading");
+    actions
+      .loadRecoveryItems()
+      .then((items) => {
+        if (active) {
+          setRecoveryItems(items);
+          setRecoveryState("ready");
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setRecoveryState("error");
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [actions, data.workspaceId]);
 
   const restoreRecoveryItem = async (restore: () => Promise<unknown>) => {
     await restore();
@@ -411,14 +433,17 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
   };
 
   return (
-    <main className="mx-auto grid w-full max-w-4xl gap-4">
+    <main className="mx-auto grid w-full max-w-4xl gap-6">
+      <h1 className="text-xl font-semibold">{t("settings")}</h1>
+      <div className="grid gap-3">
+        <h2 className="text-sm font-semibold">{t("settingsAppearance")}</h2>
       <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
             <Moon className="size-4" />
           </span>
           <div>
-            <h1 className="text-lg font-semibold">{t("theme")}</h1>
+            <h3 className="text-lg font-semibold">{t("theme")}</h3>
             <p className="text-sm text-muted-foreground">{t("themeHint")}</p>
           </div>
         </div>
@@ -476,7 +501,7 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             <Languages className="size-4" />
           </span>
           <div>
-            <h2 className="text-lg font-semibold">{t("language")}</h2>
+            <h3 className="text-lg font-semibold">{t("language")}</h3>
             <p className="text-sm text-muted-foreground">{t("languageHint")}</p>
           </div>
         </div>
@@ -490,14 +515,17 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
           onChange={(value) => void saveSettings({ language: value as Language })}
         />
       </section>
+      </div>
 
+      <div className="grid gap-3">
+        <h2 className="text-sm font-semibold">{t("settingsRemindersAndFolders")}</h2>
       <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
             <Bell className="size-4" />
           </span>
           <div>
-            <h2 className="text-lg font-semibold">{t("notifications")}</h2>
+            <h3 className="text-lg font-semibold">{t("notifications")}</h3>
             <p className="text-sm text-muted-foreground">{t("trayHint")}</p>
           </div>
         </div>
@@ -514,12 +542,13 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             label={t("closeToTray")}
             onClick={() => void saveSettings({ closeToTray: !settings.closeToTray })}
           />
-          <label className="grid grid-cols-[1fr_160px] items-center gap-3 rounded-md bg-background/50 px-3 py-2 text-sm">
+          <label className="grid grid-cols-[1fr_160px] items-center gap-3 rounded-md bg-background/50 px-3 py-2 text-sm max-sm:grid-cols-1">
             <span>
               <span className="block font-medium">{t("defaultReminder")}</span>
               <span className="text-xs text-muted-foreground">{t("minutes")}</span>
             </span>
             <input
+              id="settings-reminder-offset"
               className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring disabled:opacity-50"
               disabled={isSaving}
               min={0}
@@ -528,9 +557,16 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
               value={reminderOffsetInput}
               onChange={(event) => setReminderOffsetInput(event.target.value)}
               aria-invalid={reminderOffsetInput.trim() !== "" && (!Number.isFinite(Number(reminderOffsetInput)) || Number(reminderOffsetInput) < 0)}
+              aria-describedby={
+                reminderOffsetInput.trim() !== "" && (!Number.isFinite(Number(reminderOffsetInput)) || Number(reminderOffsetInput) < 0)
+                  ? "settings-reminder-offset-error"
+                  : undefined
+              }
             />
             {reminderOffsetInput.trim() !== "" && (!Number.isFinite(Number(reminderOffsetInput)) || Number(reminderOffsetInput) < 0) && (
-              <p className="text-xs text-destructive">{t("invalidReminderOffset")}</p>
+              <p id="settings-reminder-offset-error" className="col-span-full text-xs text-destructive" role="alert">
+                {t("invalidReminderOffset")}
+              </p>
             )}
           </label>
         </div>
@@ -542,18 +578,24 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
             <FolderOpen className="size-4" />
           </span>
           <div>
-            <h2 className="text-lg font-semibold">{t("defaultFolder")}</h2>
+            <h3 className="text-lg font-semibold">{t("defaultFolder")}</h3>
             <p className="text-sm text-muted-foreground">{t("defaultFolderHint")}</p>
           </div>
         </div>
         <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2 max-sm:grid-cols-1">
-          <input
-            className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring disabled:opacity-50"
-            disabled={isSaving}
-            placeholder="D:\\Projects\\..."
-            value={defaultWorkingFolder}
-            onChange={(event) => setDefaultWorkingFolder(event.target.value)}
-          />
+          <div className="min-w-0">
+            <label className="sr-only" htmlFor="settings-default-folder">
+              {t("defaultFolder")}
+            </label>
+            <input
+              id="settings-default-folder"
+              className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring disabled:opacity-50"
+              disabled={isSaving}
+              placeholder="D:\\Projects\\..."
+              value={defaultWorkingFolder}
+              onChange={(event) => setDefaultWorkingFolder(event.target.value)}
+            />
+          </div>
           <Button
             disabled={isSaving}
             size="lg"
@@ -588,294 +630,60 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
           </p>
         )}
       </section>
+      </div>
 
-      <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
-        <div className="mb-4 flex items-center gap-3">
-          <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
-            <ArchiveRestore className="size-4" />
-          </span>
-          <div>
-            <h2 className="text-lg font-semibold">{t("recoveryCenter")}</h2>
-            <p className="text-sm text-muted-foreground">{t("recoveryCenterHint")}</p>
-          </div>
-        </div>
-        {recoveryState === "loading" ? (
-          <p className="motion-status rounded-md border border-dashed border-border bg-background/50 p-3 text-sm text-muted-foreground">
-            {t("loadingRecovery")}
-          </p>
-        ) : recoveryState === "error" ? (
-          <p className="motion-status rounded-md border border-dashed border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            {t("loadRecoveryFailed")}
-          </p>
-        ) : (
-          <div className="grid gap-3">
-            <RecoveryGroup
-              emptyLabel={t("emptyDeletedTasks")}
-              items={recoveryItems.deletedTasks.map((task) => ({
-                id: task.id,
-                title: task.title,
-                meta: formatTaskDate(task.dueDate, i18n.language),
-              }))}
-              title={t("deletedTasks")}
-              onRestore={(id) => restoreRecoveryItem(() => actions.restoreTask(id))}
-            />
-            <RecoveryGroup
-              emptyLabel={t("emptyDeletedFolders")}
-              items={recoveryItems.deletedWorkspaceFolders.map((folder) => ({ id: folder.id, title: folder.name, meta: folder.path }))}
-              title={t("deletedFolders")}
-              onRestore={(id) => restoreRecoveryItem(() => actions.restoreWorkspaceFolder(id))}
-            />
-            <RecoveryGroup
-              emptyLabel={t("emptyDeletedWorkspaces")}
-              items={recoveryItems.deletedWorkspaces.map((workspace) => ({
-                id: workspace.id,
-                title: workspace.name,
-                meta: t("workspaces"),
-              }))}
-              title={t("deletedWorkspaces")}
-              onRestore={(id) => restoreRecoveryItem(() => actions.restoreWorkspace(id))}
-            />
-            <RecoveryGroup
-              emptyLabel={t("emptyArchivedProjects")}
-              items={recoveryItems.archivedProjects.map((project) => ({
-                id: project.id,
-                title: project.name,
-                meta: project.dueDate ? formatTaskDate(project.dueDate, i18n.language) : t("none"),
-              }))}
-              title={t("archivedProjects")}
-              onRestore={(id) => restoreRecoveryItem(() => actions.unarchiveProject(id))}
-            />
-          </div>
-        )}
-      </section>
+      <div className="grid gap-3">
+        <h2 className="text-sm font-semibold">{t("settingsData")}</h2>
+      <RecoveryCenterPanel
+        recoveryItems={recoveryItems}
+        recoveryState={recoveryState}
+        onRestoreFolder={(id) => void restoreRecoveryItem(() => actions.restoreWorkspaceFolder(id))}
+        onRestoreTask={(id) => void restoreRecoveryItem(() => actions.restoreTask(id))}
+        onRestoreWorkspace={(id) => void restoreRecoveryItem(() => actions.restoreWorkspace(id))}
+        onUnarchiveProject={(id) => void restoreRecoveryItem(() => actions.unarchiveProject(id))}
+      />
 
-      <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
-        <div className="mb-4 flex items-center gap-3">
-          <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
-            <Database className="size-4" />
-          </span>
-          <div>
-            <h2 className="text-lg font-semibold">{t("dataManagement")}</h2>
-            <p className="text-sm text-muted-foreground">{t("dataManagementHint")}</p>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button size="lg" type="button" onClick={() => void exportBackup()}>
-            <Download className="size-4" />
-            {t("exportBackup")}
-          </Button>
-          <Button size="lg" type="button" variant="secondary" onClick={() => void importBackup()}>
-            <Upload className="size-4" />
-            {t("importBackup")}
-          </Button>
-          <Button size="lg" type="button" variant="secondary" onClick={() => void exportCsv()}>
-            <Download className="size-4" />
-            {t("exportCsv")}
-          </Button>
-          <Button size="lg" type="button" variant="secondary" onClick={() => void exportIcs()}>
-            <Download className="size-4" />
-            {t("exportIcs")}
-          </Button>
-          <Button
-            disabled={isMigratingAttachments}
-            size="lg"
-            title={t("migrateAttachmentsHint")}
-            type="button"
-            variant="secondary"
-            onClick={() => void migrateAttachments()}
-          >
-            <FolderOpen className="size-4" />
-            {isMigratingAttachments ? t("migrateAttachmentsRunning") : t("migrateAttachments")}
-          </Button>
-        </div>
-        {dataState !== "idle" && (
-          <p className={cn("motion-status mt-3 text-xs", dataState === "saved" ? "text-success" : "text-destructive")}>
-            {dataState === "saved"
-              ? dataError ?? t("dataOperationDone")
-              : dataError ?? t("operationFailed")}
-          </p>
-        )}
-      </section>
+      <DataManagementPanel
+        dataError={dataError}
+        dataState={dataState}
+        isMigratingAttachments={isMigratingAttachments}
+        onExportBackup={() => void exportBackup()}
+        onExportCsv={() => void exportCsv()}
+        onExportIcs={() => void exportIcs()}
+        onImportBackup={() => void importBackup()}
+        onMigrateAttachments={() => void migrateAttachments()}
+      />
 
-      <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
-        <div className="mb-4 flex items-center gap-3">
-          <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
-            <RotateCw className="size-4" />
-          </span>
-          <div>
-            <h2 className="text-lg font-semibold">{t("autoBackup")}</h2>
-            <p className="text-sm text-muted-foreground">{t("autoBackupHint")}</p>
-          </div>
-        </div>
-        <div className="grid gap-3">
-          <ToggleRow
-            checked={autoBackup.enabled}
-            label={t("autoBackupEnabled")}
-            onClick={() => updateAutoBackup({ enabled: !autoBackup.enabled })}
-          />
-          <label className="grid grid-cols-[1fr_120px] items-center gap-3 rounded-md bg-background/50 px-3 py-2 text-sm">
-            <span>
-              <span className="block font-medium">{t("autoBackupInterval")}</span>
-              <span className="text-xs text-muted-foreground">{t("hours")}</span>
-            </span>
-            <input
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring disabled:opacity-50"
-              disabled={!autoBackup.enabled}
-              min={1}
-              step={1}
-              type="number"
-              value={autoBackup.intervalHours}
-              onChange={(event) => {
-                const parsed = Number(event.target.value);
-                if (Number.isFinite(parsed) && parsed >= 1) {
-                  updateAutoBackup({ intervalHours: Math.floor(parsed) });
-                }
-              }}
-            />
-          </label>
-          <label className="grid grid-cols-[1fr_120px] items-center gap-3 rounded-md bg-background/50 px-3 py-2 text-sm">
-            <span>
-              <span className="block font-medium">{t("autoBackupRetentionCount")}</span>
-              <span className="text-xs text-muted-foreground">{t("autoBackupRetentionCountHint")}</span>
-            </span>
-            <input
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring disabled:opacity-50"
-              disabled={!autoBackup.enabled}
-              min={1}
-              step={1}
-              type="number"
-              value={autoBackup.retentionCount}
-              onChange={(event) => {
-                const parsed = Number(event.target.value);
-                if (Number.isFinite(parsed) && parsed >= 1) {
-                  updateAutoBackup({ retentionCount: Math.floor(parsed) });
-                }
-              }}
-            />
-          </label>
-          <label className="grid grid-cols-[1fr_120px] items-center gap-3 rounded-md bg-background/50 px-3 py-2 text-sm">
-            <span>
-              <span className="block font-medium">{t("autoBackupRetentionDays")}</span>
-              <span className="text-xs text-muted-foreground">{t("autoBackupRetentionDaysHint")}</span>
-            </span>
-            <input
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring disabled:opacity-50"
-              disabled={!autoBackup.enabled}
-              min={1}
-              step={1}
-              type="number"
-              value={autoBackup.retentionDays}
-              onChange={(event) => {
-                const parsed = Number(event.target.value);
-                if (Number.isFinite(parsed) && parsed >= 1) {
-                  updateAutoBackup({ retentionDays: Math.floor(parsed) });
-                }
-              }}
-            />
-          </label>
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 max-sm:grid-cols-1">
-            <input
-              className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring disabled:opacity-50"
-              disabled={!autoBackup.enabled}
-              placeholder="D:\\Backups\\..."
-              value={autoBackup.folder ?? ""}
-              readOnly
-            />
-            <Button
-              disabled={!autoBackup.enabled}
-              size="lg"
-              type="button"
-              variant="secondary"
-              onClick={() => void chooseAutoBackupFolder()}
-            >
-              <FolderOpen className="size-4" />
-              {t("chooseFolder")}
-            </Button>
-            <Button
-              disabled={!autoBackup.enabled || !autoBackup.folder}
-              size="lg"
-              type="button"
-              onClick={() => void runAutoBackupNow()}
-            >
-              {t("autoBackupRunNow")}
-            </Button>
-          </div>
-          {autoBackupState !== "idle" && (
-            <p
-              className={cn(
-                "motion-status text-xs",
-                autoBackupState === "error" ? "text-destructive" : "text-success",
-              )}
-            >
-              {autoBackupState === "settings_saved"
-                ? t("autoBackupSettingsSaved")
-                : autoBackupState === "backup_done"
-                  ? t("autoBackupDone")
-                  : (autoBackupFeedback ?? t("autoBackupFailed"))}
-            </p>
-          )}
-          {autoBackupState === "idle" && loadAutoBackupLastError() && (
-            <p className="motion-status text-xs text-destructive">
-              {t("autoBackupLastError")}: {loadAutoBackupLastError()}
-            </p>
-          )}
-        </div>
-      </section>
+      <AutoBackupPanel
+        autoBackup={autoBackup}
+        autoBackupFeedback={autoBackupFeedback}
+        autoBackupState={autoBackupState}
+        onChooseFolder={() => void chooseAutoBackupFolder()}
+        onRunNow={() => void runAutoBackupNow()}
+        onUpdateAutoBackup={updateAutoBackup}
+      />
+      </div>
 
+      <div className="grid gap-3">
+        <h2 className="text-sm font-semibold">{t("settingsHelpAndUpdates")}</h2>
       <section className="motion-surface rounded-lg border border-border bg-card/65 p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
             <HelpCircle className="size-4" />
           </span>
           <div>
-            <h2 className="text-lg font-semibold">{t("help")}</h2>
+            <h3 className="text-lg font-semibold">{t("help")}</h3>
             <p className="text-sm text-muted-foreground">{t("helpHint")}</p>
           </div>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="p-1">
-            <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-              <Keyboard className="size-4 text-muted-foreground" />
-              {t("keyboardShortcuts")}
-            </div>
-            <dl className="grid gap-1.5 text-sm">
-              <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted-foreground">{t("shortcutOpenPalette")}</dt>
-                <dd><kbd className="rounded border border-border bg-secondary px-1.5 py-0.5 text-xs">⌘/Ctrl + K</kbd></dd>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted-foreground">{t("shortcutNewTask")}</dt>
-                <dd><kbd className="rounded border border-border bg-secondary px-1.5 py-0.5 text-xs">⌘/Ctrl + N</kbd></dd>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted-foreground">{t("shortcutSearchTasks")}</dt>
-                <dd><kbd className="rounded border border-border bg-secondary px-1.5 py-0.5 text-xs">⌘/Ctrl + Shift + F</kbd></dd>
-              </div>
-            </dl>
-          </div>
-          <div className="p-1">
-            <div className="mb-1 flex items-center gap-2 text-sm font-medium">
-              <Wand2 className="size-4 text-muted-foreground" />
-              {t("quickAddSyntax")}
-            </div>
-            <p className="mb-2 text-xs text-muted-foreground">{t("quickAddSyntaxHint")}</p>
-            <ul className="grid gap-1 text-xs text-muted-foreground">
-              <li>{t("quickAddDateDesc")}</li>
-              <li>{t("quickAddTimeDesc")}</li>
-              <li>{t("quickAddProjectDesc")}</li>
-              <li>{t("quickAddPriorityDesc")}</li>
-              <li>{t("quickAddReminderDesc")}</li>
-            </ul>
-            <p className="mt-3 mb-1 text-xs font-medium text-foreground">{t("quickAddExamples")}</p>
-            <ul className="grid gap-1 text-xs text-muted-foreground">
-              <li className="rounded border border-border bg-background px-2 py-1 font-mono">{t("quickAddExample1")}</li>
-              <li className="rounded border border-border bg-background px-2 py-1 font-mono">{t("quickAddExample2")}</li>
-            </ul>
-          </div>
-        </div>
+        <Button size="sm" type="button" variant="secondary" onClick={() => onOpenHelp?.()}>
+          <Keyboard className="size-4" />
+          {t("openHelp")}
+        </Button>
       </section>
 
       <UpdateSettingsPanel />
+      </div>
 
       <ImportPreviewDialog
         currentData={data}
@@ -888,117 +696,3 @@ export function SettingsView({ data, actions }: SettingsViewProps) {
   );
 }
 
-function RecoveryGroup({
-  emptyLabel,
-  items,
-  title,
-  onRestore,
-}: {
-  emptyLabel: string;
-  items: { id: string; title: string; meta: string }[];
-  title: string;
-  onRestore: (id: string) => Promise<unknown>;
-}) {
-  const { t } = useTranslation();
-
-  return (
-    <div className="rounded-md bg-background/50 p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">{items.length}</span>
-      </div>
-      {items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-      ) : (
-        <div className="grid gap-2">
-          {items.map((item) => (
-            <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md bg-card/65 px-3 py-2">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{item.title}</p>
-                <p className="truncate text-xs text-muted-foreground">{item.meta}</p>
-              </div>
-              <Button
-                size="sm"
-                type="button"
-                variant="secondary"
-                onClick={() => void onRestore(item.id)}
-              >
-                {t("restore")}
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Segmented({
-  disabled = false,
-  options,
-  value,
-  onChange,
-}: {
-  disabled?: boolean;
-  options: { value: string; label: string }[];
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="inline-grid grid-flow-col gap-1 rounded-lg border border-border bg-background/50 p-1">
-      {options.map((option) => (
-        <button
-          aria-pressed={value === option.value}
-          key={option.value}
-          className={cn(
-            "h-8 rounded-md px-3 text-sm transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent active:scale-95 disabled:opacity-50",
-            value === option.value && "bg-primary text-primary-foreground hover:bg-primary",
-          )}
-          disabled={disabled}
-          type="button"
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ToggleRow({
-  checked,
-  disabled = false,
-  label,
-  onClick,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      aria-checked={checked}
-      className="motion-surface flex items-center justify-between rounded-md bg-background/50 px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-50"
-      disabled={disabled}
-      role="switch"
-      type="button"
-      onClick={onClick}
-    >
-      <span className="font-medium">{label}</span>
-      <span
-        className={cn(
-          "relative h-6 w-10 rounded-full border border-border transition-colors",
-          checked ? "bg-primary" : "bg-muted",
-        )}
-      >
-        <span
-          className={cn(
-            "absolute top-0.5 size-4.5 rounded-full bg-background shadow-sm transition-transform",
-            checked ? "translate-x-4.5" : "translate-x-0.5",
-          )}
-        />
-      </span>
-    </button>
-  );
-}

@@ -1,7 +1,18 @@
 import type { TaskSummary } from "./types";
 
+type TaskParentRef = Pick<TaskSummary, "id" | "parentId">;
+
+const toTaskParentMap = (
+  tasks: ReadonlyArray<TaskParentRef> | ReadonlyMap<string, TaskParentRef>,
+): ReadonlyMap<string, TaskParentRef> => {
+  if (tasks instanceof Map) {
+    return tasks;
+  }
+  return new Map((tasks as ReadonlyArray<TaskParentRef>).map((task) => [task.id, task]));
+};
+
 export const wouldCreateParentCycle = (
-  tasks: ReadonlyArray<Pick<TaskSummary, "id" | "parentId">>,
+  tasks: ReadonlyArray<TaskParentRef> | ReadonlyMap<string, TaskParentRef>,
   taskId: string,
   parentId: string | null,
 ): boolean => {
@@ -12,14 +23,11 @@ export const wouldCreateParentCycle = (
     return true;
   }
 
-  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const byId = toTaskParentMap(tasks);
   let cursor: string | null = parentId;
   const seen = new Set<string>();
   while (cursor) {
-    if (cursor === taskId) {
-      return true;
-    }
-    if (seen.has(cursor)) {
+    if (cursor === taskId || seen.has(cursor)) {
       return true;
     }
     seen.add(cursor);
@@ -45,16 +53,35 @@ export const getDirectChildProgress = (
   return { completed, total: children.length };
 };
 
+export const computeAllChildProgress = (
+  tasks: ReadonlyArray<Pick<TaskSummary, "id" | "parentId" | "deletedAt" | "status">>,
+): Map<string, { completed: number; total: number }> => {
+  const progressMap = new Map<string, { completed: number; total: number }>();
+  for (const task of tasks) {
+    if (task.deletedAt !== null || !task.parentId) continue;
+    let entry = progressMap.get(task.parentId);
+    if (!entry) {
+      entry = { completed: 0, total: 0 };
+      progressMap.set(task.parentId, entry);
+    }
+    entry.total += 1;
+    if (task.status === "completed") {
+      entry.completed += 1;
+    }
+  }
+  return progressMap;
+};
+
 /** True when any ancestor of taskId (within the list) is in collapsedParentIds. */
 export const isHiddenByCollapsedAncestor = (
-  tasks: ReadonlyArray<Pick<TaskSummary, "id" | "parentId">>,
+  tasks: ReadonlyArray<TaskParentRef> | ReadonlyMap<string, TaskParentRef>,
   taskId: string,
   collapsedParentIds: ReadonlySet<string>,
 ): boolean => {
   if (collapsedParentIds.size === 0) {
     return false;
   }
-  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const byId = toTaskParentMap(tasks);
   let cursor: string | null = byId.get(taskId)?.parentId ?? null;
   const seen = new Set<string>();
   while (cursor) {
@@ -71,11 +98,11 @@ export const isHiddenByCollapsedAncestor = (
 };
 
 export const taskDepthInList = (
-  tasks: ReadonlyArray<Pick<TaskSummary, "id" | "parentId">>,
+  tasks: ReadonlyArray<TaskParentRef> | ReadonlyMap<string, TaskParentRef>,
   taskId: string,
   maxDepth = 3,
 ): number => {
-  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const byId = toTaskParentMap(tasks);
   if (!byId.has(taskId)) {
     return 0;
   }

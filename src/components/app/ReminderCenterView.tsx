@@ -200,10 +200,11 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
           </div>
         ) : (
           <div className="grid gap-4">
-            {groupOrder.map((group) => (
+            {groupOrder.map((group) =>
+              groups[group].length === 0 ? null : (
               <section key={group} className="grid gap-2">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">{t(`${group}Reminders`)}</h3>
+                  <h2 className="text-sm font-semibold">{t(`${group}Reminders`)}</h2>
                   <div className="flex items-center gap-2">
                     {group === "missed" && groups.missed.length > 0 && (
                       <Button
@@ -222,11 +223,6 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
                     </span>
                   </div>
                 </div>
-                {groups[group].length === 0 ? (
-                  <div className="motion-status rounded-lg border border-dashed border-border bg-card/35 px-4 py-5 text-sm text-muted-foreground">
-                    {t("emptyReminderGroup")}
-                  </div>
-                ) : (
                   <div className="motion-list grid gap-2">
                     {groups[group].map((item, index) => {
                       const expanded = expandedReminderId === item.reminder.id;
@@ -241,7 +237,7 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
                             <div className="min-w-0">
                               <div className="flex min-w-0 items-center gap-2">
                                 <span className={cn("size-2 shrink-0 rounded-full", groupClasses[group])} />
-                                <h4 className="truncate text-sm font-medium">{item.task.title}</h4>
+                                <h3 className="truncate text-sm font-medium">{item.task.title}</h3>
                               </div>
                               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                 <span className="inline-flex items-center gap-1">
@@ -390,7 +386,6 @@ export function ReminderCenterView({ actions, onOpenTask }: ReminderCenterViewPr
                       );
                     })}
                   </div>
-                )}
               </section>
             ))}
           </div>

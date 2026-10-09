@@ -126,4 +126,22 @@ describe("parseQuickAdd", () => {
       byWeekday: [1],
     });
   });
+
+  it("parses @high and @h priority tokens and strips them from the title", () => {
+    const high = parseQuickAdd({
+      input: "Review PR #42 @high",
+      referenceDate: new Date("2026-06-01T00:00:00.000Z"),
+      projects: [project],
+      defaultReminderOffset: 15,
+    });
+    expect(high.draft).toMatchObject({ title: "Review PR #42", priority: "high" });
+
+    const short = parseQuickAdd({
+      input: "Ship it @h",
+      referenceDate: new Date("2026-06-01T00:00:00.000Z"),
+      projects: [project],
+      defaultReminderOffset: 15,
+    });
+    expect(short.draft).toMatchObject({ title: "Ship it", priority: "high" });
+  });
 });

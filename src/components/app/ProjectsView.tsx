@@ -1,21 +1,21 @@
-import { Archive, FolderKanban, FolderOpen, Pencil, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { revealLocalPath } from "@/lib/openLocalPath";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { accentSwatches, defaultAccentSwatch } from "@/data/accentSwatches";
-import { formatTaskDate } from "@/data/dateFormat";
+import { defaultAccentSwatch } from "@/data/accentSwatches";
 import { NO_PROJECT_ID, getProjectProgress, visibleProjects } from "@/data/project";
-import type { AppData } from "@/data/types";
+import type { AppData, TaskSummary } from "@/data/types";
 import { useTaskPage } from "@/hooks/useTaskPage";
 import { useTasksRevision } from "@/hooks/useTodoStore";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
-import { TaskCreateDialog } from "./TaskCreateDialog";
 import { TaskList } from "./TaskList";
+import { ProjectCreateForm } from "./projects/ProjectCreateForm";
+import { ProjectDetailHeader } from "./projects/ProjectDetailHeader";
 
 type ProjectsViewProps = {
   data: AppData;
@@ -27,8 +27,6 @@ type ProjectsViewProps = {
   onRequestEditProject?: (projectId: string) => void;
 };
 
-const projectColors = accentSwatches;
-
 export function ProjectsView({
   data,
   actions,
@@ -38,13 +36,14 @@ export function ProjectsView({
   initialProjectId = null,
   onRequestEditProject,
 }: ProjectsViewProps) {
-  const { i18n, t } = useTranslation();
+  const { t } = useTranslation();
   const tasksRevision = useTasksRevision();
-  const projects = useMemo(() => visibleProjects(data.projects), [data.projects]);
+  const { tasks: allTasks, projects: rawProjects } = data;
+  const projects = useMemo(() => visibleProjects(rawProjects), [rawProjects]);
   const tasksByProjectId = useMemo(() => {
-    const grouped = new Map<string, typeof data.tasks>();
+    const grouped = new Map<string, TaskSummary[]>();
 
-    for (const task of data.tasks) {
+    for (const task of allTasks) {
       if (task.deletedAt !== null) {
         continue;
       }
@@ -56,7 +55,7 @@ export function ProjectsView({
     }
 
     return grouped;
-  }, [data.tasks]);
+  }, [allTasks]);
   const [selectedProjectId, setSelectedProjectId] = useState(projects[0]?.id ?? NO_PROJECT_ID);
 
   useEffect(() => {
@@ -70,6 +69,8 @@ export function ProjectsView({
   const [selectedWorkingFolder, setSelectedWorkingFolder] = useState("");
   const [color, setColor] = useState(defaultAccentSwatch);
   const [isCreating, setIsCreating] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const skipClearSelectionRef = useRef(true);
   const [isSavingFolder, setIsSavingFolder] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [folderSaveState, setFolderSaveState] = useState<"idle" | "saved" | "error">("idle");
@@ -95,9 +96,13 @@ export function ProjectsView({
   });
 
   useEffect(() => {
+    if (skipClearSelectionRef.current) {
+      skipClearSelectionRef.current = false;
+      return;
+    }
     setSelectedTaskId(null);
     setSelectedWorkingFolder(selectedProject?.workingFolder ?? "");
-  }, [selectedProjectId, setSelectedTaskId]);
+  }, [selectedProjectId, selectedProject?.workingFolder, setSelectedTaskId]);
 
   useEffect(() => {
     setSelectedWorkingFolder(selectedProject?.workingFolder ?? "");
@@ -131,6 +136,7 @@ export function ProjectsView({
       setDueDate("");
       setWorkingFolder("");
       setColor(defaultAccentSwatch);
+      setShowCreateForm(false);
     } catch {
       setFormError(t("projectCreateFailed"));
     } finally {
@@ -215,169 +221,62 @@ export function ProjectsView({
           </div>
         </section>
 
-        <form className="p-3" onSubmit={createProject}>
-          <h2 className="mb-3 text-sm font-semibold">{t("createProject")}</h2>
-          <label className="mb-1 block text-xs text-muted-foreground" htmlFor="project-name">
-            {t("projectName")}
-          </label>
-          <input
-            id="project-name"
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-          <label className="mb-1 mt-3 block text-xs text-muted-foreground" htmlFor="project-due">
-            {t("projectDue")}
-          </label>
-          <input
-            id="project-due"
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
-            type="date"
-            value={dueDate}
-            onChange={(event) => setDueDate(event.target.value)}
-          />
-          <label className="mb-1 mt-3 block text-xs text-muted-foreground" htmlFor="project-folder">
-            {t("workingFolder")}
-          </label>
-          <div className="flex gap-1.5">
-            <input
-              id="project-folder"
-              className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
-              value={workingFolder}
-              onChange={(event) => setWorkingFolder(event.target.value)}
-            />
-            <Button
-              aria-label={t("chooseFolder")}
-              size="icon-lg"
-              title={t("chooseFolder")}
-              type="button"
-              variant="secondary"
-              onClick={() => void chooseFolder(setWorkingFolder)}
-            >
-              <FolderOpen aria-hidden="true" />
-            </Button>
-          </div>
-          <div className="mt-3 flex gap-2">
-            {projectColors.map((item) => (
-              <button
-                key={item.value}
-                aria-label={t(item.labelKey)}
-                aria-pressed={color === item.value}
-                className={cn(
-                  "size-7 rounded-md border border-border ring-offset-background transition-[box-shadow,border-color] duration-150 ease-[var(--ease-out-quart)]",
-                  color === item.value && "ring-2 ring-ring",
-                )}
-                style={{ backgroundColor: item.value }}
-                type="button"
-                onClick={() => setColor(item.value)}
-              />
-            ))}
-          </div>
-          <Button className="mt-4 w-full" disabled={isCreating} type="submit">
+        <div className="p-3">
+          <Button
+            aria-expanded={showCreateForm}
+            className="w-full"
+            size="sm"
+            type="button"
+            variant="secondary"
+            onClick={() => setShowCreateForm((open) => !open)}
+          >
             <Plus />
-            {isCreating ? t("creating") : t("createProject")}
+            {t("createProject")}
           </Button>
-          {formError && <p className="mt-2 text-xs text-destructive">{formError}</p>}
-        </form>
+          {showCreateForm && (
+            <ProjectCreateForm
+              color={color}
+              dueDate={dueDate}
+              formError={formError}
+              isCreating={isCreating}
+              name={name}
+              onChooseFolder={() => void chooseFolder(setWorkingFolder)}
+              onColorChange={setColor}
+              onDueDateChange={setDueDate}
+              onNameChange={setName}
+              onSubmit={createProject}
+              onWorkingFolderChange={setWorkingFolder}
+              workingFolder={workingFolder}
+            />
+          )}
+        </div>
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col">
-        <div className="border-b border-border bg-background/65 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span
-                  className="flex size-9 items-center justify-center rounded-lg border border-border bg-secondary"
-                  style={{ color: selectedProject?.color ?? undefined }}
-                >
-                  <FolderKanban className="size-4" />
-                </span>
-                <div className="min-w-0">
-                  <h2 className="truncate text-xl font-semibold">{selectedProject?.name ?? t("noProject")}</h2>
-                  <p className="text-sm text-muted-foreground">
-                    {selectedProject?.dueDate ? `${t("projectDue")} ${formatTaskDate(selectedProject.dueDate, i18n.language)}` : t("loose")}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {selectedProject && onRequestEditProject && (
-                <Button size="sm" type="button" variant="secondary" onClick={() => onRequestEditProject(selectedProject.id)}>
-                  <Pencil />
-                  {t("editProject")}
-                </Button>
-              )}
-              {selectedProject && (
-                <Button
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                  onClick={() => {
-                    setProjectActionError(null);
-                    void actions.archiveProject(selectedProject.id).catch(() => setProjectActionError(t("projectUpdateFailed")));
-                  }}
-                >
-                  <Archive />
-                  {t("archive")}
-                </Button>
-              )}
-              <TaskCreateDialog
-                actions={actions}
-                defaultDate={selectedProject?.dueDate ?? selectedDate}
-                defaultProjectId={selectedProject?.id ?? null}
-                projects={projects}
-                settings={data.settings}
-              />
-            </div>
-          </div>
-          {projectActionError && <p className="motion-status mt-2 text-xs text-destructive">{projectActionError}</p>}
-          <p className="mt-3 text-sm text-muted-foreground">
-            {t("progress")} {progress.percent}% · {t("completed")} {progress.completed}/{progress.total} · {t("openTasks")}{" "}
-            {Math.max(progress.total - progress.completed, 0)}
-          </p>
-          {selectedProject && (
-            <div className="mt-3 rounded-lg border border-border bg-card/50 p-2">
-              <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor="selected-project-folder">
-                {t("workingFolder")}
-              </label>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-1.5 max-lg:grid-cols-2 max-sm:grid-cols-1">
-                <input
-                  id="selected-project-folder"
-                  className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
-                  placeholder="D:\\Projects\\..."
-                  value={selectedWorkingFolder}
-                  onChange={(event) => setSelectedWorkingFolder(event.target.value)}
-                />
-                <Button
-                  size="sm"
-                  type="button"
-                  variant="secondary"
-                  disabled={isSavingFolder}
-                  onClick={() => void chooseFolder(setSelectedWorkingFolder)}
-                >
-                  <FolderOpen />
-                  {t("chooseFolder")}
-                </Button>
-                <Button disabled={isSavingFolder} size="sm" type="button" variant="secondary" onClick={() => void saveSelectedWorkingFolder()}>
-                  {isSavingFolder ? t("saving") : t("save")}
-                </Button>
-                <Button
-                  disabled={!selectedProject.workingFolder}
-                  size="sm"
-                  type="button"
-                  onClick={() => void openSelectedWorkingFolder()}
-                >
-                  {t("openFolder")}
-                </Button>
-              </div>
-              {folderSaveState !== "idle" && (
-                <p className={cn("motion-status mt-2 text-xs", folderSaveState === "saved" ? "text-success" : "text-destructive")}>
-                  {folderSaveState === "saved" ? t("saved") : t("projectUpdateFailed")}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
+        <ProjectDetailHeader
+          actions={actions}
+          folderSaveState={folderSaveState}
+          isSavingFolder={isSavingFolder}
+          onArchiveProject={() => {
+            if (!selectedProject) return;
+            setProjectActionError(null);
+            void actions
+              .archiveProject(selectedProject.id)
+              .catch(() => setProjectActionError(t("projectUpdateFailed")));
+          }}
+          onChooseFolder={() => void chooseFolder(setSelectedWorkingFolder)}
+          onOpenFolder={() => void openSelectedWorkingFolder()}
+          onRequestEditProject={onRequestEditProject}
+          onSaveFolder={() => void saveSelectedWorkingFolder()}
+          onSelectedWorkingFolderChange={setSelectedWorkingFolder}
+          progress={progress}
+          projectActionError={projectActionError}
+          projects={projects}
+          selectedDate={selectedDate}
+          selectedProject={selectedProject}
+          selectedWorkingFolder={selectedWorkingFolder}
+          settings={data.settings}
+        />
 
         <div className="min-h-0 flex-1 overflow-auto p-4">
           {taskPage.isLoading ? (

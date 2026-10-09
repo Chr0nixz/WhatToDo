@@ -103,3 +103,9 @@ export const buildReminderDate = (task: Pick<Task, "dueDate" | "dueTime">, offse
   due.setMinutes(due.getMinutes() - offsetMinutes);
   return due.toISOString();
 };
+
+export const isReminderInPast = (
+  task: Pick<Task, "dueDate" | "dueTime">,
+  offsetMinutes: number,
+  now: Date = new Date(),
+) => new Date(buildReminderDate(task, offsetMinutes)).getTime() <= now.getTime();

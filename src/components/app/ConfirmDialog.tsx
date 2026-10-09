@@ -38,7 +38,7 @@ export function ConfirmDialog({
           <div className="mt-4 flex justify-end gap-2">
             <Dialog.Close asChild>
               <Button disabled={confirming} size="sm" type="button" variant="ghost">
-                {t("dismiss")}
+                {t("cancel")}
               </Button>
             </Dialog.Close>
             <Button

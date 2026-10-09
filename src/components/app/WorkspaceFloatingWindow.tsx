@@ -158,7 +158,8 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
     >
       <header className="shrink-0 border-b border-border bg-card/50 px-3 py-3">
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1 select-none" onMouseDown={startDragging}>
+          {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- native desktop window drag handle */}
+          <div className="min-w-0 flex-1 select-none" data-tauri-drag-region onMouseDown={startDragging}>
             <h1 className="flex items-center gap-1.5 truncate text-lg font-semibold">
               <GripHorizontal className="size-3.5 shrink-0 text-muted-foreground" />
               {workspace?.name ?? t("workspaces")}

@@ -46,4 +46,51 @@ class ErrorBoundary extends Component<Props, State> {
   }
 }
 
-export { ErrorBoundary };
+type ViewErrorBoundaryProps = {
+  children: ReactNode;
+  fallbackTitle?: string;
+  onRetry?: () => void;
+};
+
+class ViewErrorBoundary extends Component<ViewErrorBoundaryProps, State> {
+  state: State = { error: null };
+
+  static getDerivedStateFromError(error: Error): State {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("View render error", error, info);
+  }
+
+  handleRetry = () => {
+    this.setState({ error: null });
+    this.props.onRetry?.();
+  };
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex h-full min-h-64 items-center justify-center p-6 text-foreground">
+          <div className="max-w-md rounded-lg border border-destructive/30 bg-destructive/10 px-5 py-4 text-sm text-destructive shadow-sm">
+            <div className="mb-1 flex items-center gap-2 font-semibold">
+              <TriangleAlert className="size-4 shrink-0" />
+              <span>{this.props.fallbackTitle ?? i18n.t("unexpectedError")}</span>
+            </div>
+            <p className="mb-3 break-words text-xs text-muted-foreground">{this.state.error.message}</p>
+            <button
+              type="button"
+              onClick={this.handleRetry}
+              className="rounded border border-destructive/40 bg-background px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/15"
+            >
+              {i18n.t("retry")}
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export { ErrorBoundary, ViewErrorBoundary };

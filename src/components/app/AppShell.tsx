@@ -6,24 +6,21 @@ import {
   Command,
   FolderKanban,
   HelpCircle,
-  Keyboard,
   ListChecks,
-  Loader2,
   PanelLeftClose,
   PanelLeftOpen,
   RotateCcw,
   Settings,
   TriangleAlert,
-  Wand2,
   X,
 } from "lucide-react";
-import * as Dialog from "@radix-ui/react-dialog";
 import { revealLocalPath } from "@/lib/openLocalPath";
 import { invoke } from "@tauri-apps/api/core";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CommandPalette } from "@/components/app/CommandPalette";
+import { ViewErrorBoundary } from "@/components/app/ErrorBoundary";
 import { ProjectEditDialog } from "@/components/app/ProjectEditDialog";
 import { TaskCreateDialog } from "@/components/app/TaskCreateDialog";
 import { WorkspaceEditDialog } from "@/components/app/WorkspaceEditDialog";
@@ -62,6 +59,8 @@ import type { AppData } from "@/data/types";
 import { cn } from "@/lib/utils";
 
 import { HomeView } from "./HomeView";
+import { HelpDialog } from "./shell/HelpDialog";
+import { ViewLoading } from "./shell/ViewLoading";
 
 const loadOverviewView = () => import("./OverviewView").then((module) => ({ default: module.OverviewView }));
 const loadProjectsView = () => import("./ProjectsView").then((module) => ({ default: module.ProjectsView }));
@@ -162,7 +161,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
   const [noticeToast, setNoticeToast] = useState<string | null>(null);
   const [reminderToast, setReminderToast] = useState<{ id: string; title: string } | null>(null);
   const [isRailExpanded, setIsRailExpanded] = useState(
-    () => (localStorage.getItem("whattodo:rail") ?? localStorage.getItem("ddl-todo:rail")) === "expanded",
+    () => (localStorage.getItem("whattodo:rail") ?? localStorage.getItem("ddl-todo:rail")) !== "collapsed",
   );
   const [taskCreateOpen, setTaskCreateOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -182,16 +181,17 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
 
   useTheme(settings?.theme ?? "system", settings?.accentColor ?? "blue");
 
+  const currentLanguage = settings?.language;
   useEffect(() => {
-    if (!settings) {
+    if (!currentLanguage) {
       return;
     }
-    if (i18n.language !== settings.language) {
-      void i18n.changeLanguage(settings.language);
+    if (i18n.language !== currentLanguage) {
+      void i18n.changeLanguage(currentLanguage);
     }
     // Keep the desktop tray menu labels in sync with the active language.
-    void invoke("update_tray_menu", { language: settings.language }).catch(() => undefined);
-  }, [settings, settings?.language, i18n]);
+    void invoke("update_tray_menu", { language: currentLanguage }).catch(() => undefined);
+  }, [currentLanguage, i18n]);
 
   useEffect(() => {
     localStorage.setItem("whattodo:rail", isRailExpanded ? "expanded" : "collapsed");
@@ -462,7 +462,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
   const shortcutHint =
     typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? "\u2318K" : "Ctrl+K";
 
-  const runUndo = async () => {
+  const runUndo = useCallback(async () => {
     const current = undoToast;
     if (!current) {
       return;
@@ -472,7 +472,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
       window.clearTimeout(undoTimer.current);
     }
     await current.undo();
-  };
+  }, [undoToast]);
 
   const dismissUndo = useCallback(() => {
     setUndoToast(null);
@@ -498,7 +498,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [undoToast, dismissUndo]);
+  }, [undoToast, dismissUndo, runUndo]);
 
   if (!data) {
     return null;
@@ -518,12 +518,12 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
             <CalendarDays className="size-4" aria-hidden="true" />
           </div>
           <div className={cn("min-w-0", !isRailExpanded && "hidden")}>
-            <h1 className="truncate text-sm font-semibold">{t("appName")}</h1>
+            <p className="truncate text-sm font-semibold">{t("appName")}</p>
             <p className="text-xs text-muted-foreground">{t("commandCenter")}</p>
           </div>
         </div>
 
-        <nav aria-label={t("appName")} className="grid gap-1 max-sm:grid-flow-col max-sm:grid-cols-5 max-sm:flex-1">
+        <nav aria-label={t("mainNav")} className="grid gap-1 max-sm:grid-flow-col max-sm:grid-cols-5 max-sm:flex-1">
           {navItems.map((item) => {
             const Icon = item.icon;
 
@@ -549,7 +549,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
           })}
         </nav>
 
-        <div className="mt-auto grid gap-2 max-sm:mt-0">
+        <div className="mt-auto grid gap-2 max-sm:hidden">
           <div
             className={cn(
               "motion-pane-content grid gap-2 rounded-lg border border-sidebar-border bg-background/35 p-2",
@@ -614,8 +614,33 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center justify-end border-b border-border bg-background/80 px-4">
+        <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/80 px-4">
+          <div className="flex min-w-0 items-center gap-2">
+            {currentWorkspace && (
+              <span className="truncate text-sm font-medium">{currentWorkspace.name}</span>
+            )}
+            {stats.overdue > 0 && (
+              <span className="motion-status shrink-0 rounded-full bg-destructive/12 px-2 py-0.5 text-xs font-medium text-destructive">
+                {t("overdue")} {stats.overdue}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
+            <Button
+              aria-current={view === "settings" ? "page" : undefined}
+              aria-label={t("settings")}
+              className="hidden border-border px-3 hover:bg-accent hover:text-accent-foreground max-sm:inline-flex"
+              size="lg"
+              title={t("settings")}
+              type="button"
+              variant={view === "settings" ? "secondary" : "ghost"}
+              onClick={() => {
+                setView("settings");
+                setSelectedTaskId(null);
+              }}
+            >
+              <Settings aria-hidden="true" className="size-4" />
+            </Button>
             <Button
               aria-label={t("openHelp")}
               className="border-border px-3 hover:bg-accent hover:text-accent-foreground"
@@ -678,84 +703,88 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
 
         <div className="min-h-0 flex-1 overflow-hidden">
           <div key={view} className="motion-view h-full">
-            <Suspense fallback={<ViewLoading label={t("loadingView")} />}>
-              {view === "home" && (
-                <HomeView
-                  actions={appActions}
-                  data={data}
-                  searchQuery={searchQuery}
-                  selectedDate={selectedDate}
-                  selectedTaskId={selectedTaskId}
-                  setSearchQuery={setSearchQuery}
-                  setSelectedDate={setSelectedDate}
-                  setSelectedTaskId={safeSetSelectedTaskId}
-                  onRescheduleSuccess={(message, undo) => showUndo(message, undo)}
-                  onRescheduleError={(message) => {
-                    setNoticeToast(message);
-                    window.setTimeout(() => setNoticeToast(null), 5000);
-                  }}
-                />
-              )}
-              {view === "overview" && (
-                <OverviewView
-                  actions={appActions}
-                  data={data}
-                  externalFilters={overviewFilters}
-                  externalSelectedViewId={overviewSelectedViewId}
-                  onExternalFiltersApplied={clearExternalOverviewFilters}
-                  selectedTaskId={selectedTaskId}
-                  setSelectedTaskId={safeSetSelectedTaskId}
-                />
-              )}
-              {view === "projects" && (
-                <ProjectsView
-                  actions={appActions}
-                  data={data}
-                  initialProjectId={editingProjectId}
-                  selectedDate={selectedDate}
-                  selectedTaskId={selectedTaskId}
-                  setSelectedTaskId={safeSetSelectedTaskId}
-                  onRequestEditProject={(projectId) => {
-                    setEditingProjectId(projectId);
-                    setProjectEditOpen(true);
-                  }}
-                />
-              )}
-              {view === "workspaces" && (
-                <WorkspacesView
-                  actions={appActions}
-                  data={data}
-                  onEditWorkspace={() => setWorkspaceEditOpen(true)}
-                  selectedTaskId={selectedTaskId}
-                  setSelectedTaskId={safeSetSelectedTaskId}
-                />
-              )}
-              {view === "reminders" && <ReminderCenterView actions={appActions} onOpenTask={onOpenTask} />}
-              {view === "settings" && (
-                <div className="h-full overflow-auto p-4">
-                  <SettingsView actions={appActions} data={data} />
-                </div>
-              )}
-            </Suspense>
+            <ViewErrorBoundary>
+              <Suspense fallback={<ViewLoading label={t("loadingView")} />}>
+                {view === "home" && (
+                  <HomeView
+                    actions={appActions}
+                    data={data}
+                    searchQuery={searchQuery}
+                    selectedDate={selectedDate}
+                    selectedTaskId={selectedTaskId}
+                    setSearchQuery={setSearchQuery}
+                    setSelectedDate={setSelectedDate}
+                    setSelectedTaskId={safeSetSelectedTaskId}
+                    onRescheduleSuccess={(message, undo) => showUndo(message, undo)}
+                    onRescheduleError={(message) => {
+                      setNoticeToast(message);
+                      window.setTimeout(() => setNoticeToast(null), 5000);
+                    }}
+                  />
+                )}
+                {view === "overview" && (
+                  <OverviewView
+                    actions={appActions}
+                    data={data}
+                    externalFilters={overviewFilters}
+                    externalSelectedViewId={overviewSelectedViewId}
+                    onExternalFiltersApplied={clearExternalOverviewFilters}
+                    selectedTaskId={selectedTaskId}
+                    setSelectedTaskId={safeSetSelectedTaskId}
+                  />
+                )}
+                {view === "projects" && (
+                  <ProjectsView
+                    actions={appActions}
+                    data={data}
+                    initialProjectId={editingProjectId}
+                    selectedDate={selectedDate}
+                    selectedTaskId={selectedTaskId}
+                    setSelectedTaskId={safeSetSelectedTaskId}
+                    onRequestEditProject={(projectId) => {
+                      setEditingProjectId(projectId);
+                      setProjectEditOpen(true);
+                    }}
+                  />
+                )}
+                {view === "workspaces" && (
+                  <WorkspacesView
+                    actions={appActions}
+                    data={data}
+                    onEditWorkspace={() => setWorkspaceEditOpen(true)}
+                    selectedTaskId={selectedTaskId}
+                    setSelectedTaskId={safeSetSelectedTaskId}
+                  />
+                )}
+                {view === "reminders" && <ReminderCenterView actions={appActions} onOpenTask={onOpenTask} />}
+                {view === "settings" && (
+                  <div className="h-full overflow-auto p-4">
+                    <SettingsView actions={appActions} data={data} onOpenHelp={() => setHelpOpen(true)} />
+                  </div>
+                )}
+              </Suspense>
+            </ViewErrorBoundary>
           </div>
         </div>
       </div>
 
-      <Suspense fallback={null}>
-        <TaskDetailPane
-          ref={taskDetailRef}
-          actions={appActions}
-          onClose={() => setSelectedTaskId(null)}
-          onRequestSwitchCommit={(next) => setSelectedTaskId(next)}
-          projects={data.projects}
-          reminders={data.reminders}
-          recurringTaskTemplates={data.recurringTaskTemplates}
-          attachments={data.attachments}
-          tasks={data.tasks}
-          settings={data.settings}
-          task={view === "settings" ? null : detailTask}
-        />
-      </Suspense>
+      <ViewErrorBoundary>
+        <Suspense fallback={null}>
+          <TaskDetailPane
+            ref={taskDetailRef}
+            actions={appActions}
+            onClose={() => setSelectedTaskId(null)}
+            onRequestSwitchCommit={(next) => setSelectedTaskId(next)}
+            projects={data.projects}
+            reminders={data.reminders}
+            recurringTaskTemplates={data.recurringTaskTemplates}
+            attachments={data.attachments}
+            tasks={data.tasks}
+            settings={data.settings}
+            task={view === "settings" ? null : detailTask}
+          />
+        </Suspense>
+      </ViewErrorBoundary>
 
       <TaskCreateDialog
         actions={appActions}
@@ -903,113 +932,3 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
   );
 }
 
-function ViewLoading({ label }: { label: string }) {
-  return (
-    <div className="flex h-full items-center justify-center p-4">
-      <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin text-primary" />
-        {label}
-      </div>
-    </div>
-  );
-}
-
-function HelpDialog({
-  open,
-  onOpenChange,
-  onOpenSettings,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onOpenSettings: () => void;
-}) {
-  const { t } = useTranslation();
-  const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
-  const mod = isMac ? "\u2318" : "Ctrl";
-  const shortcuts: Array<[string, string]> = [
-    [t("shortcutOpenPalette"), `${mod} + K`],
-    [t("shortcutNewTask"), `${mod} + N`],
-    [t("shortcutSearchTasks"), `${mod} + Shift + F`],
-    [t("shortcutNextTask"), "j"],
-    [t("shortcutPrevTask"), "k"],
-    [t("shortcutSaveTask"), `${mod} + S`],
-    [t("shortcutSwitchScope"), "\u2190 / \u2192"],
-    [t("undo"), `${mod} + Z`],
-    [t("shortcutHelp"), "?"],
-    [t("close"), "Esc"],
-  ];
-
-  return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="motion-dialog-overlay fixed inset-0 z-50 bg-background/65 backdrop-blur-[2px]" />
-        <Dialog.Content className="motion-dialog-content fixed left-1/2 top-1/2 z-50 w-[min(560px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-popover p-5 text-popover-foreground shadow-xl outline-none">
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <div>
-              <Dialog.Title className="text-base font-semibold">{t("help")}</Dialog.Title>
-              <Dialog.Description className="mt-0.5 text-sm text-muted-foreground">{t("helpHint")}</Dialog.Description>
-            </div>
-            <Dialog.Close asChild>
-              <Button aria-label={t("close")} size="icon-sm" type="button" variant="ghost" title={t("close")}>
-                <X aria-hidden="true" />
-              </Button>
-            </Dialog.Close>
-          </div>
-
-          <div className="grid max-h-[60vh] gap-4 overflow-auto">
-            <div className="rounded-md bg-background/50 p-3">
-              <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                <Keyboard className="size-4 text-muted-foreground" />
-                {t("keyboardShortcuts")}
-              </div>
-              <dl className="grid gap-1.5 text-sm">
-                {shortcuts.map(([label, keys]) => (
-                  <div key={label} className="flex items-center justify-between gap-2">
-                    <dt className="text-muted-foreground">{label}</dt>
-                    <dd>
-                      <kbd className="rounded border border-border bg-secondary px-1.5 py-0.5 text-xs">{keys}</kbd>
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-
-            <div className="rounded-md bg-background/50 p-3">
-              <div className="mb-1 flex items-center gap-2 text-sm font-medium">
-                <Wand2 className="size-4 text-muted-foreground" />
-                {t("quickAddSyntax")}
-              </div>
-              <p className="mb-2 text-xs text-muted-foreground">{t("quickAddSyntaxHint")}</p>
-              <ul className="grid gap-1 text-xs text-muted-foreground">
-                <li>{t("quickAddDateDesc")}</li>
-                <li>{t("quickAddTimeDesc")}</li>
-                <li>{t("quickAddProjectDesc")}</li>
-                <li>{t("quickAddPriorityDesc")}</li>
-                <li>{t("quickAddReminderDesc")}</li>
-              </ul>
-              <p className="mt-3 mb-1 text-xs font-medium text-foreground">{t("quickAddExamples")}</p>
-              <ul className="grid gap-1 text-xs text-muted-foreground">
-                <li className="rounded border border-border bg-background px-2 py-1 font-mono">{t("quickAddExample1")}</li>
-                <li className="rounded border border-border bg-background px-2 py-1 font-mono">{t("quickAddExample2")}</li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="mt-4 flex justify-end">
-            <Button
-              size="sm"
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                onOpenSettings();
-                onOpenChange(false);
-              }}
-            >
-              {t("helpOpenSettings")}
-            </Button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
-}

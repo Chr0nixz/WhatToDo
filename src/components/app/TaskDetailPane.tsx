@@ -1,7 +1,7 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { openManagedAttachment, revealLocalPath } from "@/lib/openLocalPath";
+import { revealLocalPath } from "@/lib/openLocalPath";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Check, ChevronDown, FolderOpen, PanelRightClose, Plus, Repeat2, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, FolderOpen, PanelRightClose, Plus, Trash2, X } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { Ref } from "react";
 import { useTranslation } from "react-i18next";
@@ -16,6 +16,8 @@ import { getDirectChildren, getDirectChildProgress, wouldCreateParentCycle } fro
 import type { Attachment, Project, RecurrenceFrequency, RecurringTaskTemplate, Reminder, Settings, Task, TaskDetailPaneHandle, TaskPriority, TaskStatus, TaskSummary } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
+import { TaskAttachmentsSection } from "./taskDetail/TaskAttachmentsSection";
+import { TaskRecurrenceSection } from "./taskDetail/TaskRecurrenceSection";
 
 type TaskDetailPaneProps = {
   task: Task | null;
@@ -31,21 +33,12 @@ type TaskDetailPaneProps = {
 };
 
 const priorities: TaskPriority[] = ["low", "medium", "high"];
-const recurrenceOptions: RecurrenceFrequency[] = ["daily", "weekly", "monthly", "yearly"];
 const reminderOffsetOptions = [10, 30, 60, 1440];
 
 const describeError = (err: unknown): string => {
   const message = err instanceof Error ? err.message : String(err);
   return message.length > 120 ? `${message.slice(0, 117)}...` : message;
 };
-
-const recurrenceLabelKeys: Record<RecurrenceFrequency, string> = {
-  daily: "repeatDaily",
-  weekly: "repeatWeekly",
-  monthly: "repeatMonthly",
-  yearly: "repeatYearly",
-};
-const weekdayShortKeys = ["weekdaySun", "weekdayMon", "weekdayTue", "weekdayWed", "weekdayThu", "weekdayFri", "weekdaySat"];
 
 export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPaneProps>(function TaskDetailPane(
   { task, projects, reminders, recurringTaskTemplates, attachments, tasks, settings, actions, onClose, onRequestSwitchCommit },
@@ -87,16 +80,17 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const pendingSwitchRef = useRef<{ nextTaskId: string | null } | null>(null);
+  const hydratedIdRef = useRef<string | null>(null);
   const recurringTemplate = task?.recurrenceTemplateId
     ? recurringTaskTemplates.find((template) => template.id === task.recurrenceTemplateId) ?? null
     : null;
 
   const visibleProjects = projects.filter((project) => project.deletedAt === null && project.status !== "archived");
-  const project = task ? projectById(projects, task.projectId) : null;
   const selectedProject = projectId === "none" ? null : projectById(projects, projectId);
   const reminder = task ? reminders.find((item) => item.taskId === task.id && item.enabled) : null;
   const taskReminders = task ? reminders.filter((item) => item.taskId === task.id && item.enabled) : [];
   const taskAttachments = task ? attachments.filter((item) => item.task_id === task.id) : [];
+  const tasksById = useMemo(() => new Map(tasks.map((item) => [item.id, item])), [tasks]);
   const parentTaskOptions = useMemo(
     () =>
       task
@@ -104,10 +98,10 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
             (item) =>
               item.id !== task.id &&
               item.deletedAt === null &&
-              !wouldCreateParentCycle(tasks, task.id, item.id),
+              !wouldCreateParentCycle(tasksById, task.id, item.id),
           )
         : [],
-    [tasks, task],
+    [tasks, tasksById, task],
   );
   const childTasks = useMemo(
     () => (task ? getDirectChildren(tasks, task.id) : []),
@@ -156,7 +150,12 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
   );
 
   useEffect(() => {
-    if (isDirty) return; // user is editing, do not overwrite
+    const nextId = task?.id ?? null;
+    const sameTask = hydratedIdRef.current === nextId;
+    if (sameTask && isDirty) {
+      return;
+    }
+
     const nextReminder = task ? reminders.find((item) => item.taskId === task.id && item.enabled) : null;
 
     setTitle(task?.title ?? "");
@@ -174,6 +173,7 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
     setDeleteState("idle");
     setFutureSaveState("idle");
     setSaveErrorMessage(null);
+    hydratedIdRef.current = nextId;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task?.id, task?.updatedAt]);
 
@@ -468,10 +468,12 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
         <div key={task.id} className="motion-pane-content flex h-full min-w-[320px] flex-col max-sm:min-w-0">
           <div className="flex h-14 items-center justify-between border-b border-border px-4">
             <div className="min-w-0">
-              <h2 className="truncate text-sm font-semibold">
-                {project?.name ?? t("loose")}
+              <h2 className="flex min-w-0 items-center gap-2 text-sm font-semibold">
+                <span className="truncate">{task.title}</span>
                 {isDirty && (
-                  <span className="ml-1.5 inline-block size-1.5 rounded-full bg-warning" title={t("unsavedChanges")} />
+                  <span className="shrink-0 rounded-full bg-warning/12 px-1.5 py-0.5 text-xs font-medium text-warning-foreground dark:text-warning">
+                    {t("unsavedBadge")}
+                  </span>
                 )}
               </h2>
             </div>
@@ -836,221 +838,40 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
                     </div>
                   )}
 
-                  <div className="grid gap-2 rounded-md border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
-                    <div className="flex items-center justify-between gap-2">
-                      <span>{t("attachments")}</span>
-                      <span className="text-muted-foreground">{taskAttachments.length}</span>
-                    </div>
-                    {taskAttachments.length > 0 && (
-                      <div className="grid gap-1">
-                        {taskAttachments.map((item) => (
-                          <div key={item.id} className="grid gap-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <button
-                                className="min-w-0 truncate text-left text-foreground hover:underline"
-                                type="button"
-                                title={item.path}
-                                onClick={() => {
-                                  void openManagedAttachment(item.path).catch(() => {
-                                    setAttachmentErrorId(item.id);
-                                  });
-                                }}
-                              >
-                                {item.filename}
-                              </button>
-                              <div className="flex items-center gap-1">
-                                {attachmentErrorId === item.id && (
-                                  <Button
-                                    disabled={isSaving}
-                                    size="sm"
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => {
-                                      void (async () => {
-                                        const selected = await openDialog({
-                                          multiple: false,
-                                          title: t("relocateAttachment"),
-                                        });
-                                        if (typeof selected !== "string" || !selected) {
-                                          return;
-                                        }
-                                        const filename = selected.split(/[/\\]/).pop() ?? item.filename;
-                                        await actions.updateAttachmentPath(item.id, selected, filename);
-                                        setAttachmentErrorId(null);
-                                      })();
-                                    }}
-                                  >
-                                    {t("relocateAttachment")}
-                                  </Button>
-                                )}
-                                <Button
-                                  aria-label={t("removeAttachment")}
-                                  disabled={isSaving}
-                                  size="sm"
-                                  type="button"
-                                  variant="ghost"
-                                  onClick={() => void actions.deleteAttachment(item.id)}
-                                >
-                                  <Trash2 className="size-3.5" />
-                                </Button>
-                              </div>
-                            </div>
-                            {attachmentErrorId === item.id && (
-                              <p className="text-xs text-destructive" role="alert">
-                                {t("attachmentOpenFailed")}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="grid grid-cols-[minmax(0,1fr)_36px_auto] gap-1.5">
-                      <input
-                        className="h-8 min-w-0 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:border-ring"
-                        placeholder={t("attachmentPathPlaceholder")}
-                        value={newAttachmentPath}
-                        onChange={(event) => setNewAttachmentPath(event.target.value)}
-                      />
-                      <Button
-                        aria-label={t("chooseFile")}
-                        disabled={isSaving}
-                        size="icon-lg"
-                        title={t("chooseFile")}
-                        type="button"
-                        variant="secondary"
-                        onClick={() => void chooseAttachmentFile()}
-                      >
-                        <FolderOpen aria-hidden="true" />
-                      </Button>
-                      <Button
-                        disabled={isSaving || !newAttachmentPath.trim()}
-                        size="sm"
-                        type="button"
-                        variant="outline"
-                        onClick={() => void addAttachmentFromPath()}
-                      >
-                        {t("addAttachment")}
-                      </Button>
-                    </div>
-                    {attachmentCopyError && (
-                      <p className="text-xs text-destructive" role="alert">
-                        {attachmentCopyError}
-                      </p>
-                    )}
-                  </div>
+                  <TaskAttachmentsSection
+                    actions={actions}
+                    addAttachmentFromPath={() => void addAttachmentFromPath()}
+                    attachmentCopyError={attachmentCopyError}
+                    attachmentErrorId={attachmentErrorId}
+                    chooseAttachmentFile={() => void chooseAttachmentFile()}
+                    isSaving={isSaving}
+                    newAttachmentPath={newAttachmentPath}
+                    setAttachmentErrorId={setAttachmentErrorId}
+                    setNewAttachmentPath={setNewAttachmentPath}
+                    taskAttachments={taskAttachments}
+                  />
 
                   {recurringTemplate && (
-                    <div className="grid gap-3 rounded-md border border-border bg-muted/35 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                          <Repeat2 className="size-4 text-primary" />
-                          <span>{t("recurringTask")}</span>
-                        </div>
-                        <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
-                          {recurringTemplate.enabled ? t("enabled") : t("disabled")}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <label className="text-xs text-muted-foreground" htmlFor="detail-repeat">
-                          {t("repeat")}
-                          <select
-                            id="detail-repeat"
-                            className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground outline-none transition-colors focus:border-ring"
-                            value={recurrenceFrequency}
-                            onChange={(event) => setRecurrenceFrequency(event.target.value as RecurrenceFrequency)}
-                          >
-                            {recurrenceOptions.map((option) => (
-                              <option key={option} value={option}>
-                                {t(recurrenceLabelKeys[option])}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="text-xs text-muted-foreground" htmlFor="detail-repeat-interval">
-                          {t("repeatInterval")}
-                          <input
-                            id="detail-repeat-interval"
-                            className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
-                            max={365}
-                            min={1}
-                            type="number"
-                            value={recurrenceInterval}
-                            onChange={(event) => setRecurrenceInterval(Math.max(1, Math.floor(Number(event.target.value) || 1)))}
-                          />
-                        </label>
-                      </div>
-                      {recurrenceFrequency === "weekly" && (
-                        <div className="grid gap-1 text-xs text-muted-foreground">
-                          <span>{t("repeatWeekdays")}</span>
-                          <div className="flex gap-1">
-                            {weekdayShortKeys.map((key, day) => {
-                              const active = recurrenceByWeekday.includes(day);
-                              return (
-                                <button
-                                  key={day}
-                                  aria-label={t(key)}
-                                  aria-pressed={active}
-                                  className={cn(
-                                    "h-7 w-7 rounded-md border border-input text-xs font-medium transition-colors",
-                                    active ? "border-ring bg-accent text-accent-foreground ring-1 ring-ring" : "bg-background hover:bg-accent",
-                                  )}
-                                  type="button"
-                                  onClick={() =>
-                                    setRecurrenceByWeekday((prev) =>
-                                      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b),
-                                    )
-                                  }
-                                >
-                                  {t(key)}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                      <label className="grid gap-1 text-xs text-muted-foreground" htmlFor="detail-repeat-end">
-                        <span>{t("repeatUntil")}</span>
-                        <input
-                          id="detail-repeat-end"
-                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring"
-                          min={dueDate}
-                          type="date"
-                          value={recurrenceEndDate}
-                          onChange={(event) => setRecurrenceEndDate(event.target.value)}
-                        />
-                      </label>
-                      <p className="text-xs text-muted-foreground">
-                        {recurringTemplate.reminderOffset === null
-                          ? t("repeatReminderNotInherited")
-                          : t("repeatReminderInherited")}
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          disabled={isSavingFuture}
-                          size="sm"
-                          type="button"
-                          variant="secondary"
-                          onClick={() => {
-                            setFutureUpdateMode("template");
-                            setFutureUpdateOpen(true);
-                          }}
-                        >
-                          {isSavingFuture ? t("saving") : t("updateFutureRepeats")}
-                        </Button>
-                        <Button disabled={isSavingFuture || !recurringTemplate.enabled} size="sm" type="button" variant="ghost" onClick={() => void disableFutureRepeats()}>
-                          {t("disableRepeat")}
-                        </Button>
-                      </div>
-                      {futureSaveState !== "idle" && (
-                        <p className={cn("motion-status text-xs", futureSaveState === "error" ? "text-destructive" : "text-success")}>
-                          {futureSaveState === "saved"
-                            ? t("futureRepeatsUpdated")
-                            : futureSaveState === "disabled"
-                              ? t("repeatDisabled")
-                              : saveErrorMessage ?? t("operationFailed")}
-                        </p>
-                      )}
-                    </div>
+                    <TaskRecurrenceSection
+                      dueDate={dueDate}
+                      futureSaveState={futureSaveState}
+                      isSavingFuture={isSavingFuture}
+                      onDisableFutureRepeats={() => void disableFutureRepeats()}
+                      onOpenFutureUpdate={() => {
+                        setFutureUpdateMode("template");
+                        setFutureUpdateOpen(true);
+                      }}
+                      recurrenceByWeekday={recurrenceByWeekday}
+                      recurrenceEndDate={recurrenceEndDate}
+                      recurrenceFrequency={recurrenceFrequency}
+                      recurrenceInterval={recurrenceInterval}
+                      recurringTemplate={recurringTemplate}
+                      saveErrorMessage={saveErrorMessage}
+                      setRecurrenceByWeekday={setRecurrenceByWeekday}
+                      setRecurrenceEndDate={setRecurrenceEndDate}
+                      setRecurrenceFrequency={setRecurrenceFrequency}
+                      setRecurrenceInterval={setRecurrenceInterval}
+                    />
                   )}
                 </div>
               )}

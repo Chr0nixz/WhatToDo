@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.7
+
+- Architecture Milestone D Closeout & Hardening:
+  - Decomposes monolithic `repository.ts` (4,300+ lines) into clean modular services (`export/`, `sql/`, `localRepository.ts`, `taskPageQuery.ts`, and `repositoryDataUtils.ts`), slimming the facade down to 11 lines with 100% API compatibility.
+  - Refactors frontend monolithic components (`OverviewView`, `SettingsView`, `TaskDetailPane`, `AppShell`, `ProjectsView`, `WorkspacesView`), extracting modular dialogs, filter controls, project detail header, and workspace management forms into dedicated submodules.
+  - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
+  - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
+  - Hardens all new submodules with thorough unit test coverage: all 298 Vitest tests (including 59 real SQLite conformance tests), 12 Playwright E2E tests, and 24 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
+
 ## 0.2.6
 
 - Stores the SQLite database in the app config directory on every platform, and copies an existing Linux data-directory database into that location on first launch.

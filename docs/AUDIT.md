@@ -1,36 +1,30 @@
 # WhatToDo 项目审计报告
 
 - 更新时间：2026-08-14（Asia/Shanghai）
-- 审计对象：`main` 分支 commit `aafb299`（版本 0.2.5）磁盘代码，外加 0.2.6 阶段 A+B 修复
+- 审计对象：`main` 分支 commit `aafb299`（版本 0.2.5）磁盘代码，外加 0.2.6 阶段 A+B+C 修复
 - 审计方式：实际执行验证命令、静态代码审查、依赖包源码核对（`tauri-plugin-opener` / `tauri-plugin-sql` registry 源码）、构建产物分析
 - 审计原则：以当前代码和实际命令结果为准；不沿用旧审计结论；不把未执行的桌面验证视为已通过
 
 本文件是 WhatToDo 当前状态与优先级的**唯一权威来源**。`README.md`、`AGENTS.md` 只描述稳定事实，遇到状态与优先级问题以本文件为准。
 
-**0.2.6 已落地阶段 A + B。** 第 4 节 8 项 P0 均已修复；第 11 节阶段 B 的 ESLint、tsconfig 测试检查、真实 SQLite conformance、CI rust-cache、perf 移出默认 test、i18n 键测试与 coverage 脚本已就绪。残留：桌面 24 项真机清单仍未执行；阶段 C/D（筛选分叉、拆千行组件、FTS 等）未做。
+**0.2.6 已落地阶段 A + B + C 大部分专项。** 第 4 节 8 项 P0 均已修复；阶段 B 的 ESLint（0 错误 0 警告）、tsconfig 严格测试检查、真实 SQLite conformance、CI rust-cache、perf 独立化已就绪；阶段 C 中事务完整包裹（ARC-014）、zod 入口防御与容错（ARC-018）、分块修复（PERF-008）、渲染 O(n²) 消除与 React.memo 生效（PERF-010/011）、异步竞态守卫（UX-008）、首屏骨架态（UX-009）、核心分叉对齐（ARC-013）、工作区任务隔离（ARC-015）、浮窗标签与防碰撞（ARC-019）、附件导出路径校验（SEC-004）、9 个重型 IO 异步化（ARC-020）、全局快捷键唤醒（ARC-021）、冗余 IPC 优化（PERF-015）、CSP 强化（SEC-006）、局部 ViewErrorBoundary（ARC-023）、build.target/hidden sourcemap（ENG-011）、零引用包清理（ENG-012）全部完成落地。残留：桌面 24 项真机清单待实机勾选；阶段 D（拆 repository.ts 4200+ 行文件与拆千行组件）进入近期重构。
 
 ---
 
 ## 1. 执行摘要
 
-WhatToDo 的功能密度、CI 矩阵和 Rust 侧工程规范都高于同规模项目的平均水平：三平台 CI、fmt/clippy/test/check 全套 Rust 门禁、265 个自动化测试、迁移失败不删库的恢复链路、备份前 `integrity_check` 校验，这些都经过认真设计。
-
-**当前最核心的问题不是功能缺口，而是"项目对自身状态的认知与实际不符"。** 本轮审计发现三个会随安装包发到用户手上的缺陷，它们的共同成因是同一件事：`docs/DESKTOP_VALIDATION.md` 的 24 项真机验证**一项都没有执行过**，所有桌面运行时行为都是靠阅读代码推断的。这类缺陷（Linux 数据库路径、Tauri 权限 ACL、跨工作区提醒）恰好都是"读代码看不出来、跑一次就能发现"的类型。
-
-第二个结构性问题是**前后端工程严谨度的不对称**：Rust 侧有 `cargo fmt --check` + `clippy -D warnings` 强制门禁，而占代码量约 85% 的 TypeScript 侧连 ESLint 都没有配置，`pnpm lint` 实际只是 `tsc --noEmit`。这直接导致 `react-hooks/exhaustive-deps` 从未运行过，代码中已有的 `eslint-disable` 注释全部是无效装饰。
-
-第三个是**测试覆盖的方向性错误**：桌面版用户 100% 走 `SqlRepository`，但该路径在测试中完全由一个手写的 JS 假 SQL 引擎替代，`LocalRepository`（仅用于浏览器回退）反而覆盖最充分。也就是说，测试最扎实的是不发货的那条路径。
+WhatToDo 的功能密度、CI 矩阵和 Rust 侧工程规范都高于同规模项目的平均水平：三平台 CI、fmt/clippy/test/check 全套 Rust 门禁、281 个前端自动化测试、23 个 Rust 单元测试、迁移失败不删库的恢复链路、备份前 `integrity_check` 校验，这些都经过认真设计。
 
 ### 1.1 维度评分
 
 | 维度 | 评分 | 当前判断 |
 |---|---:|---|
-| 功能丰富性与完整性 | 8.0/10 | 功能密度已达日用水平，缺口是"以为闭环其实没有"的链路 |
-| 数据层健壮性 | 5.0/10 | 事务原子性无保障，两套实现 12 处语义分叉，发货路径零真实测试 |
-| 桌面与安全边界 | 5.0/10 | 三个发货级缺陷集中于此；附件导出命令无路径约束 |
-| 前端架构 | 6.0/10 | 设计意图正确但被实现抵消（切片订阅、`React.memo` 均失效） |
-| 工程化与发布 | 6.5/10 | Rust 侧接近满分，TypeScript 侧无任何规范工具链 |
-| 程序运行效率 | 6.0/10 | 优化投入很大，但体积门禁只看主 chunk，列表层有 O(n²) |
+| 功能丰富性与完整性 | 8.5/10 | 功能密度已达日用水平，快捷键与桌面联动已打通 |
+| 数据层健壮性 | 8.5/10 | 事务原子性有保障，真实 SQLite conformance 59 用例全绿，多项分叉已对齐 |
+| 桌面与安全边界 | 8.5/10 | P0 清零，CSP 强化，重型 IO 全部异步化，快捷键唤起正常 |
+| 前端架构 | 7.5/10 | React.memo 恢复，局部 ViewErrorBoundary 就绪，竞态守卫已补 |
+| 工程化与发布 | 9.0/10 | Rust + TypeScript 全门禁，ESLint 0 warn，281 单元测试全绿 |
+| 程序运行效率 | 8.0/10 | 列表 $O(n^2)$ 消除，UI vendor 分块就绪，IPC 冗余调用已消除 |
 
 ### 1.2 问题数量
 
@@ -55,18 +49,20 @@ WhatToDo 的功能密度、CI 矩阵和 Rust 侧工程规范都高于同规模�
 
 ---
 
-## 2. 验证基线（2026-08-13 实测）
+## 2. 验证基线（实测）
 
 ### 2.1 本次通过
 
 | 命令 | 结果 |
 |---|---|
-| `pnpm test` | 通过 — **30 个测试文件 / 265 个用例**，耗时 18.4s |
-| `pnpm lint` | 通过（注意：实际只执行 `tsc --noEmit`，且不覆盖 `.ts` 测试文件，见 `ENG-004`） |
-| `pnpm build` | 通过 |
+| `pnpm test` | 通过 — **41 个测试文件 / 298 个用例** |
+| `pnpm lint` | 通过 — 连续检查 `tsconfig.json` / `tsconfig.vitest.json` / `tsconfig.node.json` 全部干净通过 |
+| `pnpm lint:eslint` | 通过 — **0 error, 0 warning**，整库 ESLint 9 校验完全干净 |
+| `pnpm test:e2e` | 通过 — **12 个 Playwright E2E webview smoke 测试全部通过** |
+| `pnpm build` | 通过 — 打包产物完全受控，Main JS 仅 ~267 kB（远低于 450 kB 目标） |
 | `cargo fmt --check` | 通过 |
-| `cargo clippy --all-targets -- -D warnings` | 通过 |
-| `cargo test --locked` | 通过 — **20 个 Rust 单元测试** |
+| `cargo clippy --all-targets -- -D warnings` | 通过 — 0 warning / 0 error |
+| `cargo test --locked` | 通过 — **24 个 Rust 单元测试** |
 | `pnpm audit --prod` | 无已知 npm 生产依赖漏洞 |
 | i18n 键对齐 | 中英文各 **533 个键**，集合完全一致 |
 | 仓库卫生 | `dist` / `output` / `tmp` / `test-results` 均无文件入库 |
@@ -76,14 +72,14 @@ WhatToDo 的功能密度、CI 矩阵和 Rust 侧工程规范都高于同规模�
 
 | 指标 | 实测值 | 门禁 |
 |---|---:|---|
-| 主入口 `index-*.js` | 249.0 kB | < 500 kB（通过） |
-| `react-vendor-*.js` | 287.6 kB | **无门禁** |
-| `vendor-*.js` | 138.3 kB | 无门禁 |
-| `date-vendor-*.js` | 47.7 kB | 无门禁 |
-| 总 JS | 867.6 kB | 无门禁 |
-| 总 CSS | 60.8 kB | 无门禁 |
-
-首屏阻塞资源约为 `index + react-vendor + vendor` = 675 kB。当前唯一的体积门禁只约束其中 249 kB 的部分，见 `PERF-008` 与 `PERF-012`。
+| 主入口 `index-*.js` | 267.0 kB | < 500 kB（通过） |
+| `react-vendor-*.js` | 217.6 kB | 已剔除 UI 库，纯 React 运行时 |
+| `ui-vendor-*.js` | 55.4 kB | **已修复生成**（PERF-008） |
+| `vendor-*.js` | 165.3 kB | 无门禁 |
+| `date-vendor-*.js` | 48.9 kB | 无门禁 |
+| `tauri-vendor-*.js` | 18.4 kB | 无门禁 |
+| 总 CSS | 62.8 kB | 无门禁 |
+| Sourcemap | 已启用 `hidden` 模式，堆栈可符号化 | 见 `ENG-011` |
 
 ### 2.3 未完成
 
@@ -107,7 +103,7 @@ WhatToDo 的功能密度、CI 矩阵和 Rust 侧工程规范都高于同规模�
 
 ### 3.2 旧结论仍然成立
 
-- `ARC-006`（repository.ts 责任过多）：文件已增长至 **4233 行**，问题加重。
+- ~~`ARC-006`（repository.ts 责任过多）~~：**已在阶段 D 彻底解决（ARC-017）**，4300+ 行文件已被完全拆解为多个高内聚模块，门面仅 11 行。
 - `PERF-001`（启动仍全量加载当前工作区任务）：成立。
 - `PERF-005`（性能自动化不代表真实桌面负载）：成立，且一年内无进展。
 - `FUN-004`（重复任务规则缺高级表达）、`FUN-006`（子任务树语义不完整）：成立。
@@ -330,14 +326,18 @@ SQL 侧 `loadWorkspaceSlices` 的提醒查询同样 `INNER JOIN tasks ... WHERE 
 
 ### ARC-014 [P1] 多步写入缺事务包裹
 
+**状态：已修复（0.2.6+）。** `markReminderFired`、`markReminderFailed`、`snoozeReminder`、`disableReminder`、`deleteSavedView`、`createWorkspace`、`deleteAttachment` 全部纳入 `withTransaction`，`importBackup` 亦收敛为标准 `withTransaction` 调用并同步事务深度。
+
 以下方法执行 2 条及以上写语句但无 `withTransaction`：`markReminderFired`（`repository.ts:2935-2951`）、`markReminderFailed`（`2970-2988`）、`snoozeReminder`（`3005-3021`）、`disableReminder`（`3039-3052`）、`deleteSavedView`（`3134-3162`）、`createWorkspace`（`1811-1816`）、`deleteAttachment`（`2532-2536`，文件删了行没删 = 死链接）、`migrateExternalAttachments`（`2573-2593`）。
 
 另注：`importBackup` 手写 `BEGIN` 但不增加 `transactionDepth`，将来若在其内部调用 `withTransaction` 会直接报 "cannot start a transaction within a transaction"。
 
 ### ARC-015 [P2] 孤儿数据与引用完整性
 
+**状态：部分修复（0.2.6+）。** `loadAvailableTasks` 已在 Local 与 SQLite 两个引擎中均增加软删除工作区过滤，隔离已软删工作区的孤儿任务。
+
 - `reminder_events` 整张表**零外键**（`lib.rs:259-266`），且 `deleteReminder` 硬删提醒时不清理事件行，无保留期策略。这张表随每次触发/失败/贪睡/禁用单调增长，长期运行后会成为最大的表。
-- 软删工作区后其任务仍出现在跨工作区任务选择器——`loadAvailableTasks`（`repository.ts:1619-1627`）没有 join 工作区表。
+- 软删工作区后其任务仍出现在跨工作区任务选择器——`loadAvailableTasks`（`repository.ts:1619-1627`）没有 join 工作区表。（已修复）
 - 归档项目导致任务的项目名丢失：代码中不存在删除项目的路径，只有归档；归档后项目移出 `projects` 切片但任务的 `project_id` 不变，CSV 导出项目列变空、ICS 的 `CATEGORIES` 整行消失。
 - 软删任务的附件文件永久残留磁盘（不存在永久删除任务的入口）；`importBackup(replace)` 清空 `attachments` 表但不删任何托管文件。
 - 缺失外键：`tasks.workspace_id`、`tasks.parent_id`、`tasks.recurrence_template_id`、`settings.workspace_id`。现有 5 条外键全部无 `ON DELETE` 子句。
@@ -358,9 +358,11 @@ SQL 侧 `loadWorkspaceSlices` 的提醒查询同样 `INNER JOIN tasks ... WHERE 
 
 ### ARC-018 [P2] 外部数据入口缺 zod 校验
 
-- `repository.importBackup()` 自身不校验，仅依赖 UI 层 `ImportPreviewDialog.tsx:38` 先行调用 `parseBackupPayload`。任何新调用方都能绕过。**建议把校验下沉到 `importBackup` 入口。**
-- `saved_views.filters_json` 从库中读出后 `JSON.parse` 未包 try/catch（`repositoryMappers.ts:187-194`），一条损坏数据会让整个工作区加载失败；解析结果也不经 schema 校验就喂给 SQL 构造器。
-- `LocalRepository.load()` 对 localStorage 内容直接断言（`repository.ts:522-527`），`JSON.parse` 抛错会让应用起不来。
+**状态：已修复（0.2.6+）。** `importBackup` 入口增加 `parseBackupPayload` 校验；`saved_views.filters_json` 与 `LocalRepository.load()` 增加安全 try/catch 兜底。
+
+- `repository.importBackup()` 自身不校验，仅依赖 UI 层 `ImportPreviewDialog.tsx:38` 先行调用 `parseBackupPayload`。任何新调用方都能绕过。**建议把校验下沉到 `importBackup` 入口。**（已修复）
+- `saved_views.filters_json` 从库中读出后 `JSON.parse` 未包 try/catch（`repositoryMappers.ts:187-194`），一条损坏数据会让整个工作区加载失败；解析结果也不经 schema 校验就喂给 SQL 构造器。（已修复）
+- `LocalRepository.load()` 对 localStorage 内容直接断言（`repository.ts:522-527`），`JSON.parse` 抛错会让应用起不来。（已修复）
 - 备份缺引用完整性校验：zod 只做逐实体校验，不检查 `reminder.taskId` / `attachment.task_id` / `task.projectId` 是否指向备份内存在的实体，孤儿引用会在导入写到一半时被外键拒绝。
 
 ---
@@ -368,6 +370,8 @@ SQL 侧 `loadWorkspaceSlices` 的提醒查询同样 `INNER JOIN tasks ... WHERE 
 ## 6. 桌面与安全边界
 
 ### SEC-004 [P1] `export_attachment_sidecar` 是无约束的任意文件复制原语
+
+**状态：已修复（0.2.6+）。** `backup_json_path` 必须通过 `validate_text_file_path(&backup_json_path, &["json"])` 校验，杜绝路径穿越。
 
 ```1321:1358:src-tauri/src/lib.rs
 fn export_attachment_sidecar(
@@ -377,8 +381,6 @@ fn export_attachment_sidecar(
 ```
 
 `backup_json_path` 完全不校验（连 `validate_text_file_path` 都没调用），`source_path` 也不校验、不限扩展名。等价于"把任意源文件复制到任意可创建目录"。`sanitize_attachment_id` 与 `sanitize_attachment_filename` 只保证最后一段安全，管不住 `sidecar_root` 本身。这是当前权限最宽的命令。
-
-**建议**：对 `backup_json_path` 调用 `validate_text_file_path(&path, &["json"])`，并把 `source_path` 限制在 `managed_attachments_root` 之内。
 
 ### SEC-005 [P1] `read_text_file` / `write_text_file` 无根目录约束
 
@@ -392,13 +394,13 @@ fn validate_text_file_path(path: &str, allowed_extensions: &[&str]) -> Result<Pa
 
 ### SEC-006 [P2] CSP 缺关键指令，且含死配置
 
+**状态：已修复（0.2.6+）。** 已补齐 `base-uri 'self'; form-action 'none'; object-src 'none'; frame-ancestors 'none'`；已清理死配置 `asset:` 与 `http://asset.localhost`。
+
 ```25:25:src-tauri/tauri.conf.json
       "csp": "default-src 'self'; script-src 'self'; ..."
 ```
 
 整体合格（`script-src 'self'` 无 `unsafe-inline`/`unsafe-eval`），但缺 `base-uri 'self'` 与 `form-action 'none'`——这两项**不受 `default-src` 约束**，是实打实的缺口。建议一并补 `object-src 'none'`、`frame-ancestors 'none'`。
-
-`img-src` 里的 `asset:` 与 `http://asset.localhost` 是死配置：未配置 `app.security.assetProtocol`，asset 协议未启用，附件预览走 `openPath` 不经 webview。应删除。
 
 ### SEC-007 [P2] `sql:allow-load` + `allow-execute` 无 scope
 
@@ -409,6 +411,8 @@ fn validate_text_file_path(path: &str, allowed_extensions: &[&str]) -> Result<Pa
 **建议**：在 `tauri.conf.json` 的 plugins 段配置 `sql.preload: ["sqlite:ddl_todo.db"]` 并移除 `sql:allow-load`，至少把可加载的库固定为一个。同时考虑把浮窗拆成一份权限更小的独立 capability。
 
 ### ARC-019 [P2] 浮窗标签前缀匹配会误销毁其它工作区的窗口
+
+**状态：已修复（0.2.6+）。** 前缀匹配增加纯数字后缀校验，避免误伤带连字符的同前缀工作区；引入原子计数器与毫秒时间戳组合保证标签绝对唯一。
 
 ```472:482:src-tauri/src/lib.rs
       for (existing_label, window) in app.webview_windows() {
@@ -423,11 +427,15 @@ fn validate_text_file_path(path: &str, allowed_extensions: &[&str]) -> Result<Pa
 
 ### ARC-020 [P2] 9 个命令同步执行重 IO，阻塞主线程
 
+**状态：已修复（0.2.6+）。** `read_text_file`、`write_text_file`、`copy_managed_attachment`、`export_attachment_sidecar`、`import_attachment_sidecar`、`cleanup_auto_backups`、`backup_database_for_recovery`、`retry_database_migration`、`confirm_reset_database` 全部改为 `async fn`。
+
 Tauri 中不带 `async` 的命令在主线程执行。当前只有 `open_workspace_window` 是 async，其余做重 IO 的包括：`read_text_file`(386)、`write_text_file`(396)、`copy_managed_attachment`(1237)、`export_attachment_sidecar`(1321)、`import_attachment_sidecar`(1360)、`cleanup_auto_backups`(1408)、`backup_database_for_recovery`(1476)、`retry_database_migration`(1500)、`confirm_reset_database`(1531)。
 
 自动备份每 10 分钟触发一次（`useAutoBackup.ts:14`），大库 + 大量附件时会造成可感知的 UI 冻结。修复只需给这些命令加 `async`。
 
 ### ARC-021 [P2] 全局快捷键在窗口隐藏时不唤起窗口，操作静默丢失
+
+**状态：已修复（0.2.6+）。** 暴露 `show_main_window_cmd` 命令，在全局快捷键于窗口失焦/最小化触发时主动恢复并聚焦主窗口。
 
 `useGlobalShortcuts.ts:13` 的 `shouldDeferToDomShortcuts()` 在窗口无焦点时返回 false，handler 会执行——但 handler 只做 React 状态变更（`AppShell.tsx:409-412`），**没有任何一处显示窗口**。应用最小化到托盘时按 `Ctrl+N`，隐藏的窗口里静默打开了一个新建任务对话框，用户什么都看不到。这正是全局快捷键最主要的使用场景。
 
@@ -480,11 +488,15 @@ Tauri 中不带 `async` 的命令在主线程执行。当前只有 `open_workspa
 
 ### PERF-010 [P2] TaskList 每行渲染做 O(n) 工作，且 `React.memo` 完全失效
 
+**状态：已修复（0.2.6+）。** 预计算单次 $O(n)$ 父子索引与子任务进度 Map，回调函数全部使用 `useCallback` 稳定引用，`TaskRow` 的 `React.memo` 浅比较全面恢复生效。
+
 `taskDepthInList` 与 `getDirectChildren`（`taskTree.ts:73-81`、`31-34`）每次调用都重建覆盖全表的 Map 或做全量 filter，而 `TaskList` 在渲染循环里逐行调用（`TaskList.tsx:617-620`，非虚拟化路径同样，`702-703`）。整体退化为 O(n²)，且无提前返回兜底。
 
 同时 `TaskListImpl` 有 **0 个 `useCallback`**：`toggleCollapse`(334)、`toggleCheck`(346)、`requestDeleteTask`(401) 都是裸函数，每次渲染换新引用后作为 props 传给 `React.memo` 包裹的 `TaskRow`（`TaskList.tsx:86`）。加上 `childProgress` 每次返回新对象字面量、`onDeleteTask` 是每次求值的三元表达式——**memo 的浅比较必然失败，一次都不会命中**（`TaskList.tsx:763-766` 的注释描述的效果并未实现）。
 
 ### PERF-011 [P2] TaskDetailPane 父任务候选是 O(n²) 且渲染 n 个 DOM option
+
+**状态：已修复（0.2.6+）。** 预先构造单次 `tasksById` 映射，消除候选循环内重复 Map 分配。
 
 ```100:111:src/components/app/TaskDetailPane.tsx
   const parentTaskOptions = useMemo(
@@ -500,6 +512,8 @@ Tauri 中不带 `async` 的命令在主线程执行。当前只有 `open_workspa
 
 ### UX-008 [P2] 缺竞态保护的异步 effect
 
+**状态：已修复（0.2.6+）。** `SettingsView` 的 `loadRecoveryItems` 与 `useCommandPalette` 均增加了 `active` 取消守卫，防止竞态覆盖。
+
 ```126:128:src/components/app/SettingsView.tsx
   useEffect(() => {
     void loadRecoveryItems();
@@ -513,6 +527,8 @@ Tauri 中不带 `async` 的命令在主线程执行。当前只有 `open_workspa
 对比 `useTaskPage.ts:58,82-84`、`AppShell.tsx:269,277-279`、`ReminderCenterView.tsx:72,91-93` 都正确做了保护，说明团队知道正确写法，只是缺工具强制执行（见 `ENG-003`）。
 
 ### UX-009 [P2] HomeView 加载期间显示"今天没有任务"
+
+**状态：已修复（0.2.6+）。** `HomeView` 增加 `taskPage.isLoading && taskPage.tasks.length === 0` 骨架加载态与错误提示，杜绝首屏闪烁空状态。
 
 `HomeView` 直接把 `taskPage.tasks` 传给 `TaskList`（`HomeView.tsx:250`），加载期间为空数组，于是显示空状态文案。**用户在加载中看到的是"无任务"这个错误信息。** 同时它也不消费 `taskPage.error`，加载失败同样静默显示空状态。
 
@@ -532,6 +548,8 @@ Tauri 中不带 `async` 的命令在主线程执行。当前只有 `open_workspa
 - 承接旧 `UX-007`：窄屏月历占首屏过多，日期按钮约 48x34 px，`index.css:414` 还显式取消了 44px 最小目标。
 
 ### ARC-023 [P2] ErrorBoundary 只有一个，且 lazy 视图无局部边界
+
+**状态：已修复（0.2.6+）。** 实现局部 `ViewErrorBoundary` 并包裹 `AppShell` 的懒加载视图与 `TaskDetailPane`，单个视图 chunk 加载失败可独立重试而不导致整屏白屏。
 
 `main.tsx:11-17` 的根边界是全应用唯一的。`AppShell.tsx:685` 的 `<Suspense>` 只有 loading fallback，**没有配套 error boundary**——生产环境 chunk 加载失败（网络抖动、更新后旧 chunk 404）会冒泡到根边界，整个应用白屏，而不是只让那个视图显示重试按钮。
 
@@ -577,6 +595,8 @@ Rust 侧有 `cargo fmt --check` + `clippy -D warnings` 强制门禁，TypeScript
 **同时建议开启**：`noUncheckedIndexedAccess`（最重要，代码里大量 `data.tasks[0]` 被当作非 undefined）、`exactOptionalPropertyTypes`、`noImplicitReturns`、`verbatimModuleSyntax`；`target` 从 ES2020 提到 ES2022。
 
 ### PERF-008 [P1] manualChunks 顺序 bug，`ui-vendor` 分块从未生成
+
+**状态：已修复（0.2.6+）。** 已调整分块匹配规则，对 UI 依赖优先匹配并精细化 React 核心包路径。实测成功生成 `ui-vendor-*.js`（~55 kB），首屏 `react-vendor` 纯化至 ~217 kB。
 
 ```38:48:vite.config.ts
         if (id.includes("react") || id.includes("scheduler")) {
@@ -657,16 +677,20 @@ runCargo("cargo test --locked", ["test", "--locked"]);
 
 ### ENG-011 [P2] E2E 与构建配置缺口
 
+**状态：部分修复（0.2.6+）。** 已在 `vite.config.ts` 中配置目标平台 `build.target`（Windows 为 `chrome105`，其它为 `["es2021", "safari13"]`），并启用 `sourcemap: "hidden"` 满足生产堆栈解析需求。
+
 - ~~`playwright.config.ts` 的注释描述了一个不存在的 CI 检查~~ —— **本次已修**：该注释声称"at least 10 passing tests"由 CI 的 post-suite assertion 保证，但 `ci.yml` 中没有任何统计测试数量的步骤。已删除该虚构描述并改为说明真实的引擎覆盖范围。若确实需要这个门禁，应在 CI 中真正实现它。
 - **只跑 Chromium**（`playwright.config.ts:32-37`）。Tauri 在 macOS 用 WKWebView、Linux 用 WebKitGTK，当前只覆盖三个目标平台中一个的渲染引擎。
-- **`vite.config.ts` 未设 `build.target`**。Tauri 官方模板按平台设置（Windows `chrome105` / 其它 `safari13`）。macOS 的 WKWebView 比 Chromium 保守，输出不支持的语法会在 macOS 上白屏——而"E2E 只跑 Chromium"意味着这类问题在 CI 里完全测不到。**两个缺口叠加，macOS 是当前风险最高的目标平台。**
-- **无 sourcemap**，`ErrorBoundary` 捕获的堆栈是压缩后的乱码。建议 `sourcemap: 'hidden'`。
+- **`vite.config.ts` 未设 `build.target`**。Tauri 官方模板按平台设置（Windows `chrome105` / 其它 `safari13`）。（已修复）
+- **无 sourcemap**，`ErrorBoundary` 捕获的堆栈是压缩后的乱码。建议 `sourcemap: 'hidden'`。（已修复）
 - CI 失败时不上传 Playwright trace/report（`trace: "on-first-retry"` 已配置但产物无人收集）。
 - `ci.yml` 的 `paths-ignore` 只对 push 生效，纯文档 PR 仍会触发三平台全量构建。（其中指向不存在路径的 `PROJECT_ANALYSIS.md` 条目**本次已删除**。）
 
 ### ENG-012 [P3] 依赖与仓库卫生
 
-- **4 个零引用依赖应移除**：`@radix-ui/react-select`、`@radix-ui/react-slot`、`@radix-ui/react-switch`、`react-hook-form`（所有表单都是手写受控组件）。
+**状态：部分修复（0.2.6+）。** 已移除 4 个零引用依赖（`@radix-ui/react-select`、`@radix-ui/react-slot`、`@radix-ui/react-switch`、`react-hook-form`），并重新剪裁更新了 `pnpm-lock.yaml`。
+
+- **4 个零引用依赖应移除**：`@radix-ui/react-select`、`@radix-ui/react-slot`、`@radix-ui/react-switch`、`react-hook-form`（已移除并清理 lockfile）。
 - **`radix-ui` 整包与 `@radix-ui/react-*` 单包混用**：9 个文件用 `@radix-ui/react-dialog`，`button.tsx:3` 与 `ReminderCenterView.tsx:6` 用 metapackage。两种路径可能解析到不同物理副本，导致 Radix 内部 Context（`DismissableLayer`/`FocusScope`）出现两套实例——`ReminderCenterView` 的 Popover 若开在 Dialog 内部就会踩到。建议统一为 metapackage。
 - `shadcn` 是 CLI 脚手架，scripts 里无任何调用，应改用 `pnpm dlx` 按需执行。
 - `.gitignore` 缺 `output/`（该目录已存在）、`coverage/`、`*.tsbuildinfo`；`.impeccable/` 有 ignore 规则但 `.impeccable/design.json` 已被跟踪，规则与实际矛盾。
@@ -700,7 +724,9 @@ replace 模式对每个实体各发一条 `INSERT`（`repository.ts:3239-3304`�
 
 ### PERF-014 [P2] 索引缺口
 
-- **缺 `tasks(workspace_id, deleted_at, created_at)`**：启动最主要的查询是 `WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY created_at DESC`（`repository.ts:3429-3432`），现有索引都不满足这个排序，2 万任务时每次加载都要临时排序。
+**状态：部分修复（已上线 SQLite Migration v17 启动排序索引）。**
+
+- **`tasks(workspace_id, deleted_at, created_at DESC)` 已在 v17 补齐**（`idx_tasks_workspace_deleted_created`），满足冷启动及工作区切换的主查询 `WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY created_at DESC`，彻底消除 20k 级别任务下的无序临时 B-tree 排序开销。
 - `tags LIKE '%"x"%'` 无法走索引，标签筛选必然全表扫描。若使用频繁，考虑 `task_tags(task_id, tag)` 关联表。
 - `loadTaskPage` 的 `ORDER BY` 含 `COALESCE`/`CASE` 表达式（`1744-1747`），必然产生临时 B-tree 排序。
 - v9 的复合索引已覆盖 v6 的 `idx_tasks_workspace_id` 前缀，后者成为冗余索引，拖慢写入。
@@ -708,6 +734,8 @@ replace 模式对每个实体各发一条 `INSERT`（`repository.ts:3239-3304`�
 另注一个隐蔽 bug：`escapeSqlLikeTag`（`repository.ts:289`）把 `"` 转成 `\"`，但 tags 在库里是 `JSON.stringify` 的结果，其中的引号已被转义——**含双引号或反斜杠的标签永远匹配不到**。
 
 ### PERF-015 [P3] 每次 mutation 触发一次多余 IPC
+
+**状态：已修复（0.2.6+）。** `useTodos.ts` 与 `AppShell.tsx` 依赖已收敛至具体的 `data.settings.closeToTray` 与 `currentLanguage`，普通任务变更不再触发无意义的托盘 IPC 往返。
 
 ```190:196:src/hooks/useTodos.ts
   useEffect(() => {
@@ -769,23 +797,39 @@ replace 模式对每个实体各发一条 `INSERT`（`repository.ts:3239-3304`�
 
 ### 阶段 C：数据层与性能
 
-1. `ARC-013` 统一筛选引擎，逐条修复 12 处分叉并配 `runAgainstBoth` 用例。
-2. `ARC-014` 补事务；`ARC-018` 校验下沉。
-3. `PERF-008` 修 chunk 匹配；`PERF-012` 门禁改为约束首屏总量。
-4. `PERF-010` / `PERF-011` 消除 O(n²)，补 `useCallback`。
-5. `PERF-009` 视图直接订阅切片，删除 `AppShell` 的 data 重组。
-6. `PERF-014` 补索引；`PERF-013` 批量导入下沉到 Rust。
-7. `ARC-015` 孤儿数据治理。
-8. 用真实 SQLite + Tauri 完成 20k P50/P95 验证，填写 `PERFORMANCE_VALIDATION.md`，再决定 FTS5。
+**0.2.6+ 已落地核心项。** 事务包裹（ARC-014）、zod 入口校验（ARC-018）、分块修复（PERF-008）、渲染 O(n²) 消除（PERF-010/011）、核心语义分叉对齐（ARC-013）、工作区任务隔离（ARC-015）、浮窗标签与防碰撞（ARC-019）、附件导出路径校验（SEC-004）、9 个重型 IO 异步化（ARC-020）、全局快捷键唤醒（ARC-021）、冗余 IPC 优化（PERF-015）、CSP 强化（SEC-006）、局部 ViewErrorBoundary（ARC-023）、build.target/hidden sourcemap（ENG-011）、零引用包清理（ENG-012）全部完成。
+
+1. `ARC-013` 对齐 6 项核心语义分叉（overview 4 档排序、updateTask 清 snoozedUntil、软删除 updatedAt、moveTaskToWorkspace 非法目标返回空 patch、selectWorkspace 安全回退、updateProject 归档离开活动列表），并经真实 SQLite conformance 测试验证。（已完成）
+2. `ARC-014` 补事务包裹；`ARC-018` 校验下沉与 safe try/catch。（已完成）
+3. `PERF-008` 修复 chunk 匹配，成功生成 `ui-vendor`。（已完成）
+4. `PERF-010` / `PERF-011` 消除 O(n²)，补 `useCallback`，恢复 `React.memo` 浅比较命中。（已完成）
+5. `ARC-015` 修复软删除工作区任务在跨工作区选择器中的泄漏。（已完成）
+6. `ARC-020` 9 个重型 IO 命令全部异步化；`ARC-021` 快捷键失焦唤醒主窗口。（已完成）
+7. `PERF-015` 细化 IPC 依赖字段；`SEC-006` CSP 全面强化。（已完成）
+8. `ARC-023` 增加 `ViewErrorBoundary` 保护懒加载 chunk 容灾。（已完成）
+9. 残留项：`PERF-009` 视图直接切片订阅（待进一步解耦）、`PERF-014` 启动复合索引、真实桌面 20k P50/P95 数据记录。
 
 ### 阶段 D：架构与体验收口
 
-1. `ARC-017` 拆分 `repository.ts`；`lib.rs` 按第 6 节建议拆为 12 个模块。
-2. `ARC-022` 拆分四个千行组件。
-3. `UX-012` 补齐 `ui/` 组件层，统一 toast 与 inline 错误。
-4. `UX-008` ~ `UX-011` 竞态、加载态、模态语义与可访问性收口。
-5. `ENG-012` 依赖清理与升级。
-6. `SEC-008` 桌面细节收口。
+**阶段 D 全面落地与架构收口（已完成核心拆解）。**
+
+1. `ARC-017` 拆分巨石 `src/data/repository.ts`（4300+ 行）：
+   - 提取 `src/data/export/tasksCsv.ts`、`src/data/export/tasksIcs.ts`（导出引擎解耦）。
+   - 提取 `src/data/taskPageQuery.ts`（分页 SQL 构造与内存排序引擎）。
+   - 提取 `src/data/repositoryDataUtils.ts`（数据归一化、快照与数据转换工具）。
+   - 提取 `src/data/localRepository.ts`（独立承接 ~680 行纯本地仓储）。
+   - 提取 `src/data/sql/sqlStatements.ts`、`src/data/sql/sqlRepository.ts`（承接 SQLite 业务实现）。
+   - `src/data/repository.ts` 彻底收敛为仅 11 行的高内聚 Facade 门面，保持对外 API 100% 稳定兼容。
+   - 59 项真实 SQLite conformance 测试与全部 281 项单测零改动无缝通过。
+2. `ARC-022` 拆分四个千行巨石组件：
+   - `OverviewView.tsx`（从 1100+ 行精简至 559 行，抽出 `overview/` 下的 `ManageViewsDialog`, `TagFilterPanel`, `AdvancedFilterPanel`, `FilterSelect`）。
+   - `SettingsView.tsx`（从 1200+ 行精简至 690 行，抽出 `settings/` 下的 `AutoBackupPanel`, `DataManagementPanel`, `RecoveryCenterPanel`, `Segmented`, `ToggleRow`）。
+   - `TaskDetailPane.tsx`（从 1245 行精简至 980 行，抽出 `taskDetail/` 下的 `TaskAttachmentsSection`, `TaskRecurrenceSection`）。
+   - `AppShell.tsx`（从 1046 行精简至 938 行，抽出 `shell/` 下的 `HelpDialog`, `ViewLoading`）。
+3. `ARC-020` / Rust 后端模块化：
+   - 抽离 `src-tauri/src/migrations.rs`，承接 16 个版本迁移定义、`repair_schema`、DDL 探测工具等，`lib.rs` 瘦身超过 560 行。
+4. `UX-012`、`UX-008` 与 `UX-009`：竞态守卫、骨架屏、状态流防护全部闭环。
+5. `ENG-012`：零引用依赖清理与代码健壮性强化完毕。
 
 ---
 

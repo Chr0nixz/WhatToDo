@@ -181,4 +181,40 @@ describe("TaskComposer", () => {
     expect(screen.queryByText("Parsed")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Task title")).toHaveValue("write report");
   });
+
+  it("parses @high on submit and strips the token from the title", async () => {
+    const user = userEvent.setup();
+    const createTask = vi.fn().mockResolvedValue({} as AppData);
+
+    render(
+      <TaskComposer
+        actions={makeActions(createTask)}
+        defaultDate="2026-12-01"
+        projects={[]}
+        settings={{
+          theme: "system",
+          accentColor: "blue",
+          language: "en",
+          defaultReminderOffset: 30,
+          defaultWorkingFolder: null,
+          defaultSavedViewId: null,
+          notificationsEnabled: false,
+          closeToTray: true,
+        }}
+        variant="dialog"
+      />,
+    );
+
+    await user.type(screen.getByLabelText("Task title"), "Review PR @high");
+    await user.click(screen.getByRole("button", { name: /add/i }));
+
+    await waitFor(() => {
+      expect(createTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Review PR",
+          priority: "high",
+        }),
+      );
+    });
+  });
 });

@@ -80,12 +80,12 @@ export function UpdateSettingsPanel() {
           <RefreshCw className="size-4" />
         </span>
         <div>
-          <h2 className="text-lg font-semibold">{t("updates")}</h2>
+          <h3 className="text-lg font-semibold">{t("updates")}</h3>
           <p className="text-sm text-muted-foreground">{t("updatesHint")}</p>
         </div>
       </div>
 
-      <div className="grid gap-3 rounded-md border border-border bg-background/50 px-3 py-3">
+      <div className="grid gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <button
             className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-secondary px-3 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50"

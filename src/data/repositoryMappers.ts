@@ -185,13 +185,20 @@ export const rowToReminder = (row: Record<string, unknown>): Reminder => ({
 });
 
 export const rowToSavedTaskView = (row: Record<string, unknown>): SavedTaskView => {
-  const parsed = row.filters_json ? JSON.parse(String(row.filters_json)) : {};
+  let parsed: Record<string, unknown> = {};
+  if (row.filters_json) {
+    try {
+      parsed = JSON.parse(String(row.filters_json));
+    } catch {
+      parsed = {};
+    }
+  }
 
   return {
     id: String(row.id),
     workspaceId: String(row.workspace_id),
     name: String(row.name),
-    filters: { ...DEFAULT_TASK_VIEW_FILTERS, ...parsed },
+    filters: { ...DEFAULT_TASK_VIEW_FILTERS, ...(parsed && typeof parsed === "object" ? parsed : {}) },
     pinned: intToBool(row.pinned),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),

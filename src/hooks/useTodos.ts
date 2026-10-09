@@ -189,13 +189,14 @@ export const useTodos = () => {
     };
   }, [repository]);
 
+  const closeToTray = data?.settings?.closeToTray;
   useEffect(() => {
-    if (!data) {
+    if (closeToTray === undefined) {
       return;
     }
 
-    void invoke("set_close_to_tray", { value: data.settings.closeToTray }).catch(() => undefined);
-  }, [data]);
+    void invoke("set_close_to_tray", { value: closeToTray }).catch(() => undefined);
+  }, [closeToTray]);
 
   const actions: TodoActions = useMemo(
     () => ({

@@ -693,6 +693,10 @@ describe("SqlRepository", () => {
     const db = {
       execute: vi.fn().mockResolvedValue(undefined),
       select: vi.fn(async (query: string) => {
+        if (query.includes("FROM tasks")) {
+          return [];
+        }
+
         if (query.includes("FROM workspaces")) {
           return [
             {
@@ -704,10 +708,6 @@ describe("SqlRepository", () => {
               deleted_at: null,
             },
           ];
-        }
-
-        if (query.includes("FROM tasks")) {
-          return [];
         }
 
         if (query.includes("FROM reminders")) {
@@ -736,7 +736,7 @@ describe("SqlRepository", () => {
     );
     expect(db.execute).toHaveBeenCalledWith("UPDATE reminders SET enabled = ? WHERE id = ?", [0, "reminder_a"]);
     expect(db.select).toHaveBeenCalledWith(
-      expect.stringMatching(/^SELECT id, workspace_id.*FROM tasks WHERE workspace_id != \? AND deleted_at IS NULL/),
+      expect.stringMatching(/^SELECT id, workspace_id.*FROM tasks.*WHERE.*workspace_id != \?.*deleted_at IS NULL/),
       ["local-workspace"],
     );
     expect(db.select).toHaveBeenCalledWith(

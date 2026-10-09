@@ -57,7 +57,7 @@ export function TaskCreateDialog({
         <Dialog.Content className="motion-dialog-content fixed left-1/2 top-1/2 z-50 w-[min(520px,calc(100vw-32px))] rounded-lg border border-border bg-popover p-5 text-popover-foreground shadow-xl outline-none">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
-              <Dialog.Title className="text-base font-semibold">{t("add")}</Dialog.Title>
+              <Dialog.Title className="text-base font-semibold">{t("addLooseTask")}</Dialog.Title>
               <Dialog.Description className="mt-0.5 text-sm text-muted-foreground">
                 {defaultProjectId ? t("addToProject") : t("addLooseTask")}
               </Dialog.Description>

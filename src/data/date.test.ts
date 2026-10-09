@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { overdueTasks, taskCountsByDate, tasksForDate } from "./date";
+import { overdueTasks, taskCountsByDate, tasksForDate, isReminderInPast } from "./date";
 import type { Task } from "./types";
 
 const makeTask = (patch: Partial<Task>): Task => ({
@@ -54,5 +54,11 @@ describe("date task helpers", () => {
     ];
 
     expect(overdueTasks(tasks, "2026-05-28").map((task) => task.id)).toEqual(["old"]);
+  });
+
+  it("detects reminder times that are already past", () => {
+    const now = new Date("2026-08-15T12:00:00");
+    expect(isReminderInPast({ dueDate: "2026-08-15", dueTime: "09:00" }, 30, now)).toBe(true);
+    expect(isReminderInPast({ dueDate: "2026-08-16", dueTime: "09:00" }, 30, now)).toBe(false);
   });
 });

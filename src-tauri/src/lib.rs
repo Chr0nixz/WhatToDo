@@ -7,7 +7,7 @@ use std::fs::{create_dir_all, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -22,6 +22,9 @@ use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_window_state::StateFlags;
 
 const DB_FILE: &str = "ddl_todo.db";
+mod migrations;
+use migrations::*;
+static WINDOW_NONCE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -94,210 +97,6 @@ impl ToSql for SqlArg {
     }
 }
 
-const INIT_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS projects (
-    id TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    color TEXT NOT NULL,
-    status TEXT NOT NULL,
-    due_date TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    archived_at TEXT,
-    deleted_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL,
-    project_id TEXT,
-    title TEXT NOT NULL,
-    notes TEXT NOT NULL DEFAULT '',
-    due_date TEXT NOT NULL,
-    due_time TEXT,
-    timezone TEXT NOT NULL,
-    priority TEXT NOT NULL,
-    status TEXT NOT NULL,
-    completed_at TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    deleted_at TEXT,
-    FOREIGN KEY(project_id) REFERENCES projects(id)
-);
-
-CREATE TABLE IF NOT EXISTS reminders (
-    id TEXT PRIMARY KEY,
-    task_id TEXT NOT NULL,
-    remind_at TEXT NOT NULL,
-    offset_minutes INTEGER,
-    snoozed_until TEXT,
-    fired_at TEXT,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    FOREIGN KEY(task_id) REFERENCES tasks(id)
-);
-
-CREATE TABLE IF NOT EXISTS settings (
-    workspace_id TEXT PRIMARY KEY,
-    theme TEXT NOT NULL,
-    language TEXT NOT NULL,
-    default_reminder_offset INTEGER NOT NULL,
-    notifications_enabled INTEGER NOT NULL,
-    close_to_tray INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);
-CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
-CREATE INDEX IF NOT EXISTS idx_reminders_remind_at ON reminders(remind_at);
-"#;
-
-const ADD_PROJECT_WORKING_FOLDER_SQL: &str = r#"
-ALTER TABLE projects ADD COLUMN working_folder TEXT;
-"#;
-
-const ADD_TASK_AND_DEFAULT_WORKING_FOLDER_SQL: &str = r#"
-ALTER TABLE tasks ADD COLUMN working_folder TEXT;
-ALTER TABLE settings ADD COLUMN default_working_folder TEXT;
-"#;
-
-const ADD_WORKSPACES_SQL: &str = r##"
-CREATE TABLE IF NOT EXISTS workspaces (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    color TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    deleted_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS workspace_folders (
-    id TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    path TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    deleted_at TEXT,
-    FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
-);
-
-INSERT OR IGNORE INTO workspaces
-    (id, name, color, created_at, updated_at, deleted_at)
-VALUES
-    ('local-workspace', 'Default', '#4fb8d8', datetime('now'), datetime('now'), NULL);
-
-CREATE INDEX IF NOT EXISTS idx_workspace_folders_workspace_id ON workspace_folders(workspace_id);
-"##;
-
-const ADD_SETTINGS_ACCENT_COLOR_SQL: &str = r#"
-ALTER TABLE settings ADD COLUMN accent_color TEXT NOT NULL DEFAULT 'blue';
-"#;
-
-const ADD_WORKSPACE_QUERY_INDEXES_SQL: &str = r#"
-CREATE INDEX IF NOT EXISTS idx_tasks_workspace_id ON tasks(workspace_id);
-CREATE INDEX IF NOT EXISTS idx_projects_workspace_id ON projects(workspace_id);
-CREATE INDEX IF NOT EXISTS idx_reminders_task_id ON reminders(task_id);
-"#;
-
-const ADD_REMINDER_FAILURE_AND_SAVED_VIEWS_SQL: &str = r#"
-ALTER TABLE reminders ADD COLUMN failed_at TEXT;
-ALTER TABLE reminders ADD COLUMN last_error TEXT;
-ALTER TABLE reminders ADD COLUMN last_attempted_at TEXT;
-
-CREATE TABLE IF NOT EXISTS saved_views (
-    id TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    filters_json TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_saved_views_workspace_id ON saved_views(workspace_id);
-"#;
-
-const ADD_RECURRING_TASKS_SQL: &str = r#"
-ALTER TABLE tasks ADD COLUMN recurrence_template_id TEXT;
-ALTER TABLE tasks ADD COLUMN recurrence_instance_date TEXT;
-
-CREATE TABLE IF NOT EXISTS recurring_task_templates (
-    id TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    notes TEXT NOT NULL DEFAULT '',
-    project_id TEXT,
-    working_folder TEXT,
-    due_time TEXT,
-    timezone TEXT NOT NULL,
-    priority TEXT NOT NULL,
-    reminder_offset INTEGER,
-    frequency TEXT NOT NULL,
-    interval INTEGER NOT NULL DEFAULT 1,
-    anchor_date TEXT NOT NULL,
-    end_date TEXT,
-    enabled INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    deleted_at TEXT,
-    FOREIGN KEY(workspace_id) REFERENCES workspaces(id),
-    FOREIGN KEY(project_id) REFERENCES projects(id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_tasks_recurrence_template_id ON tasks(recurrence_template_id);
-CREATE INDEX IF NOT EXISTS idx_recurring_templates_workspace_id ON recurring_task_templates(workspace_id);
-"#;
-
-const ADD_PERFORMANCE_INDEXES_SQL: &str = r#"
-CREATE INDEX IF NOT EXISTS idx_tasks_workspace_deleted_due_date ON tasks(workspace_id, deleted_at, due_date);
-CREATE INDEX IF NOT EXISTS idx_tasks_workspace_deleted_status ON tasks(workspace_id, deleted_at, status);
-CREATE INDEX IF NOT EXISTS idx_tasks_project_deleted_due_date ON tasks(project_id, deleted_at, due_date);
-CREATE INDEX IF NOT EXISTS idx_reminders_task_enabled_fired ON reminders(task_id, enabled, fired_at);
-"#;
-
-const ADD_DEFAULT_SAVED_VIEW_ID_SQL: &str = r#"
-ALTER TABLE settings ADD COLUMN default_saved_view_id TEXT;
-"#;
-
-const ADD_RECURRING_BY_WEEKDAY_SQL: &str = r#"
-ALTER TABLE recurring_task_templates ADD COLUMN by_weekday TEXT;
-"#;
-
-const ADD_TASK_TAGS_AND_PARENT_SQL: &str = r#"
-ALTER TABLE tasks ADD COLUMN parent_id TEXT;
-ALTER TABLE tasks ADD COLUMN tags TEXT;
-
-CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);
-"#;
-
-const ADD_ATTACHMENTS_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS attachments (
-    id TEXT PRIMARY KEY,
-    task_id TEXT NOT NULL,
-    filename TEXT NOT NULL,
-    path TEXT NOT NULL,
-    mime_type TEXT,
-    size INTEGER,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY(task_id) REFERENCES tasks(id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_attachments_task_id ON attachments(task_id);
-"#;
-
-const ADD_REMINDER_EVENTS_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS reminder_events (
-    id TEXT PRIMARY KEY,
-    reminder_id TEXT NOT NULL,
-    task_id TEXT NOT NULL,
-    event_type TEXT NOT NULL,
-    detail TEXT,
-    created_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_reminder_events_reminder ON reminder_events(reminder_id, created_at DESC);
-"#;
-
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -306,7 +105,16 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+#[tauri::command]
+fn show_main_window_cmd(app: tauri::AppHandle) -> Result<(), String> {
+    show_main_window(&app);
+    Ok(())
+}
+
 fn floating_log_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
     app.path()
         .app_data_dir()
         .ok()
@@ -314,6 +122,9 @@ fn floating_log_path(app: &tauri::AppHandle) -> Option<PathBuf> {
 }
 
 fn append_floating_log(path: &Path, message: impl AsRef<str>) {
+    if !cfg!(debug_assertions) {
+        return;
+    }
     if let Some(parent) = path.parent() {
         let _ = create_dir_all(parent);
     }
@@ -414,7 +225,7 @@ fn update_tray_menu(app: tauri::AppHandle, language: String) -> Result<(), Strin
 }
 
 #[tauri::command]
-fn read_text_file(path: String) -> Result<String, String> {
+async fn read_text_file(path: String) -> Result<String, String> {
     let path = validate_text_file_path(&path, &["json"])?;
     if !path.is_file() {
         return Err("File does not exist.".to_string());
@@ -424,7 +235,7 @@ fn read_text_file(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn write_text_file(path: String, contents: String) -> Result<(), String> {
+async fn write_text_file(path: String, contents: String) -> Result<(), String> {
     let path = validate_text_file_path(&path, &["json", "csv", "ics", "txt"])?;
 
     // Atomic write: write to a sibling temp file, then rename. This prevents
@@ -517,7 +328,8 @@ async fn open_workspace_window(
         .duration_since(UNIX_EPOCH)
         .map_err(|err| err.to_string())?
         .as_millis();
-    let label = format!("{}{}", label_prefix, nonce);
+    let counter = WINDOW_NONCE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let label = format!("{}{}-{}", label_prefix, nonce, counter);
     let workspace_id_json = serde_json::to_string(&workspace_id).map_err(|err| err.to_string())?;
     let init_script = format!(
         r#"
@@ -550,11 +362,16 @@ window.__DDL_TODO_FLOATING_WORKSPACE_ID__ = {};
         workspace_id_json, workspace_id_json
     );
 
+    let is_workspace_window = |label: &str| -> bool {
+        label == legacy_label
+            || label.starts_with(&label_prefix)
+            || label
+                .strip_prefix(&previous_label_prefix)
+                .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit()))
+    };
+
     for (existing_label, window) in app.webview_windows() {
-        if existing_label == legacy_label
-            || existing_label.starts_with(&label_prefix)
-            || existing_label.starts_with(&previous_label_prefix)
-        {
+        if is_workspace_window(&existing_label) {
             if let Some(path) = &log_path {
                 append_floating_log(path, format!("destroy stale window label={existing_label}"));
             }
@@ -782,366 +599,6 @@ fn replace_app_db_connection(state: &AppDb, conn: Option<Connection>) -> Result<
     Ok(())
 }
 
-fn table_exists(conn: &Connection, name: &str) -> bool {
-    conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
-        [name],
-        |row| row.get::<_, i64>(0),
-    )
-    .unwrap_or(0)
-        > 0
-}
-
-fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
-    // table name comes from our migration constants only — not user input.
-    let sql = format!("PRAGMA table_info({table})");
-    let mut stmt = match conn.prepare(&sql) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    stmt.query_map([], |row| row.get::<_, String>(1))
-        .map(|rows| rows.filter_map(|r| r.ok()).any(|name| name == column))
-        .unwrap_or(false)
-}
-
-fn index_exists(conn: &Connection, name: &str) -> bool {
-    conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?1",
-        [name],
-        |row| row.get::<_, i64>(0),
-    )
-    .unwrap_or(0)
-        > 0
-}
-
-fn ensure_column(
-    conn: &Connection,
-    table: &str,
-    column: &str,
-    ddl_type: &str,
-) -> Result<(), String> {
-    if column_exists(conn, table, column) {
-        return Ok(());
-    }
-    let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {ddl_type}");
-    conn.execute(&sql, [])
-        .map_err(|e| format!("Failed to add column {table}.{column}: {e}"))?;
-    Ok(())
-}
-
-fn ensure_index(conn: &Connection, name: &str, create_sql: &str) -> Result<(), String> {
-    if index_exists(conn, name) {
-        return Ok(());
-    }
-    conn.execute_batch(create_sql)
-        .map_err(|e| format!("Failed to create index {name}: {e}"))?;
-    Ok(())
-}
-
-/// Apply one migration version idempotently via ensure_* (no string-based "already applied").
-fn apply_version_schema(conn: &Connection, version: i64) -> Result<(), String> {
-    match version {
-        1 => conn
-            .execute_batch(INIT_SQL)
-            .map_err(|e| format!("Migration v1 failed: {e}")),
-        2 => ensure_column(conn, "projects", "working_folder", "TEXT"),
-        3 => {
-            ensure_column(conn, "tasks", "working_folder", "TEXT")?;
-            ensure_column(conn, "settings", "default_working_folder", "TEXT")
-        }
-        4 => conn
-            .execute_batch(ADD_WORKSPACES_SQL)
-            .map_err(|e| format!("Migration v4 failed: {e}")),
-        5 => ensure_column(
-            conn,
-            "settings",
-            "accent_color",
-            "TEXT NOT NULL DEFAULT 'blue'",
-        ),
-        6 => {
-            ensure_index(
-                conn,
-                "idx_tasks_workspace_id",
-                "CREATE INDEX IF NOT EXISTS idx_tasks_workspace_id ON tasks(workspace_id);",
-            )?;
-            ensure_index(
-                conn,
-                "idx_projects_workspace_id",
-                "CREATE INDEX IF NOT EXISTS idx_projects_workspace_id ON projects(workspace_id);",
-            )?;
-            ensure_index(
-                conn,
-                "idx_reminders_task_id",
-                "CREATE INDEX IF NOT EXISTS idx_reminders_task_id ON reminders(task_id);",
-            )
-        }
-        7 => {
-            ensure_column(conn, "reminders", "failed_at", "TEXT")?;
-            ensure_column(conn, "reminders", "last_error", "TEXT")?;
-            ensure_column(conn, "reminders", "last_attempted_at", "TEXT")?;
-            conn.execute_batch(
-                "CREATE TABLE IF NOT EXISTS saved_views (
-                    id TEXT PRIMARY KEY,
-                    workspace_id TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    filters_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    FOREIGN KEY(workspace_id) REFERENCES workspaces(id)
-                );",
-            )
-            .map_err(|e| format!("Migration v7 saved_views failed: {e}"))?;
-            ensure_index(
-                conn,
-                "idx_saved_views_workspace_id",
-                "CREATE INDEX IF NOT EXISTS idx_saved_views_workspace_id ON saved_views(workspace_id);",
-            )
-        }
-        8 => {
-            ensure_column(conn, "tasks", "recurrence_template_id", "TEXT")?;
-            ensure_column(conn, "tasks", "recurrence_instance_date", "TEXT")?;
-            conn.execute_batch(
-                "CREATE TABLE IF NOT EXISTS recurring_task_templates (
-                    id TEXT PRIMARY KEY,
-                    workspace_id TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    notes TEXT NOT NULL DEFAULT '',
-                    project_id TEXT,
-                    working_folder TEXT,
-                    due_time TEXT,
-                    timezone TEXT NOT NULL,
-                    priority TEXT NOT NULL,
-                    reminder_offset INTEGER,
-                    frequency TEXT NOT NULL,
-                    interval INTEGER NOT NULL DEFAULT 1,
-                    anchor_date TEXT NOT NULL,
-                    end_date TEXT,
-                    enabled INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    deleted_at TEXT,
-                    FOREIGN KEY(workspace_id) REFERENCES workspaces(id),
-                    FOREIGN KEY(project_id) REFERENCES projects(id)
-                );",
-            )
-            .map_err(|e| format!("Migration v8 templates failed: {e}"))?;
-            ensure_index(
-                conn,
-                "idx_tasks_recurrence_template_id",
-                "CREATE INDEX IF NOT EXISTS idx_tasks_recurrence_template_id ON tasks(recurrence_template_id);",
-            )?;
-            ensure_index(
-                conn,
-                "idx_recurring_templates_workspace_id",
-                "CREATE INDEX IF NOT EXISTS idx_recurring_templates_workspace_id ON recurring_task_templates(workspace_id);",
-            )
-        }
-        9 => conn
-            .execute_batch(ADD_PERFORMANCE_INDEXES_SQL)
-            .map_err(|e| format!("Migration v9 failed: {e}")),
-        10 => ensure_column(conn, "settings", "default_saved_view_id", "TEXT"),
-        11 => ensure_column(conn, "recurring_task_templates", "by_weekday", "TEXT"),
-        12 => {
-            ensure_column(conn, "tasks", "parent_id", "TEXT")?;
-            ensure_column(conn, "tasks", "tags", "TEXT")?;
-            ensure_index(
-                conn,
-                "idx_tasks_parent_id",
-                "CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);",
-            )
-        }
-        13 => conn
-            .execute_batch(ADD_ATTACHMENTS_SQL)
-            .map_err(|e| format!("Migration v13 failed: {e}")),
-        14 => conn
-            .execute_batch(ADD_REMINDER_EVENTS_SQL)
-            .map_err(|e| format!("Migration v14 failed: {e}")),
-        15 => {
-            ensure_column(conn, "recurring_task_templates", "parent_id", "TEXT")?;
-            ensure_column(conn, "recurring_task_templates", "tags", "TEXT")
-        }
-        16 => ensure_column(conn, "saved_views", "pinned", "INTEGER NOT NULL DEFAULT 0"),
-        other => Err(format!("Unknown migration version: {other}")),
-    }
-}
-
-/// Heal databases that recorded a version while schema objects were still missing.
-fn repair_schema(conn: &Connection) -> Result<(), String> {
-    for version in 1i64..=16 {
-        apply_version_schema(conn, version)?;
-    }
-    Ok(())
-}
-
-fn apply_migrations(conn: &Connection, migrations: &[(i64, &str, &str)]) -> Result<(), String> {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS _whattodo_migrations (
-            version INTEGER PRIMARY KEY,
-            description TEXT NOT NULL,
-            applied_at TEXT NOT NULL
-        )",
-    )
-    .map_err(|e| format!("Failed to create migration tracking table: {e}"))?;
-
-    let applied: Vec<i64> = {
-        let mut stmt = conn
-            .prepare("SELECT version FROM _whattodo_migrations ORDER BY version")
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map([], |row| row.get(0))
-            .map_err(|e| e.to_string())?
-            .filter_map(|r| r.ok())
-            .collect::<Vec<i64>>();
-        rows
-    };
-
-    for &(version, description, _sql) in migrations {
-        if applied.contains(&version) {
-            continue;
-        }
-
-        conn.execute("BEGIN TRANSACTION", [])
-            .map_err(|e| format!("Failed to begin transaction for v{version}: {e}"))?;
-
-        if let Err(e) = apply_version_schema(conn, version) {
-            let _ = conn.execute("ROLLBACK", []);
-            return Err(format!("Migration v{version} ({description}) failed: {e}"));
-        }
-
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs().to_string())
-            .unwrap_or_else(|_| "0".to_string());
-
-        if let Err(e) = conn.execute(
-            "INSERT INTO _whattodo_migrations (version, description, applied_at) VALUES (?1, ?2, ?3)",
-            rusqlite::params![version, description, now],
-        ) {
-            let _ = conn.execute("ROLLBACK", []);
-            return Err(format!("Failed to record migration v{version}: {e}"));
-        }
-
-        conn.execute("COMMIT", [])
-            .map_err(|e| format!("Failed to commit migration v{version}: {e}"))?;
-    }
-
-    Ok(())
-}
-
-fn infer_applied_migrations(conn: &Connection) -> Result<Vec<i64>, String> {
-    let mut applied = Vec::new();
-
-    if table_exists(conn, "projects") {
-        applied.push(1);
-    }
-    if column_exists(conn, "projects", "working_folder") {
-        applied.push(2);
-    }
-    // Require both columns so incomplete v3 is not treated as applied.
-    if column_exists(conn, "tasks", "working_folder")
-        && column_exists(conn, "settings", "default_working_folder")
-    {
-        applied.push(3);
-    }
-    if table_exists(conn, "workspaces") {
-        applied.push(4);
-    }
-    if column_exists(conn, "settings", "accent_color") {
-        applied.push(5);
-    }
-    if index_exists(conn, "idx_tasks_workspace_id") {
-        applied.push(6);
-    }
-    if column_exists(conn, "reminders", "failed_at")
-        && column_exists(conn, "reminders", "last_error")
-        && column_exists(conn, "reminders", "last_attempted_at")
-        && table_exists(conn, "saved_views")
-    {
-        applied.push(7);
-    }
-    if column_exists(conn, "tasks", "recurrence_template_id")
-        && column_exists(conn, "tasks", "recurrence_instance_date")
-        && table_exists(conn, "recurring_task_templates")
-    {
-        applied.push(8);
-    }
-    if index_exists(conn, "idx_tasks_workspace_deleted_due_date") {
-        applied.push(9);
-    }
-    if column_exists(conn, "settings", "default_saved_view_id") {
-        applied.push(10);
-    }
-    if column_exists(conn, "recurring_task_templates", "by_weekday") {
-        applied.push(11);
-    }
-    if column_exists(conn, "tasks", "parent_id") && column_exists(conn, "tasks", "tags") {
-        applied.push(12);
-    }
-    if table_exists(conn, "attachments") {
-        applied.push(13);
-    }
-    if table_exists(conn, "reminder_events") {
-        applied.push(14);
-    }
-    if column_exists(conn, "recurring_task_templates", "parent_id")
-        && column_exists(conn, "recurring_task_templates", "tags")
-    {
-        applied.push(15);
-    }
-    if column_exists(conn, "saved_views", "pinned") {
-        applied.push(16);
-    }
-
-    Ok(applied)
-}
-
-fn bootstrap_migration_tracking(conn: &Connection, applied: &[i64]) -> Result<(), String> {
-    let all_migrations: Vec<(i64, &str)> = vec![
-        (1, "create_initial_whattodo_tables"),
-        (2, "add_project_working_folder"),
-        (3, "add_task_and_default_working_folder"),
-        (4, "add_workspaces_and_workspace_folders"),
-        (5, "add_settings_accent_color"),
-        (6, "add_workspace_query_indexes"),
-        (7, "add_reminder_failure_and_saved_views"),
-        (8, "add_recurring_tasks"),
-        (9, "add_performance_indexes"),
-        (10, "add_default_saved_view_id"),
-        (11, "add_recurring_by_weekday"),
-        (12, "add_task_tags_and_parent"),
-        (13, "add_attachments"),
-        (14, "add_reminder_events"),
-        (15, "add_recurring_template_tags_parent"),
-        (16, "add_saved_view_pinned"),
-    ];
-
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS _whattodo_migrations (
-            version INTEGER PRIMARY KEY,
-            description TEXT NOT NULL,
-            applied_at TEXT NOT NULL
-        )",
-    )
-    .map_err(|e| e.to_string())?;
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs().to_string())
-        .unwrap_or_else(|_| "0".to_string());
-
-    for &(version, description) in &all_migrations {
-        if applied.contains(&version) {
-            conn.execute(
-                "INSERT OR IGNORE INTO _whattodo_migrations (version, description, applied_at) VALUES (?1, ?2, ?3)",
-                rusqlite::params![version, description, now],
-            )
-            .map_err(|e| e.to_string())?;
-        }
-    }
-
-    Ok(())
-}
-
 fn database_sidecar_paths(db_path: &Path) -> [PathBuf; 3] {
     [
         db_path.to_path_buf(),
@@ -1349,6 +806,11 @@ fn app_migrations() -> Vec<(i64, &'static str, &'static str)> {
         (14, "add_reminder_events", ADD_REMINDER_EVENTS_SQL),
         (15, "add_recurring_template_tags_parent", ""),
         (16, "add_saved_view_pinned", ""),
+        (
+            17,
+            "add_startup_task_query_indexes",
+            ADD_STARTUP_TASK_QUERY_INDEXES_SQL,
+        ),
     ]
 }
 
@@ -1462,7 +924,7 @@ fn open_managed_attachment(app: tauri::AppHandle, path: String) -> Result<(), St
 }
 
 #[tauri::command]
-fn copy_managed_attachment(
+async fn copy_managed_attachment(
     app: tauri::AppHandle,
     source_path: String,
     attachment_id: String,
@@ -1545,15 +1007,11 @@ fn remove_dir_all_best_effort(path: &Path) {
     }
 }
 
-#[tauri::command]
-fn export_attachment_sidecar(
+fn export_attachment_sidecar_sync(
     backup_json_path: String,
     items: Vec<AttachmentSidecarItem>,
 ) -> Result<Vec<String>, String> {
-    let json_path = PathBuf::from(backup_json_path.trim());
-    if json_path.as_os_str().is_empty() {
-        return Err("Backup JSON path is required.".to_string());
-    }
+    let json_path = validate_text_file_path(&backup_json_path, &["json"])?;
     let sidecar_root = sidecar_dir_for_backup_json(&json_path)?;
     create_dir_all(&sidecar_root)
         .map_err(|err| format!("Unable to create attachment sidecar directory: {err}"))?;
@@ -1585,7 +1043,15 @@ fn export_attachment_sidecar(
 }
 
 #[tauri::command]
-fn import_attachment_sidecar(
+async fn export_attachment_sidecar(
+    backup_json_path: String,
+    items: Vec<AttachmentSidecarItem>,
+) -> Result<Vec<String>, String> {
+    export_attachment_sidecar_sync(backup_json_path, items)
+}
+
+#[tauri::command]
+async fn import_attachment_sidecar(
     app: tauri::AppHandle,
     backup_json_path: String,
     items: Vec<AttachmentSidecarItem>,
@@ -1632,8 +1098,7 @@ fn import_attachment_sidecar(
     Ok(restored)
 }
 
-#[tauri::command]
-fn cleanup_auto_backups(
+fn cleanup_auto_backups_sync(
     folder: String,
     retention_count: u32,
     retention_days: u32,
@@ -1692,6 +1157,15 @@ fn cleanup_auto_backups(
 }
 
 #[tauri::command]
+async fn cleanup_auto_backups(
+    folder: String,
+    retention_count: u32,
+    retention_days: u32,
+) -> Result<u32, String> {
+    cleanup_auto_backups_sync(folder, retention_count, retention_days)
+}
+
+#[tauri::command]
 fn get_db_init_status(state: tauri::State<'_, DbInitState>) -> Result<DbInitStatus, String> {
     state
         .0
@@ -1701,7 +1175,7 @@ fn get_db_init_status(state: tauri::State<'_, DbInitState>) -> Result<DbInitStat
 }
 
 #[tauri::command]
-fn backup_database_for_recovery(
+async fn backup_database_for_recovery(
     state: tauri::State<'_, DbInitState>,
     db: tauri::State<'_, AppDb>,
 ) -> Result<DbInitStatus, String> {
@@ -1730,7 +1204,7 @@ fn backup_database_for_recovery(
 }
 
 #[tauri::command]
-fn retry_database_migration(
+async fn retry_database_migration(
     state: tauri::State<'_, DbInitState>,
     db: tauri::State<'_, AppDb>,
 ) -> Result<DbInitStatus, String> {
@@ -1777,7 +1251,7 @@ fn retry_database_migration(
 }
 
 #[tauri::command]
-fn confirm_reset_database(
+async fn confirm_reset_database(
     state: tauri::State<'_, DbInitState>,
     db: tauri::State<'_, AppDb>,
 ) -> Result<DbInitStatus, String> {
@@ -1868,6 +1342,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_close_to_tray,
             update_tray_menu,
+            show_main_window_cmd,
             open_workspace_window,
             read_text_file,
             write_text_file,
@@ -1910,12 +1385,12 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_migrations, apply_version_schema, backup_database_verified, cleanup_auto_backups,
-        column_exists, confirm_reset_database_at, database_sidecar_paths, ensure_column,
-        export_attachment_sidecar, init_database_at, is_path_within_root_lenient, join_backup_path,
-        migrate_db_sidecar_files, repair_schema, sanitize_attachment_filename,
-        sanitize_attachment_id, sidecar_dir_for_backup_json, table_exists,
-        validate_managed_attachment_path, validate_text_file_path, INIT_SQL,
+        apply_migrations, apply_version_schema, backup_database_verified,
+        cleanup_auto_backups_sync, column_exists, confirm_reset_database_at,
+        database_sidecar_paths, ensure_column, export_attachment_sidecar_sync, init_database_at,
+        is_path_within_root_lenient, join_backup_path, migrate_db_sidecar_files, repair_schema,
+        sanitize_attachment_filename, sanitize_attachment_id, sidecar_dir_for_backup_json,
+        table_exists, validate_managed_attachment_path, validate_text_file_path, INIT_SQL,
     };
     use rusqlite::Connection;
     use std::fs;
@@ -2185,7 +1660,7 @@ mod tests {
         let source = dir.path().join("source.txt");
         fs::write(&source, "hello").expect("source");
 
-        let exported = export_attachment_sidecar(
+        let exported = export_attachment_sidecar_sync(
             json_path.to_string_lossy().to_string(),
             vec![super::AttachmentSidecarItem {
                 id: "att_1".to_string(),
@@ -2214,7 +1689,7 @@ mod tests {
             fs::write(sidecar.join("marker.txt"), "x").expect("marker");
             std::thread::sleep(Duration::from_millis(15));
         }
-        let deleted = cleanup_auto_backups(dir.path().to_string_lossy().to_string(), 2, 3650)
+        let deleted = cleanup_auto_backups_sync(dir.path().to_string_lossy().to_string(), 2, 3650)
             .expect("cleanup");
         assert_eq!(deleted, 3);
         let remaining_json = fs::read_dir(dir.path())
@@ -2330,5 +1805,21 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM projects", [], |row| row.get(0))
             .expect("count");
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn migration_v17_creates_startup_query_indexes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("ddl_todo.db");
+        seed_db(&db_path);
+
+        let conn = Connection::open(&db_path).expect("open");
+        let migrations = super::app_migrations();
+        super::migrations::apply_migrations(&conn, &migrations).expect("apply migrations");
+
+        assert!(super::migrations::index_exists(
+            &conn,
+            "idx_tasks_workspace_deleted_created"
+        ));
     }
 }

@@ -146,13 +146,12 @@ test.describe("WhatToDo webview smoke", () => {
 
     // The rail toggle button flips its aria-label between collapse (收起侧边栏)
     // and expand (展开侧边栏). On a fresh localStorage state the rail starts
-    // collapsed, so the button reads "展开侧边栏". Clicking it expands the rail.
-    const expandBtn = page.getByRole("button", { name: "展开侧边栏" });
-    await expect(expandBtn).toBeVisible({ timeout: 5_000 });
-    await expandBtn.click();
+    // expanded, so the button reads "收起侧边栏".
+    const collapseBtn = page.getByRole("button", { name: "收起侧边栏" });
+    await expect(collapseBtn).toBeVisible({ timeout: 5_000 });
+    await collapseBtn.click();
 
-    // After expanding, the collapse button (zh: 收起侧边栏) should appear.
-    await expect(page.getByRole("button", { name: "收起侧边栏" })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole("button", { name: "展开侧边栏" })).toBeVisible({ timeout: 5_000 });
     assertNoPageErrors(pageErrors);
   });
 
@@ -160,8 +159,26 @@ test.describe("WhatToDo webview smoke", () => {
     const pageErrors = await gotoAndTrackPageErrors(page);
 
     // Fresh localStorage shows first-run copy; after firstRunSeen it falls back to emptyDay.
-    const emptyCopy = page.getByText(/这一天没有 DDL。|第一次使用？/).first();
+    const emptyCopy = page.getByText(/这一天没有截止任务。|第一次使用？/).first();
     await expect(emptyCopy).toBeVisible({ timeout: 10_000 });
+    assertNoPageErrors(pageErrors);
+  });
+
+  test("Overview view filters panel toggles and renders filter inputs", async ({ page }) => {
+    const pageErrors = await gotoAndTrackPageErrors(page);
+
+    // Navigate to Overview
+    await page.getByRole("button", { name: "总览", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "所有任务", exact: true }).first()).toBeVisible({ timeout: 10_000 });
+
+    // Click the Filters toggle button (筛选)
+    const filtersBtn = page.getByRole("button", { name: /筛选/ });
+    await expect(filtersBtn).toBeVisible();
+    await filtersBtn.click();
+
+    // The filter section renders Priority (优先级) and Projects (项目) labels
+    await expect(page.getByText("优先级", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("项目", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
     assertNoPageErrors(pageErrors);
   });
 });

@@ -47,6 +47,13 @@ export default tseslint.config(
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
       ...a11yRules,
+      "jsx-a11y/label-has-associated-control": [
+        "warn",
+        {
+          assert: "either",
+          depth: 3,
+        },
+      ],
       "@typescript-eslint/no-unused-vars": [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },

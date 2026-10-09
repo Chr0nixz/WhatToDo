@@ -2,6 +2,9 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource/noto-sans-sc/chinese-simplified-400.css";
+@import "@fontsource/noto-sans-sc/chinese-simplified-500.css";
+@import "@fontsource/noto-sans-sc/chinese-simplified-600.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -78,7 +81,7 @@
   --muted-foreground: oklch(0.47 0.025 236);
   --accent: oklch(0.89 0.046 205);
   --accent-foreground: oklch(0.21 0.03 232);
-  --destructive: oklch(0.59 0.18 25);
+  --destructive: oklch(0.50 0.18 25);
   --warning: oklch(0.72 0.15 75);
   --warning-foreground: oklch(0.32 0.06 70);
   --success: oklch(0.55 0.12 155);
@@ -372,14 +375,33 @@ select:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-delay: 0s !important;
-    animation-iteration-count: 1 !important;
-    scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+  html {
+    scroll-behavior: auto;
+  }
+
+  .motion-view,
+  .motion-pane-content,
+  .motion-list > *,
+  .motion-status,
+  .motion-dialog-overlay,
+  .motion-dialog-content {
+    animation: none;
+  }
+
+  button,
+  a,
+  input,
+  textarea,
+  select,
+  [role="button"],
+  [role="tab"],
+  [role="switch"],
+  .motion-surface {
+    transition-property: background-color, border-color, color, opacity, box-shadow, outline-color !important;
+  }
+
+  .animate-spin {
+    animation: none !important;
   }
 }
 
@@ -413,8 +435,8 @@ select:focus-visible {
 
 @media (pointer: coarse), (max-width: 640px) {
   button.calendar-day {
-    min-height: 0;
     min-width: 0;
+    min-height: 44px;
   }
 }
 

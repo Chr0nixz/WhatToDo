@@ -211,7 +211,7 @@ export const parseQuickAdd = ({
     }
   }
 
-  remove(/(?:^|\s)!([^\s#!]+)/, (match) => {
+  remove(/(?:^|\s)[!@]([^\s#!@]+)/, (match) => {
     const nextPriority = priorityAliases[match[1].trim().toLowerCase()] ?? priorityAliases[match[1].trim()];
     if (nextPriority) {
       priority = nextPriority;

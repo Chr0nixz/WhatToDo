@@ -151,10 +151,12 @@ export function ImportPreviewDialog({
                     "flex cursor-pointer items-start gap-2 rounded-md border border-border px-3 py-2 text-sm",
                     mode === "replace" && "border-ring bg-accent/40",
                   )}
+                  htmlFor="import-mode-replace"
                 >
                   <input
                     checked={mode === "replace"}
                     className="mt-0.5"
+                    id="import-mode-replace"
                     name="import-mode"
                     type="radio"
                     value="replace"
@@ -170,10 +172,12 @@ export function ImportPreviewDialog({
                     "flex cursor-pointer items-start gap-2 rounded-md border border-border px-3 py-2 text-sm",
                     mode === "merge" && "border-ring bg-accent/40",
                   )}
+                  htmlFor="import-mode-merge"
                 >
                   <input
                     checked={mode === "merge"}
                     className="mt-0.5"
+                    id="import-mode-merge"
                     name="import-mode"
                     type="radio"
                     value="merge"

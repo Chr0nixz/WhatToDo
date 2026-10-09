@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Loader2, Search } from "lucide-react";
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -31,8 +31,53 @@ type CommandPaletteProps = {
 
 const LISTBOX_ID = "command-palette-listbox";
 const GROUP_ORDER: CommandGroup[] = ["recent", "navigation", "tasks", "workspaces", "folders", "savedViews", "manage"];
+const MODE_OPTIONS = ["commands", "tasks"] as const;
+const SCOPE_OPTIONS = ["current", "all"] as const;
 
 export const commandOptionId = (itemId: string) => `command-option-${itemId}`;
+
+function handleTabListKeyDown<T extends string>(
+  event: ReactKeyboardEvent<HTMLDivElement>,
+  options: readonly T[],
+  value: T,
+  onChange: (next: T) => void,
+) {
+  const currentIndex = options.indexOf(value);
+  let nextIndex = currentIndex;
+  switch (event.key) {
+    case "ArrowRight":
+    case "ArrowDown":
+      event.preventDefault();
+      event.stopPropagation();
+      nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % options.length;
+      break;
+    case "ArrowLeft":
+    case "ArrowUp":
+      event.preventDefault();
+      event.stopPropagation();
+      nextIndex = currentIndex === -1 ? options.length - 1 : (currentIndex - 1 + options.length) % options.length;
+      break;
+    case "Home":
+      event.preventDefault();
+      event.stopPropagation();
+      nextIndex = 0;
+      break;
+    case "End":
+      event.preventDefault();
+      event.stopPropagation();
+      nextIndex = options.length - 1;
+      break;
+    default:
+      return;
+  }
+  const next = options[nextIndex];
+  if (!next) {
+    return;
+  }
+  onChange(next);
+  const buttons = event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]');
+  buttons[nextIndex]?.focus();
+}
 
 function Kbd({ children }: { children: ReactNode }) {
   return (
@@ -45,9 +90,11 @@ function Kbd({ children }: { children: ReactNode }) {
 function PaletteModeToggle({
   mode,
   onModeChange,
+  onTabClick,
 }: {
   mode: CommandPaletteMode;
   onModeChange: (mode: CommandPaletteMode) => void;
+  onTabClick?: (mode: CommandPaletteMode) => void;
 }) {
   const { t } = useTranslation();
 
@@ -56,18 +103,23 @@ function PaletteModeToggle({
       className="inline-grid shrink-0 grid-flow-col gap-0.5 rounded-md border border-border bg-background/50 p-0.5"
       role="tablist"
       aria-label={t("commandPalette")}
+      tabIndex={0}
+      onKeyDown={(event) => handleTabListKeyDown(event, MODE_OPTIONS, mode, onModeChange)}
     >
-      {(["commands", "tasks"] as const).map((value) => (
+      {MODE_OPTIONS.map((value) => (
         <button
+          aria-controls={LISTBOX_ID}
           aria-selected={mode === value}
           className={cn(
             "h-7 rounded px-2.5 text-xs font-medium transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent active:scale-[0.98]",
             mode === value ? "bg-primary text-primary-foreground hover:bg-primary" : "text-muted-foreground",
           )}
+          id={`command-palette-mode-${value}`}
           key={value}
           role="tab"
+          tabIndex={mode === value ? 0 : -1}
           type="button"
-          onClick={() => onModeChange(value)}
+          onClick={() => (onTabClick ?? onModeChange)(value)}
         >
           {value === "commands" ? t("commandModeCommands") : t("commandModeTasks")}
         </button>
@@ -90,16 +142,21 @@ function TaskSearchScopeToggle({
       className="inline-grid shrink-0 grid-flow-col gap-0.5 rounded-md border border-border bg-background/50 p-0.5"
       role="tablist"
       aria-label={t("commandSearchScopeLabel")}
+      tabIndex={0}
+      onKeyDown={(event) => handleTabListKeyDown(event, SCOPE_OPTIONS, scope, onScopeChange)}
     >
-      {(["current", "all"] as const).map((value) => (
+      {SCOPE_OPTIONS.map((value) => (
         <button
+          aria-controls={LISTBOX_ID}
           aria-selected={scope === value}
           className={cn(
             "h-7 rounded px-2.5 text-xs font-medium transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent active:scale-[0.98]",
             scope === value ? "bg-secondary text-secondary-foreground hover:bg-secondary" : "text-muted-foreground",
           )}
+          id={`command-search-scope-${value}`}
           key={value}
           role="tab"
+          tabIndex={scope === value ? 0 : -1}
           type="button"
           onClick={() => onScopeChange(value)}
         >
@@ -143,7 +200,7 @@ export function CommandPalette({
     if (open) {
       window.setTimeout(() => inputRef.current?.focus(), 0);
     }
-  }, [open, mode]);
+  }, [open]);
 
   useEffect(() => {
     activeItemRef.current?.scrollIntoView({ block: "nearest" });
@@ -215,7 +272,14 @@ export function CommandPalette({
                   onChange={(event) => onQueryChange(event.target.value)}
                 />
               </div>
-              <PaletteModeToggle mode={mode} onModeChange={onModeChange} />
+              <PaletteModeToggle
+                mode={mode}
+                onModeChange={onModeChange}
+                onTabClick={(next) => {
+                  onModeChange(next);
+                  inputRef.current?.focus();
+                }}
+              />
             </div>
             {mode === "tasks" && (
               <div className="mt-2 flex items-center justify-between gap-2">

@@ -7,6 +7,7 @@ import type { AppData, Task, TaskPageResult } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
 
 import { HomeView } from "./HomeView";
+import { bumpTasksRevision, useTodoStore } from "@/hooks/useTodoStore";
 
 const makeTask = (index: number): Task => ({
   id: `task-${index}`,
@@ -93,6 +94,7 @@ describe("HomeView performance list behavior", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    useTodoStore.setState({ tasksRevision: 0 });
   });
 
   it(
@@ -157,6 +159,37 @@ describe("HomeView performance list behavior", () => {
     await waitFor(() => {
       expect(screen.queryByText("Task 1")).not.toBeInTheDocument();
       expect(screen.getByText("Task 151")).toBeInTheDocument();
+    });
+  }, 20_000);
+
+  it("refreshes due-date counts when tasksRevision changes", async () => {
+    const dayTasks = [makeTask(1)];
+    const data = makeData(dayTasks);
+    const actions = makeActions(dayTasks);
+
+    render(
+      <HomeView
+        actions={actions}
+        data={data}
+        searchQuery=""
+        selectedDate="2026-06-01"
+        selectedTaskId={null}
+        setSearchQuery={vi.fn()}
+        setSelectedDate={vi.fn()}
+        setSelectedTaskId={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("Task 1", undefined, { timeout: 10_000 })).toBeInTheDocument();
+    await waitFor(() => expect(actions.loadDueDateCounts).toHaveBeenCalled());
+    const calls = vi.mocked(actions.loadDueDateCounts).mock.calls.length;
+
+    act(() => {
+      bumpTasksRevision();
+    });
+
+    await waitFor(() => {
+      expect(vi.mocked(actions.loadDueDateCounts).mock.calls.length).toBeGreaterThan(calls);
     });
   }, 20_000);
 });

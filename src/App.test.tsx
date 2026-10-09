@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -62,10 +62,11 @@ describe("App", () => {
     await waitFor(() => expect(screen.getAllByText("新建工作区").length).toBeGreaterThan(0));
     expect(screen.getByText("常用文件夹")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "设置" }));
+    const sidebar = screen.getByRole("complementary", { name: "WhatToDo" });
+    await user.click(within(sidebar).getByRole("button", { name: "设置" }));
     await waitFor(() => expect(screen.getAllByText("系统通知").length).toBeGreaterThan(0));
     expect(screen.getByText("关闭到托盘")).toBeInTheDocument();
-    expect(screen.getByText("默认文件夹")).toBeInTheDocument();
+    expect(screen.getAllByText("默认文件夹").length).toBeGreaterThan(0);
     expect(screen.getByText("恢复中心")).toBeInTheDocument();
     expect(screen.getByText("数据管理")).toBeInTheDocument();
   });

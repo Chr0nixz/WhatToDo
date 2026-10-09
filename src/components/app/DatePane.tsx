@@ -140,7 +140,7 @@ export function DatePane({
                 <span key={day.toISOString()}>{formatWeekday(day, i18n.language)}</span>
               ))}
             </div>
-            <div className="motion-list mt-2 grid grid-cols-7 gap-1 max-md:auto-rows-[36px] max-sm:auto-rows-[34px]">
+            <div className="motion-list mt-2 grid grid-cols-7 gap-1 max-md:auto-rows-[40px] max-sm:auto-rows-[44px]">
               {monthDays.map((day, index) => {
                 const key = toDateKey(day);
                 const count = counts[key] ?? 0;
@@ -166,7 +166,12 @@ export function DatePane({
                     onDrop={(event) => handleDrop(event, key)}
                   >
                     {format(day, "d")}
-                    {count > 0 && <span className="motion-status absolute bottom-1 h-1 w-4 rounded-full bg-current opacity-70" />}
+                    {count > 0 && (
+                      <span
+                        aria-hidden="true"
+                        className="motion-status absolute bottom-1 size-1.5 rounded-full bg-current"
+                      />
+                    )}
                   </button>
                 );
               })}

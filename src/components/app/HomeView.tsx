@@ -144,6 +144,18 @@ export function HomeView({
     };
   }, [actions, data.workspaceId, tasksRevision]);
 
+  const skipCountRefreshOnMount = useRef(true);
+  useEffect(() => {
+    if (skipCountRefreshOnMount.current) {
+      skipCountRefreshOnMount.current = false;
+      return;
+    }
+    const range = visibleRangeRef.current;
+    if (range) {
+      refreshCounts(range.from, range.to);
+    }
+  }, [refreshCounts, tasksRevision]);
+
   const isFirstRun = taskPage.total === 0 && data.tasks.length === 0 && localStorage.getItem("whattodo:firstRunSeen") === null;
 
   useEffect(() => {
@@ -230,30 +242,31 @@ export function HomeView({
               </span>
             )}
           </div>
-          <TaskList
-            actions={actions}
-            emptyLabel={isFirstRun ? t("firstRunHint") : t("emptyDay")}
-            emptyHint={isFirstRun ? undefined : t("emptyDayHint")}
-            emptyAction={
-              <TaskCreateDialog
-                actions={actions}
-                defaultDate={selectedDate}
-                projects={data.projects.filter((project) => project.deletedAt === null && project.status !== "archived")}
-                settings={data.settings}
-                triggerTestId="add-task-empty"
-              />
-            }
-            onSelectTask={setSelectedTaskId}
-            projects={data.projects}
-            reminders={taskPage.reminders.length > 0 ? taskPage.reminders : data.reminders}
-            selectedTaskId={selectedTaskId}
-            tasks={taskPage.tasks}
-            totalCount={taskPage.total}
-            isLoadingMore={taskPage.isLoadingMore}
-            onLoadMore={() => void taskPage.loadMore()}
-            selectionEnabled
-            draggableTasks
-          />
+          {taskPage.isLoading && taskPage.tasks.length === 0 ? (
+            <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
+              {t("loadingTasks")}
+            </div>
+          ) : taskPage.error && taskPage.tasks.length === 0 ? (
+            <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/10 px-6 text-center text-sm text-destructive">
+              {taskPage.error}
+            </div>
+          ) : (
+            <TaskList
+              actions={actions}
+              emptyLabel={isFirstRun ? t("firstRunHint") : t("emptyDay")}
+              emptyHint={isFirstRun ? undefined : t("emptyDayHint")}
+              onSelectTask={setSelectedTaskId}
+              projects={data.projects}
+              reminders={taskPage.reminders.length > 0 ? taskPage.reminders : data.reminders}
+              selectedTaskId={selectedTaskId}
+              tasks={taskPage.tasks}
+              totalCount={taskPage.total}
+              isLoadingMore={taskPage.isLoadingMore}
+              onLoadMore={() => void taskPage.loadMore()}
+              selectionEnabled
+              draggableTasks
+            />
+          )}
         </div>
       </section>
     </main>

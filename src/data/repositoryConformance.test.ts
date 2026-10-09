@@ -401,6 +401,20 @@ describe("repository conformance", () => {
       expect(side.data.workspaceId).not.toBe(first.workspaceId);
     });
 
+    it("loadAvailableTasks excludes tasks from deleted workspaces", async () => {
+      const repository = await createRepo();
+      const first = await repository.load();
+      const side = await repository.createWorkspace({ name: "Side", color: "#ec6f5d" });
+      await repository.createTask({ title: "Side task", dueDate: "2026-06-02" });
+      await repository.selectWorkspace(first.workspaceId);
+      let available = await repository.loadAvailableTasks(first.workspaceId);
+      expect(available.some((task) => task.title === "Side task")).toBe(true);
+
+      await repository.deleteWorkspace(side.data.workspaceId);
+      available = await repository.loadAvailableTasks(first.workspaceId);
+      expect(available.some((task) => task.title === "Side task")).toBe(false);
+    });
+
     it("loadTaskPage workspaceScope all returns tasks from multiple workspaces", async () => {
       const repository = await createRepo();
       const first = await repository.load();

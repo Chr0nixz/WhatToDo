@@ -1,13 +1,13 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { revealLocalPath } from "@/lib/openLocalPath";
-import { FolderOpen, FolderPlus, MonitorUp, Pencil, Plus, Trash2 } from "lucide-react";
+import { FolderOpen, Plus, Trash2 } from "lucide-react";
 import type { CSSProperties } from "react";
 import { FormEvent, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { accentSwatches, defaultAccentSwatch } from "@/data/accentSwatches";
+import { defaultAccentSwatch } from "@/data/accentSwatches";
 import type { AppData, TaskSummary } from "@/data/types";
 import { useTaskPage } from "@/hooks/useTaskPage";
 import { useTasksRevision } from "@/hooks/useTodoStore";
@@ -15,7 +15,8 @@ import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
 import { TaskList } from "./TaskList";
-import { WorkspaceTaskPickerDialog } from "./WorkspaceTaskPickerDialog";
+import { WorkspaceCreateForm } from "./workspaces/WorkspaceCreateForm";
+import { WorkspaceDetailHeader } from "./workspaces/WorkspaceDetailHeader";
 
 type WorkspacesViewProps = {
   data: AppData;
@@ -24,8 +25,6 @@ type WorkspacesViewProps = {
   setSelectedTaskId: (taskId: string | null) => void;
   onEditWorkspace?: () => void;
 };
-
-const workspaceColors = accentSwatches;
 
 const folderNameFromPath = (path: string) => {
   const parts = path.split(/[\\/]/).filter(Boolean);
@@ -40,6 +39,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
   const [folderName, setFolderName] = useState("");
   const [folderPath, setFolderPath] = useState("");
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
+  const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
@@ -116,6 +116,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
       setWorkspaceName("");
       setWorkspaceColor(defaultAccentSwatch);
       setSelectedTaskId(null);
+      setShowCreateWorkspace(false);
     } catch {
       setWorkspaceError(t("workspaceCreateFailed"));
     } finally {
@@ -221,85 +222,48 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
           </div>
         </section>
 
-        <form className="p-3" onSubmit={createWorkspace}>
-          <h2 className="mb-3 text-sm font-semibold">{t("createWorkspace")}</h2>
-          <label className="mb-1 block text-xs text-muted-foreground" htmlFor="workspace-name">
-            {t("workspaceName")}
-          </label>
-          <input
-            id="workspace-name"
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring"
-            value={workspaceName}
-            onChange={(event) => setWorkspaceName(event.target.value)}
-          />
-          <div className="mt-3 flex gap-2">
-            {workspaceColors.map((item) => (
-              <button
-                key={item.value}
-                aria-label={t(item.labelKey)}
-                aria-pressed={workspaceColor === item.value}
-                className={cn(
-                  "size-7 rounded-md border border-border ring-offset-background transition-[box-shadow,border-color] duration-150 ease-[var(--ease-out-quart)]",
-                  workspaceColor === item.value && "ring-2 ring-ring",
-                )}
-                style={{ backgroundColor: item.value }}
-                type="button"
-                onClick={() => setWorkspaceColor(item.value)}
-              />
-            ))}
-          </div>
-          <Button className="mt-4 w-full" disabled={isCreatingWorkspace} type="submit">
+        <div className="p-3">
+          <Button
+            aria-expanded={showCreateWorkspace}
+            className="w-full"
+            size="sm"
+            type="button"
+            variant="secondary"
+            onClick={() => setShowCreateWorkspace((open) => !open)}
+          >
             <Plus />
-            {isCreatingWorkspace ? t("creating") : t("createWorkspace")}
+            {t("createWorkspace")}
           </Button>
-          {workspaceError && <p className="mt-2 text-xs text-destructive">{workspaceError}</p>}
-        </form>
+          {showCreateWorkspace && (
+            <WorkspaceCreateForm
+              isCreatingWorkspace={isCreatingWorkspace}
+              onColorChange={setWorkspaceColor}
+              onNameChange={setWorkspaceName}
+              onSubmit={createWorkspace}
+              workspaceColor={workspaceColor}
+              workspaceError={workspaceError}
+              workspaceName={workspaceName}
+            />
+          )}
+        </div>
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col">
         <div className="border-b border-border bg-background/65 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex min-w-0 items-center gap-2">
-                <span
-                  className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary"
-                  style={{ color: currentWorkspace?.color }}
-                >
-                  <FolderPlus className="size-4" />
-                </span>
-                <div className="min-w-0">
-                  <h2 className="truncate text-xl font-semibold">{currentWorkspace?.name ?? t("workspaces")}</h2>
-                  <p className="text-sm text-muted-foreground">
-                    {t("workspaceSummary", {
-                      tasks: openTasks.length,
-                      folders: data.workspaceFolders.length,
-                    })}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {onEditWorkspace && (
-                <Button size="sm" type="button" variant="secondary" onClick={onEditWorkspace}>
-                  <Pencil />
-                  {t("editWorkspace")}
-                </Button>
-              )}
-              <WorkspaceTaskPickerDialog
-                error={availableTasksError}
-                isLoading={isLoadingAvailableTasks}
-                onAddTask={addExistingTaskToWorkspace}
-                onOpen={loadAvailableTasks}
-                tasks={availableTasks}
-                workspaces={data.workspaces}
-              />
-              <Button size="sm" type="button" variant="secondary" onClick={() => void openFloatingWindow()}>
-                <MonitorUp />
-                {t("openFloatingWindow")}
-              </Button>
-            </div>
-          </div>
-          {workspaceActionError && <p className="motion-status mt-2 text-xs text-destructive">{workspaceActionError}</p>}
+          <WorkspaceDetailHeader
+            availableTasks={availableTasks}
+            availableTasksError={availableTasksError}
+            currentWorkspace={currentWorkspace}
+            isLoadingAvailableTasks={isLoadingAvailableTasks}
+            onAddExistingTask={addExistingTaskToWorkspace}
+            onEditWorkspace={onEditWorkspace}
+            onLoadAvailableTasks={loadAvailableTasks}
+            onOpenFloatingWindow={() => void openFloatingWindow()}
+            openTasksCount={openTasks.length}
+            workspaceActionError={workspaceActionError}
+            workspaceFoldersCount={data.workspaceFolders.length}
+            workspaces={data.workspaces}
+          />
 
           <form className="mt-4 grid grid-cols-[minmax(120px,180px)_minmax(0,1fr)_40px_auto] gap-2 max-xl:grid-cols-2 max-sm:grid-cols-1" onSubmit={createFolder}>
             <label className="sr-only" htmlFor="workspace-folder-name">

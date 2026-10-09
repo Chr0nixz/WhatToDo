@@ -1,14 +1,14 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { CalendarClock, Check, CheckSquare, ChevronDown, ChevronRight, Clock, EyeOff, Loader2, Repeat2, Square, Trash2, X, XCircle } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { formatTaskDate } from "@/data/dateFormat";
 import { TASK_DRAG_MIME } from "@/data/taskDrag";
-import { getDirectChildProgress, isHiddenByCollapsedAncestor, taskDepthInList } from "@/data/taskTree";
+import { computeAllChildProgress, isHiddenByCollapsedAncestor, taskDepthInList } from "@/data/taskTree";
 import { cn } from "@/lib/utils";
 import type { Project, Reminder, TaskStatus, TaskSummary } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
@@ -213,7 +213,7 @@ const TaskRow = React.memo(function TaskRow({
               {task.title}
             </h3>
             {childProgress && (
-              <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
                 {t("subtasksProgress", {
                   completed: childProgress.completed,
                   total: childProgress.total,
@@ -254,7 +254,7 @@ const TaskRow = React.memo(function TaskRow({
         </button>
         <Button
           aria-label={deleteMode === "hide" ? t("hideFromFloatingWindow") : t("delete")}
-          className="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+          className="transition-opacity"
           size="icon-sm"
           type="button"
           variant="ghost"
@@ -324,14 +324,20 @@ function TaskListImpl({
     return reminderMap;
   }, [reminders]);
   const windowedTasks = onLoadMore ? tasks : windowSize ? tasks.slice(0, visibleCount) : tasks;
+  const windowedTasksById = useMemo(() => new Map(windowedTasks.map((task) => [task.id, task])), [windowedTasks]);
   const visibleTasks = useMemo(
-    () => windowedTasks.filter((task) => !isHiddenByCollapsedAncestor(windowedTasks, task.id, collapsedParentIds)),
-    [windowedTasks, collapsedParentIds],
+    () => {
+      if (collapsedParentIds.size === 0) return windowedTasks;
+      return windowedTasks.filter((task) => !isHiddenByCollapsedAncestor(windowedTasksById, task.id, collapsedParentIds));
+    },
+    [windowedTasks, windowedTasksById, collapsedParentIds],
   );
+  const visibleTasksById = useMemo(() => new Map(visibleTasks.map((task) => [task.id, task])), [visibleTasks]);
+  const childProgressMap = useMemo(() => computeAllChildProgress(windowedTasks), [windowedTasks]);
   const hasMore = onLoadMore ? tasks.length < (totalCount ?? tasks.length) : windowSize ? visibleCount < tasks.length : false;
   const shouldVirtualize = visibleTasks.length > VIRTUAL_THRESHOLD;
 
-  const toggleCollapse = (taskId: string) => {
+  const toggleCollapse = useCallback((taskId: string) => {
     setCollapsedParentIds((prev) => {
       const next = new Set(prev);
       if (next.has(taskId)) {
@@ -341,9 +347,9 @@ function TaskListImpl({
       }
       return next;
     });
-  };
+  }, []);
 
-  const toggleCheck = (taskId: string) => {
+  const toggleCheck = useCallback((taskId: string) => {
     setCheckedIds((prev) => {
       const next = new Set(prev);
       if (next.has(taskId)) {
@@ -353,7 +359,7 @@ function TaskListImpl({
       }
       return next;
     });
-  };
+  }, []);
 
   const toggleSelectAll = () => {
     if (checkedIds.size === visibleTasks.length) {
@@ -398,7 +404,7 @@ function TaskListImpl({
     }
   };
 
-  const requestDeleteTask = (taskId: string) => {
+  const requestDeleteTask = useCallback((taskId: string) => {
     if (onDeleteTask) {
       onDeleteTask(taskId);
       return;
@@ -408,7 +414,12 @@ function TaskListImpl({
     }
     setRowDeleteError(null);
     setPendingDeleteId(taskId);
-  };
+  }, [onDeleteTask, deleteMode]);
+
+  const effectiveDeleteHandler = useMemo(
+    () => onDeleteTask ?? (deleteMode === "delete" ? requestDeleteTask : undefined),
+    [onDeleteTask, deleteMode, requestDeleteTask],
+  );
 
   const confirmSingleDelete = async () => {
     if (!pendingDeleteId) return;
@@ -509,20 +520,10 @@ function TaskListImpl({
     }
   };
 
-  const bulkToolbar = selectionEnabled && (
+  const bulkToolbar = selectionEnabled && (selectionMode || visibleTasks.length >= 2) && (
+    selectionMode ? (
     <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card/65 p-2">
-      {!selectionMode ? (
-        <Button
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() => setSelectionMode(true)}
-        >
-          <CheckSquare className="size-3.5" />
-          {t("selectMode")}
-        </Button>
-      ) : (
-        <>
+      <>
           <Button size="sm" type="button" variant="ghost" onClick={toggleSelectAll}>
             {checkedIds.size === visibleTasks.length ? t("deselectAll") : t("selectAll")}
           </Button>
@@ -574,9 +575,16 @@ function TaskListImpl({
             </Button>
           </div>
         </>
-      )}
       {bulkError && <p className="w-full text-xs text-destructive">{bulkError}</p>}
     </div>
+    ) : (
+      <div className="mb-2 flex justify-end">
+        <Button size="sm" type="button" variant="ghost" onClick={() => setSelectionMode(true)}>
+          <CheckSquare className="size-3.5" />
+          {t("selectMode")}
+        </Button>
+      </div>
+    )
   );
 
   if (shouldVirtualize) {
@@ -584,13 +592,17 @@ function TaskListImpl({
     return (
       <div>
         {bulkToolbar}
+        {/* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex -- keyboard container for list navigation (j/k and arrows) */}
         <div
+          aria-label={t("tasks")}
           className="motion-list focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           ref={scrollRef}
+          role="region"
           style={{ maxHeight: "70vh", overflowY: "auto" }}
           tabIndex={0}
           onKeyDown={handleListKeyDown}
         >
+        {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
           <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
             {virtualItems.map((virtualItem) => {
               const task = visibleTasks[virtualItem.index];
@@ -615,13 +627,13 @@ function TaskListImpl({
                     isSelected={selectedTaskId === task.id}
                     isCompact={compact}
                     index={virtualItem.index}
-                    indentDepth={taskDepthInList(visibleTasks, task.id)}
-                    childProgress={getDirectChildProgress(windowedTasks, task.id)}
+                    indentDepth={taskDepthInList(visibleTasksById, task.id)}
+                    childProgress={childProgressMap.get(task.id) ?? null}
                     isCollapsed={collapsedParentIds.has(task.id)}
                     onToggleCollapse={toggleCollapse}
                     actions={actions}
                     onSelectTask={onSelectTask}
-                    onDeleteTask={onDeleteTask ?? (deleteMode === "delete" ? requestDeleteTask : undefined)}
+                    onDeleteTask={effectiveDeleteHandler}
                     deleteMode={deleteMode}
                     language={i18n.language}
                     t={t}
@@ -681,11 +693,15 @@ function TaskListImpl({
   return (
     <div>
       {bulkToolbar}
+      {/* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex -- keyboard container for list navigation (j/k and arrows) */}
       <div
+        aria-label={t("tasks")}
         className="motion-list space-y-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        role="region"
         tabIndex={0}
         onKeyDown={handleListKeyDown}
       >
+      {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
         {visibleTasks.map((task, index) => {
           const project = task.projectId ? projectsById.get(task.projectId) ?? null : null;
           const reminder = remindersByTaskId.get(task.id);
@@ -699,13 +715,13 @@ function TaskListImpl({
               isSelected={selectedTaskId === task.id}
               isCompact={compact}
               index={index}
-              indentDepth={taskDepthInList(visibleTasks, task.id)}
-              childProgress={getDirectChildProgress(windowedTasks, task.id)}
+              indentDepth={taskDepthInList(visibleTasksById, task.id)}
+              childProgress={childProgressMap.get(task.id) ?? null}
               isCollapsed={collapsedParentIds.has(task.id)}
               onToggleCollapse={toggleCollapse}
               actions={actions}
               onSelectTask={onSelectTask}
-              onDeleteTask={onDeleteTask ?? (deleteMode === "delete" ? requestDeleteTask : undefined)}
+              onDeleteTask={effectiveDeleteHandler}
               deleteMode={deleteMode}
               language={i18n.language}
               t={t}

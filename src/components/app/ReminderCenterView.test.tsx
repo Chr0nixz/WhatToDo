@@ -266,4 +266,18 @@ describe("ReminderCenterView", () => {
 
     await waitFor(() => expect(screen.getByText("Could not update the reminder. Try again.")).toBeInTheDocument());
   });
+
+  it("does not render empty reminder groups", async () => {
+    seedStore(
+      [makeTask({ id: "missed", title: "Missed task" })],
+      [makeReminder({ id: "r-missed", taskId: "missed", remindAt: "2000-06-01T00:00:00.000Z" })],
+    );
+
+    await renderView(<ReminderCenterView actions={makeActions()} onOpenTask={vi.fn()} />);
+
+    expect(screen.getByText("Missed task")).toBeInTheDocument();
+    expect(screen.queryByText("No reminders in this group.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Upcoming" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Failed" })).not.toBeInTheDocument();
+  });
 });
