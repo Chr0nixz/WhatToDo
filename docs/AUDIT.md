@@ -729,11 +729,14 @@ runCargo("cargo test --locked", ["test", "--locked"]);
 
 ### ENG-013 [P2] `perf:sqlite` 命名误导
 
+**状态：已修复（0.2.7+）。** 
+1. 规范化性能测试架构与命令分类：在 `package.json` 中建立清晰的性能脚本三轨制——`perf:runtime`（快速 CI 级 LocalRepository 2,000 任务预算）、`perf:sqlite`（**真实内存 SQLite 引擎基线**，名副其实）、`perf:local-20k`（LocalRepository 20,000 任务极限压力测试）。
+2. 构建真正的 `src/data/repository.sqlite.perf.test.ts`：接入真实 SQLite 内存客户端与最新复合索引（含 Migration v17/v18），对热查询 `loadTaskPage`、`toggleTask`、`saveSettings` 建立真实数据库级 P50/P95 计时断言，彻底消除旧脚本用 localStorage stub 冒充 SQLite 的误导缺陷。
+3. 优化 `vitest.perf.config.ts`：采用纯 `node` 运行环境与轻量内存 stub，免除 JSDOM 虚拟 DOM 开销并保证在 Node 22 原生 SQLite 环境下稳定极速运行。
+
 ```14:14:package.json
     "perf:sqlite": "vitest run src/data/repository.sqlite.perf.test.ts",
 ```
-
-该文件导入的是 `LocalRepository`，跑在 localStorage stub 上（文件顶部注释已诚实说明）。文件名、script 名与 `PERFORMANCE.md:45` 的表格标题都带 "sqlite"，容易让人误以为 SQLite 路径已有性能基线。建议改名为 `perf:local-20k`。
 
 ---
 

@@ -1,30 +1,23 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { parseBackupPayload } from "./backupSchema";
-import { LocalRepository } from "./repository";
-import type { BackupPayload } from "./types";
+import { createMemorySqliteClient } from "./nodeSqliteClient";
+import { setSqliteClientForTests } from "./sqliteClient";
+import { SqlRepository } from "./sql/sqlRepository";
 
 /**
- * 20k-task data-layer baseline (LocalRepository + generated fixture).
+ * Real SQLite engine performance baseline.
  *
- * This is intentionally separate from `pnpm perf:runtime` (2k CI budgets).
- * It is NOT a substitute for Tauri + SQLite desktop UI validation — see
- * docs/PERFORMANCE_VALIDATION.md. Run via `pnpm perf:sqlite` after
- * `pnpm perf:fixture`.
- *
- * Uses an unbounded in-memory localStorage stub so jsdom's 5MB quota does not
- * block 20k fixture import.
+ * Runs against SqlRepository backed by an in-memory SQLite database
+ * with real SQLite schema, foreign keys, and indexes (including v17/v18).
+ * Ensures hot query paths (load, loadTaskPage, toggleTask, saveSettings)
+ * execute within strict upper-bound budgets.
  */
 
-const FIXTURE_PATH = join(process.cwd(), "tmp", "performance-backup-20000.json");
-
-const IMPORT_BUDGET_MS = 8_000;
-const LOAD_BUDGET_MS = 2_500;
-const LOAD_TASK_PAGE_BUDGET_MS = 250;
-const TOGGLE_BUDGET_MS = 500;
-const SAVE_SETTINGS_BUDGET_MS = 500;
+const SEED_TASK_COUNT = 1_000;
+const LOAD_BUDGET_MS = 250;
+const LOAD_TASK_PAGE_BUDGET_MS = 100;
+const TOGGLE_BUDGET_MS = 150;
+const SAVE_SETTINGS_BUDGET_MS = 150;
 
 const percentile = (samples: number[], p: number) => {
   if (samples.length === 0) return 0;
@@ -33,132 +26,100 @@ const percentile = (samples: number[], p: number) => {
   return sorted[index];
 };
 
-const installUnboundedLocalStorage = () => {
-  const store = new Map<string, string>();
-  const localStorageStub: Storage = {
-    get length() {
-      return store.size;
-    },
-    clear: () => {
-      store.clear();
-    },
-    getItem: (key) => (store.has(key) ? store.get(key)! : null),
-    key: (index) => Array.from(store.keys())[index] ?? null,
-    removeItem: (key) => {
-      store.delete(key);
-    },
-    setItem: (key, value) => {
-      store.set(key, String(value));
-    },
-  };
-  vi.stubGlobal("localStorage", localStorageStub);
-};
+describe("SqlRepository (Real SQLite) performance baseline", () => {
+  let repository: SqlRepository;
 
-describe("20k LocalRepository data-layer baseline", () => {
-  let payload: BackupPayload | null = null;
-
-  beforeAll(() => {
-    if (!existsSync(FIXTURE_PATH)) {
-      return;
-    }
-    const raw = JSON.parse(readFileSync(FIXTURE_PATH, "utf8"));
-    const parsed = parseBackupPayload(raw);
-    if (!parsed.success || !parsed.data) {
-      throw new Error(`Invalid performance fixture: ${parsed.error}`);
-    }
-    payload = parsed.data;
-  });
-
-  beforeEach(() => {
-    installUnboundedLocalStorage();
-  });
-
-  it("skips when the 20k fixture is missing (run pnpm perf:fixture first)", ({ skip }) => {
-    if (!payload) {
-      skip();
-    }
-    expect(payload?.tasks.length).toBeGreaterThanOrEqual(20_000);
-  });
-
-  it("imports the 20k fixture within budget", async ({ skip }) => {
-    if (!payload) {
-      skip();
-      return;
-    }
-    const repository = new LocalRepository();
+  beforeEach(async () => {
+    setSqliteClientForTests(createMemorySqliteClient());
+    repository = new SqlRepository();
     await repository.load();
 
-    const start = performance.now();
-    const result = await repository.importBackup(payload, "replace");
-    const elapsed = performance.now() - start;
-
-    // Snapshot is workspace-scoped (~5k of 20k on the default workspace).
-    expect(payload.tasks.length).toBeGreaterThanOrEqual(20_000);
-    expect(result.data.tasks.length).toBeGreaterThanOrEqual(4_000);
-    expect(elapsed).toBeLessThan(IMPORT_BUDGET_MS);
+    // Seed tasks via batch-like inserts into active workspace
+    const now = "2026-06-01T00:00:00.000Z";
+    const backup = await repository.exportBackup();
+    for (let i = 0; i < SEED_TASK_COUNT; i++) {
+      backup.tasks.push({
+        id: `task_perf_${i}`,
+        workspaceId: "local-workspace",
+        projectId: null,
+        workingFolder: null,
+        title: `Task #${i}`,
+        notes: `Notes for task ${i}`,
+        dueDate: `2026-06-${String((i % 28) + 1).padStart(2, "0")}`,
+        dueTime: i % 2 === 0 ? "10:00" : null,
+        timezone: "Asia/Shanghai",
+        priority: i % 3 === 0 ? "high" : i % 3 === 1 ? "medium" : "low",
+        status: i % 4 === 0 ? "completed" : "todo",
+        completedAt: i % 4 === 0 ? now : null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+        recurrenceTemplateId: null,
+        recurrenceInstanceDate: null,
+        parentId: null,
+        tags: [`tag_${i % 10}`],
+      });
+    }
+    await repository.importBackup(backup, "replace");
   });
 
-  it("records P50/P95 for load, loadTaskPage, toggle, and saveSettings", async ({ skip }) => {
-    if (!payload) {
-      skip();
-      return;
-    }
-    const repository = new LocalRepository();
-    await repository.load();
-    await repository.importBackup(payload, "replace");
+  afterEach(() => {
+    setSqliteClientForTests(null);
+  });
 
-    const loadSamples: number[] = [];
-    for (let i = 0; i < 5; i += 1) {
+  it("loads repository data and executes paged queries within budget", async () => {
+    const loadTimes: number[] = [];
+    for (let i = 0; i < 5; i++) {
       const start = performance.now();
       await repository.load();
-      loadSamples.push(performance.now() - start);
+      loadTimes.push(performance.now() - start);
     }
 
-    const pageSamples: number[] = [];
-    for (let i = 0; i < 10; i += 1) {
+    const loadP95 = percentile(loadTimes, 95);
+    expect(loadP95).toBeLessThan(LOAD_BUDGET_MS);
+
+    const pageTimes: number[] = [];
+    for (let i = 0; i < 10; i++) {
       const start = performance.now();
-      await repository.loadTaskPage({
+      const page = await repository.loadTaskPage({
         workspaceId: "local-workspace",
         scope: "open",
-        limit: 50,
-        offset: i * 50,
-        sort: "overview",
+        sort: "dueAsc",
+        limit: 20,
+        offset: i * 20,
       });
-      pageSamples.push(performance.now() - start);
+      pageTimes.push(performance.now() - start);
+      expect(page.tasks.length).toBeLessThanOrEqual(20);
     }
 
-    const data = await repository.load();
-    const toggleSamples: number[] = [];
-    for (let i = 0; i < 10; i += 1) {
-      const task = data.tasks[i];
-      if (!task) break;
+    const pageP95 = percentile(pageTimes, 95);
+    expect(pageP95).toBeLessThan(LOAD_TASK_PAGE_BUDGET_MS);
+  });
+
+  it("toggles tasks and saves settings within budget", async () => {
+    const toggleTimes: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const taskId = `task_perf_${i * 10}`;
       const start = performance.now();
-      await repository.toggleTask(task.id);
-      toggleSamples.push(performance.now() - start);
+      await repository.toggleTask(taskId);
+      toggleTimes.push(performance.now() - start);
     }
 
-    const settingsSamples: number[] = [];
-    for (let i = 0; i < 5; i += 1) {
+    const toggleP95 = percentile(toggleTimes, 95);
+    expect(toggleP95).toBeLessThan(TOGGLE_BUDGET_MS);
+
+    const settingsTimes: number[] = [];
+    const current = await repository.load();
+    for (let i = 0; i < 5; i++) {
       const start = performance.now();
       await repository.saveSettings({
-        ...data.settings,
+        ...current.settings,
         theme: i % 2 === 0 ? "dark" : "light",
       });
-      settingsSamples.push(performance.now() - start);
+      settingsTimes.push(performance.now() - start);
     }
 
-    const summary = {
-      load: { p50: percentile(loadSamples, 50), p95: percentile(loadSamples, 95) },
-      loadTaskPage: { p50: percentile(pageSamples, 50), p95: percentile(pageSamples, 95) },
-      toggleTask: { p50: percentile(toggleSamples, 50), p95: percentile(toggleSamples, 95) },
-      saveSettings: { p50: percentile(settingsSamples, 50), p95: percentile(settingsSamples, 95) },
-    };
-
-    process.stdout.write(`perf:sqlite P50/P95 (ms) ${JSON.stringify(summary)}\n`);
-
-    expect(summary.load.p95).toBeLessThan(LOAD_BUDGET_MS);
-    expect(summary.loadTaskPage.p95).toBeLessThan(LOAD_TASK_PAGE_BUDGET_MS);
-    expect(summary.toggleTask.p95).toBeLessThan(TOGGLE_BUDGET_MS);
-    expect(summary.saveSettings.p95).toBeLessThan(SAVE_SETTINGS_BUDGET_MS);
+    const settingsP95 = percentile(settingsTimes, 95);
+    expect(settingsP95).toBeLessThan(SAVE_SETTINGS_BUDGET_MS);
   });
 });

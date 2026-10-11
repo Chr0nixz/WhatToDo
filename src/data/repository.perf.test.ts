@@ -1,7 +1,37 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { LocalRepository } from "./repository";
 import type { AppData, Task } from "./types";
+
+const installMemoryLocalStorage = () => {
+  if (typeof globalThis.localStorage !== "undefined") return;
+  const store = new Map<string, string>();
+  const stub: Storage = {
+    get length() {
+      return store.size;
+    },
+    clear() {
+      store.clear();
+    },
+    getItem(key: string) {
+      return store.get(key) ?? null;
+    },
+    key(index: number) {
+      return Array.from(store.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      store.delete(key);
+    },
+    setItem(key: string, value: string) {
+      store.set(key, String(value));
+    },
+  };
+  Object.defineProperty(globalThis, "localStorage", {
+    value: stub,
+    writable: true,
+    configurable: true,
+  });
+};
 
 /**
  * Runtime performance baseline for the data layer.
@@ -95,6 +125,10 @@ const buildLargeSeedData = (): AppData => {
 };
 
 describe("LocalRepository performance baseline", () => {
+  beforeAll(() => {
+    installMemoryLocalStorage();
+  });
+
   it("loads within budget with a large dataset", async () => {
     const seed = buildLargeSeedData();
     localStorage.setItem("whattodo:data", JSON.stringify(seed));

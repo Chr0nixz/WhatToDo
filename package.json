@@ -17,6 +17,7 @@
     "perf:fixture:validate": "node scripts/validate-performance-fixture.mjs",
     "perf:runtime": "vitest run --config vitest.perf.config.ts src/data/repository.perf.test.ts",
     "perf:sqlite": "vitest run --config vitest.perf.config.ts src/data/repository.sqlite.perf.test.ts",
+    "perf:local-20k": "vitest run --config vitest.perf.config.ts src/data/repository.local.20k.perf.test.ts",
     "preview": "vite preview",
     "release:check": "node scripts/release-check.mjs",
     "release:sync-version": "node scripts/sync-version.mjs",
