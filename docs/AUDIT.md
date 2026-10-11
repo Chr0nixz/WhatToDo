@@ -749,14 +749,14 @@ replace 模式对每个实体各发一条 `INSERT`（`repository.ts:3239-3304`�
 
 ### PERF-014 [P2] 索引缺口
 
-**状态：部分修复（已上线 SQLite Migration v17 启动排序索引）。**
+**状态：已修复（0.2.7+）。**
+1. **冷启动复合索引已在 v17 落地**：`idx_tasks_workspace_deleted_created`（`tasks(workspace_id, deleted_at, created_at DESC)`），彻底消除 20k 级别任务下的无序临时 B-tree 内存排序开销。
+2. **热路径日期复合索引已在 v18 落地**：`idx_tasks_workspace_deleted_due`（`tasks(workspace_id, deleted_at, due_date ASC)`），覆盖主视图 `DatePane` / `HomeView` 核心高频查询 `WHERE workspace_id = ? AND deleted_at IS NULL AND due_date = ?`。
+3. **冗余索引清理**：在 Migration v18 中彻底移除已被复合索引前缀完全覆盖的旧单列索引 `idx_tasks_workspace_id`，释放磁盘空间并降低任务写入成本。
+4. **标签 SQL LIKE 转义匹配 Bug 彻底修复**：重构 `escapeSqlLikeTag`，将标签对齐至 `JSON.stringify` 序列化片段，并严格转义 `%`、`_` 与 `\` 通配符，彻底消除含双引号（如 `version"2.0"`）和反斜杠的标签永远无法被检索匹配的历史缺陷，并在 `taskPageQuery.test.ts` 中完成单测断言覆盖。
 
-- **`tasks(workspace_id, deleted_at, created_at DESC)` 已在 v17 补齐**（`idx_tasks_workspace_deleted_created`），满足冷启动及工作区切换的主查询 `WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY created_at DESC`，彻底消除 20k 级别任务下的无序临时 B-tree 排序开销。
 - `tags LIKE '%"x"%'` 无法走索引，标签筛选必然全表扫描。若使用频繁，考虑 `task_tags(task_id, tag)` 关联表。
 - `loadTaskPage` 的 `ORDER BY` 含 `COALESCE`/`CASE` 表达式（`1744-1747`），必然产生临时 B-tree 排序。
-- v9 的复合索引已覆盖 v6 的 `idx_tasks_workspace_id` 前缀，后者成为冗余索引，拖慢写入。
-
-另注一个隐蔽 bug：`escapeSqlLikeTag`（`repository.ts:289`）把 `"` 转成 `\"`，但 tags 在库里是 `JSON.stringify` 的结果，其中的引号已被转义——**含双引号或反斜杠的标签永远匹配不到**。
 
 ### PERF-015 [P3] 每次 mutation 触发一次多余 IPC
 

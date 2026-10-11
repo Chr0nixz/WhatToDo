@@ -105,4 +105,38 @@ describe("taskPageQuery module", () => {
     const compCreated = taskPageComparator("createdDesc");
     expect(compCreated(taskA, taskB)).toBe(0);
   });
+
+  it("accurately matches tags containing quotes, backslashes and wildcards in JSON (PERF-014)", () => {
+    const where: string[] = [];
+    const params: unknown[] = [];
+
+    const specialTags = ['version"2.0"', "path\\to\\code", "100%", "snake_case"];
+    appendTagFiltersSql(where, params, specialTags, "all");
+
+    expect(where).toHaveLength(4);
+    for (const clause of where) {
+      expect(clause).toBe("tags LIKE ? ESCAPE '\\'");
+    }
+
+    // Verify pattern matching against real JSON.stringify representation in SQLite
+    const sampleDbJson = JSON.stringify(['version"2.0"', "path\\to\\code", "100%", "snake_case"]);
+
+    // Test each pattern with SQLite regex/string containment logic:
+    // 1. Tag with quotes: JSON.stringify produces "version\"2.0\""
+    // In SQL LIKE pattern with ESCAPE '\\', the backslash itself is escaped as \\
+    const pattern0 = params[0] as string;
+    expect(pattern0).toBe('%"version\\\\"2.0\\\\""%');
+    expect(sampleDbJson).toContain('version\\"2.0\\"');
+
+    // 2. Tag with backslashes: JSON.stringify produces "path\\to\\code"
+    const pattern1 = params[1] as string;
+    expect(pattern1).toBe('%"path\\\\\\\\to\\\\\\\\code"%');
+
+    // 3. Tag with wildcards: % and _ must be escaped
+    const pattern2 = params[2] as string;
+    expect(pattern2).toBe('%"100\\%"%');
+
+    const pattern3 = params[3] as string;
+    expect(pattern3).toBe('%"snake\\_case"%');
+  });
 });

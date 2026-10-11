@@ -209,6 +209,11 @@ pub const ADD_STARTUP_TASK_QUERY_INDEXES_SQL: &str = r#"
 CREATE INDEX IF NOT EXISTS idx_tasks_workspace_deleted_created ON tasks(workspace_id, deleted_at, created_at DESC);
 "#;
 
+pub const OPTIMIZE_HOT_PATH_INDEXES_SQL: &str = r#"
+CREATE INDEX IF NOT EXISTS idx_tasks_workspace_deleted_due ON tasks(workspace_id, deleted_at, due_date ASC);
+DROP INDEX IF EXISTS idx_tasks_workspace_id;
+"#;
+
 pub fn table_exists(conn: &Connection, name: &str) -> bool {
     conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
@@ -389,12 +394,15 @@ pub fn apply_version_schema(conn: &Connection, version: i64) -> Result<(), Strin
         17 => conn
             .execute_batch(ADD_STARTUP_TASK_QUERY_INDEXES_SQL)
             .map_err(|e| format!("Migration v17 failed: {e}")),
+        18 => conn
+            .execute_batch(OPTIMIZE_HOT_PATH_INDEXES_SQL)
+            .map_err(|e| format!("Migration v18 failed: {e}")),
         other => Err(format!("Unknown migration version: {other}")),
     }
 }
 
 pub fn repair_schema(conn: &Connection) -> Result<(), String> {
-    for version in 1i64..=17 {
+    for version in 1i64..=18 {
         apply_version_schema(conn, version)?;
     }
     Ok(())

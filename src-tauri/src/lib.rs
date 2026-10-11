@@ -877,6 +877,11 @@ fn app_migrations() -> Vec<(i64, &'static str, &'static str)> {
             "add_startup_task_query_indexes",
             ADD_STARTUP_TASK_QUERY_INDEXES_SQL,
         ),
+        (
+            18,
+            "optimize_hot_path_indexes",
+            OPTIMIZE_HOT_PATH_INDEXES_SQL,
+        ),
     ]
 }
 
@@ -2189,5 +2194,28 @@ mod tests {
             total_bytes,
             b"stale image 12345".len() as u64 + b"dangling".len() as u64
         );
+    }
+
+    #[test]
+    fn migration_v18_creates_hot_path_indexes_and_drops_redundant_index() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("ddl_todo.db");
+        seed_db(&db_path);
+
+        let conn = Connection::open(&db_path).expect("open");
+        let migrations = super::app_migrations();
+        super::migrations::apply_migrations(&conn, &migrations).expect("apply migrations");
+
+        // Verify the hot-path compound date index exists
+        assert!(super::migrations::index_exists(
+            &conn,
+            "idx_tasks_workspace_deleted_due"
+        ));
+
+        // Verify the redundant prefix index was successfully dropped
+        assert!(!super::migrations::index_exists(
+            &conn,
+            "idx_tasks_workspace_id"
+        ));
     }
 }

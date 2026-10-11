@@ -39,8 +39,13 @@ export const taskPageFiltersFromInput = (input: ReturnType<typeof normalizeTaskP
   advancedFilter: input.advancedFilter,
 });
 
-export const escapeSqlLikeTag = (tag: string): string =>
-  tag.replace(/[%_\\]/g, "\\$&").replace(/"/g, '\\"');
+export const escapeSqlLikeTag = (tag: string): string => {
+  // Serialize the exact JSON string token for this tag (e.g. "foo" or "v1.0\"beta")
+  const jsonToken = JSON.stringify(tag);
+  // Strip outer quotes because the LIKE pattern wrapper will supply them, or escape LIKE wildcards directly
+  // By escaping wildcards (% and _) and backslashes inside the JSON token, we match the exact JSON element
+  return jsonToken.slice(1, -1).replace(/[%_\\]/g, "\\$&");
+};
 
 export const appendTagFiltersSql = (
   where: string[],

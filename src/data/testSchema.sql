@@ -147,7 +147,6 @@ CREATE TABLE IF NOT EXISTS reminder_events (
 CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);
 CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
 CREATE INDEX IF NOT EXISTS idx_reminders_remind_at ON reminders(remind_at);
-CREATE INDEX IF NOT EXISTS idx_tasks_workspace_id ON tasks(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_projects_workspace_id ON projects(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_reminders_task_id ON reminders(task_id);
 CREATE INDEX IF NOT EXISTS idx_saved_views_workspace_id ON saved_views(workspace_id);
@@ -162,6 +161,7 @@ CREATE INDEX IF NOT EXISTS idx_attachments_task_id ON attachments(task_id);
 CREATE INDEX IF NOT EXISTS idx_reminder_events_reminder ON reminder_events(reminder_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workspace_folders_workspace_id ON workspace_folders(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_workspace_deleted_created ON tasks(workspace_id, deleted_at, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_workspace_deleted_due ON tasks(workspace_id, deleted_at, due_date ASC);
 
 INSERT OR IGNORE INTO workspaces
     (id, name, color, created_at, updated_at, deleted_at)
