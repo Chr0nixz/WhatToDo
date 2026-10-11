@@ -133,6 +133,168 @@ export const insertReminderEvent = (db: DatabaseHandle, event: ReminderEvent) =>
     [event.id, event.reminderId, event.taskId, event.eventType, event.detail, event.createdAt],
   );
 
+/**
+ * PERF-013: Chunked multi-row batch insert for tasks to eliminate N+1 IPC calls
+ * during backup import (down from 20k individual IPCs to ~200 batch IPCs).
+ */
+export const insertTasksBatch = async (
+  db: DatabaseHandle,
+  tasks: Task[],
+  chunkSize = 100,
+): Promise<void> => {
+  if (tasks.length === 0) return;
+
+  for (let i = 0; i < tasks.length; i += chunkSize) {
+    const chunk = tasks.slice(i, i + chunkSize);
+    const placeholders = chunk
+      .map(
+        () =>
+          "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .join(", ");
+
+    const sql = `INSERT INTO tasks
+     (id, workspace_id, project_id, working_folder, title, notes, due_date, due_time, timezone, priority, status, completed_at, created_at, updated_at, deleted_at, recurrence_template_id, recurrence_instance_date, parent_id, tags)
+     VALUES ${placeholders}`;
+
+    const params: unknown[] = [];
+    for (const task of chunk) {
+      params.push(
+        task.id,
+        task.workspaceId,
+        task.projectId,
+        task.workingFolder,
+        task.title,
+        task.notes,
+        task.dueDate,
+        task.dueTime,
+        task.timezone,
+        task.priority,
+        task.status,
+        task.completedAt,
+        task.createdAt,
+        task.updatedAt,
+        task.deletedAt,
+        task.recurrenceTemplateId,
+        task.recurrenceInstanceDate,
+        task.parentId,
+        serializeTags(task.tags),
+      );
+    }
+
+    await db.execute(sql, params);
+  }
+};
+
+/**
+ * PERF-013: Chunked multi-row batch insert for reminders.
+ */
+export const insertRemindersBatch = async (
+  db: DatabaseHandle,
+  reminders: Reminder[],
+  chunkSize = 150,
+): Promise<void> => {
+  if (reminders.length === 0) return;
+
+  for (let i = 0; i < reminders.length; i += chunkSize) {
+    const chunk = reminders.slice(i, i + chunkSize);
+    const placeholders = chunk
+      .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .join(", ");
+
+    const sql = `INSERT INTO reminders
+     (id, task_id, remind_at, offset_minutes, snoozed_until, fired_at, failed_at, last_error, last_attempted_at, enabled)
+     VALUES ${placeholders}`;
+
+    const params: unknown[] = [];
+    for (const reminder of chunk) {
+      params.push(
+        reminder.id,
+        reminder.taskId,
+        reminder.remindAt,
+        reminder.offsetMinutes,
+        reminder.snoozedUntil,
+        reminder.firedAt,
+        reminder.failedAt,
+        reminder.lastError,
+        reminder.lastAttemptedAt,
+        boolToInt(reminder.enabled),
+      );
+    }
+
+    await db.execute(sql, params);
+  }
+};
+
+/**
+ * PERF-013: Chunked multi-row batch insert for attachments.
+ */
+export const insertAttachmentsBatch = async (
+  db: DatabaseHandle,
+  attachments: Attachment[],
+  chunkSize = 150,
+): Promise<void> => {
+  if (attachments.length === 0) return;
+
+  for (let i = 0; i < attachments.length; i += chunkSize) {
+    const chunk = attachments.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => "(?, ?, ?, ?, ?, ?, ?)").join(", ");
+
+    const sql = `INSERT INTO attachments
+     (id, task_id, filename, path, mime_type, size, created_at)
+     VALUES ${placeholders}`;
+
+    const params: unknown[] = [];
+    for (const attachment of chunk) {
+      params.push(
+        attachment.id,
+        attachment.task_id,
+        attachment.filename,
+        attachment.path,
+        attachment.mimeType,
+        attachment.size,
+        attachment.createdAt,
+      );
+    }
+
+    await db.execute(sql, params);
+  }
+};
+
+/**
+ * PERF-013: Chunked multi-row batch insert for reminder events.
+ */
+export const insertReminderEventsBatch = async (
+  db: DatabaseHandle,
+  events: ReminderEvent[],
+  chunkSize = 150,
+): Promise<void> => {
+  if (events.length === 0) return;
+
+  for (let i = 0; i < events.length; i += chunkSize) {
+    const chunk = events.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => "(?, ?, ?, ?, ?, ?)").join(", ");
+
+    const sql = `INSERT INTO reminder_events
+     (id, reminder_id, task_id, event_type, detail, created_at)
+     VALUES ${placeholders}`;
+
+    const params: unknown[] = [];
+    for (const event of chunk) {
+      params.push(
+        event.id,
+        event.reminderId,
+        event.taskId,
+        event.eventType,
+        event.detail,
+        event.createdAt,
+      );
+    }
+
+    await db.execute(sql, params);
+  }
+};
+
 export const rowToReminderEvent = (row: Record<string, unknown>): ReminderEvent => ({
   id: String(row.id),
   reminderId: String(row.reminder_id),

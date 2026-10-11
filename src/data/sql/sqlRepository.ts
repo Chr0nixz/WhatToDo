@@ -21,12 +21,15 @@ import {
   normalizeTaskPageInput,
 } from "../taskPageQuery";
 import {
-  insertAttachment,
   insertRecurringTaskTemplate,
   insertReminder,
   insertReminderEvent,
   insertSettings,
   insertTask,
+  insertTasksBatch,
+  insertRemindersBatch,
+  insertAttachmentsBatch,
+  insertReminderEventsBatch,
   rowToReminderEvent,
   upsertAttachment,
   upsertProject,
@@ -1524,13 +1527,19 @@ export class SqlRepository implements TodoRepository {
       }
       const timestamp = nowIso();
       const idSet = new Set(ids);
-      const placeholders = ids.map(() => "?").join(", ");
       const db = await this.connect();
+
+      // PERF-013: Chunk IN clauses to prevent SQLITE_LIMIT_VARIABLE_NUMBER overflow
+      const CHUNK_SIZE = 500;
       await this.withTransaction(db, async () => {
-        await db.execute(
-          `UPDATE tasks SET deleted_at = ?, updated_at = ? WHERE id IN (${placeholders})`,
-          [timestamp, timestamp, ...ids],
-        );
+        for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+          const chunk = ids.slice(i, i + CHUNK_SIZE);
+          const placeholders = chunk.map(() => "?").join(", ");
+          await db.execute(
+            `UPDATE tasks SET deleted_at = ?, updated_at = ? WHERE id IN (${placeholders})`,
+            [timestamp, timestamp, ...chunk],
+          );
+        }
       });
       const hadAttachments = (cache.attachments ?? []).some((attachment) => idSet.has(attachment.task_id));
       const affectedKeys: AppDataKey[] = ["tasks", "reminders"];
@@ -1557,13 +1566,19 @@ export class SqlRepository implements TodoRepository {
       }
       const timestamp = nowIso();
       const idSet = new Set(ids);
-      const placeholders = ids.map(() => "?").join(", ");
       const db = await this.connect();
+
+      // PERF-013: Chunk IN clauses to prevent SQLITE_LIMIT_VARIABLE_NUMBER overflow
+      const CHUNK_SIZE = 500;
       await this.withTransaction(db, async () => {
-        await db.execute(
-          `UPDATE tasks SET project_id = ?, updated_at = ? WHERE id IN (${placeholders})`,
-          [projectId, timestamp, ...ids],
-        );
+        for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+          const chunk = ids.slice(i, i + CHUNK_SIZE);
+          const placeholders = chunk.map(() => "?").join(", ");
+          await db.execute(
+            `UPDATE tasks SET project_id = ?, updated_at = ? WHERE id IN (${placeholders})`,
+            [projectId, timestamp, ...chunk],
+          );
+        }
       });
       return this.commitCache(
         {
@@ -1995,15 +2010,14 @@ export class SqlRepository implements TodoRepository {
               ],
             );
           }
-          for (const task of backup.tasks) {
-            await insertTask(db, task);
-          }
+          await insertTasksBatch(db, backup.tasks);
+
           for (const template of backup.recurringTaskTemplates) {
             await insertRecurringTaskTemplate(db, template);
           }
-          for (const reminder of backup.reminders) {
-            await insertReminder(db, reminder);
-          }
+
+          await insertRemindersBatch(db, backup.reminders);
+
           for (const view of backup.savedViews) {
             await db.execute(
               `INSERT INTO saved_views (id, workspace_id, name, filters_json, pinned, created_at, updated_at)
@@ -2019,12 +2033,9 @@ export class SqlRepository implements TodoRepository {
               ],
             );
           }
-          for (const attachment of backup.attachments) {
-            await insertAttachment(db, attachment);
-          }
-          for (const event of incomingEvents) {
-            await insertReminderEvent(db, event);
-          }
+
+          await insertAttachmentsBatch(db, backup.attachments);
+          await insertReminderEventsBatch(db, incomingEvents);
         } else {
           for (const workspace of backup.workspaces) {
             await upsertWorkspace(db, workspace);

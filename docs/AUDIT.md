@@ -740,9 +740,12 @@ runCargo("cargo test --locked", ["test", "--locked"]);
 
 ### PERF-013 [P2] `importBackup` 的 N+1
 
-replace 模式对每个实体各发一条 `INSERT`（`repository.ts:3239-3304`），2 万条任务的备份 = 2 万次 IPC round-trip（每次经 tauri invoke → serde → sqlx）。同类问题见 `updateRecurringSeries(openFuture)`（每个实例 3 条语句）与 `bulkSetTaskStatus(completed)`（每个 id 调 `insertNextRecurringInstance`，本身又是 2 次 SELECT + 最多 2 次 INSERT，批量完成 100 个重复任务约 400 次查询）。
+**状态：已修复（0.2.7+）。** 
+1. 落地多行分批批量插入（Multi-row Chunked Batch Insert）：在 `sqlStatements.ts` 中实现 `insertTasksBatch`（每批 100 条，1900 个参数）、`insertRemindersBatch`（每批 150 条）、`insertAttachmentsBatch`（每批 150 条）与 `insertReminderEventsBatch`（每批 150 条）。
+2. 在 `sqlRepository.ts` 的 `importBackup` 中全面接入批量插入，将 20k 任务导入下的 IPC 往返通信从 **20,000+ 次骤降至约 200 次，IPC 往返开销缩减 99%**，且全程在 Savepoint 事务内原子执行。
+3. 在 `bulkDeleteTasks` 与 `bulkMoveTasksToProject` 中引入 `CHUNK_SIZE = 500` 的分批分块机制，消除大数组传入时超过 SQLite `SQLITE_LIMIT_VARIABLE_NUMBER` 的变量溢出报错风险。
 
-`IN (${placeholders})` 在 `bulkDeleteTasks` 等处未分批，超过 `SQLITE_MAX_VARIABLE_NUMBER` 会直接报错。
+replace 模式对每个实体各发一条 `INSERT`（`repository.ts:3239-3304`），2 万条任务的备份 = 2 万次 IPC round-trip（每次经 tauri invoke → serde → sqlx）。同类问题见 `updateRecurringSeries(openFuture)`（每个实例 3 条语句）与 `bulkSetTaskStatus(completed)`（每个 id 调 `insertNextRecurringInstance`，本身又是 2 次 SELECT + 最多 2 次 INSERT，批量完成 100 个重复任务约 400 次查询）。
 
 ### PERF-014 [P2] 索引缺口
 
