@@ -231,10 +231,63 @@ export type BackupSchemaResult = {
   error?: string;
 };
 
+export const sanitizeBackupReferentialIntegrity = <T extends z.infer<typeof backupPayloadSchema>>(
+  payload: T,
+): T => {
+  const projectIds = new Set(payload.projects.map((p) => p.id));
+  const taskIds = new Set(payload.tasks.map((t) => t.id));
+  const reminderIds = new Set(payload.reminders.map((r) => r.id));
+
+  // 1. Heal tasks: clear orphan projectId, break self/missing parentId references
+  const healedTasks = payload.tasks.map((task) => {
+    let nextProjectId = task.projectId;
+    if (nextProjectId !== null && !projectIds.has(nextProjectId)) {
+      nextProjectId = null;
+    }
+
+    let nextParentId = task.parentId;
+    if (nextParentId !== null && (nextParentId === task.id || !taskIds.has(nextParentId))) {
+      nextParentId = null;
+    }
+
+    if (nextProjectId !== task.projectId || nextParentId !== task.parentId) {
+      return {
+        ...task,
+        projectId: nextProjectId,
+        parentId: nextParentId,
+      };
+    }
+    return task;
+  });
+
+  // 2. Filter orphaned reminders whose target task does not exist
+  const healedReminders = payload.reminders.filter((reminder) => taskIds.has(reminder.taskId));
+
+  // 3. Filter orphaned attachments whose target task does not exist (if attachments field present)
+  const healedAttachments = "attachments" in payload && Array.isArray(payload.attachments)
+    ? payload.attachments.filter((attachment) => taskIds.has(attachment.task_id))
+    : undefined;
+
+  // 4. Filter orphaned reminder events
+  const healedReminderEvents = payload.reminderEvents
+    ? payload.reminderEvents.filter(
+        (event) => taskIds.has(event.taskId) && reminderIds.has(event.reminderId),
+      )
+    : undefined;
+
+  return {
+    ...payload,
+    tasks: healedTasks,
+    reminders: healedReminders,
+    ...(healedAttachments !== undefined ? { attachments: healedAttachments } : {}),
+    ...(healedReminderEvents !== undefined ? { reminderEvents: healedReminderEvents } : {}),
+  };
+};
+
 export const parseBackupPayload = (raw: unknown): BackupSchemaResult => {
   const result = backupPayloadSchema.safeParse(raw);
   if (result.success) {
-    return { success: true, data: result.data };
+    return { success: true, data: sanitizeBackupReferentialIntegrity(result.data) };
   }
   const firstIssue = result.error.issues[0];
   const path = firstIssue?.path.length ? firstIssue.path.join(".") : "(root)";

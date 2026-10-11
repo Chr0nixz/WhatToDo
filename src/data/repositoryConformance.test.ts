@@ -584,9 +584,8 @@ describe("SqlRepository real SQLite rollback", () => {
     }
     backup.tasks.push({
       ...seed,
-      id: "task_missing_project",
+      id: seed.id, // Duplicate PRIMARY KEY triggers hard SQL constraint violation to test rollback
       title: "Broken import",
-      projectId: "project_does_not_exist",
     });
     await expect(repository.importBackup(backup, "replace")).rejects.toThrow();
     const loaded = await repository.load();

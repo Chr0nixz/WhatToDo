@@ -365,12 +365,19 @@ SQL 侧 `loadWorkspaceSlices` 的提醒查询同样 `INNER JOIN tasks ... WHERE 
 
 ### ARC-018 [P2] 外部数据入口缺 zod 校验
 
-**状态：已修复（0.2.6+）。** `importBackup` 入口增加 `parseBackupPayload` 校验；`saved_views.filters_json` 与 `LocalRepository.load()` 增加安全 try/catch 兜底。
+**状态：已修复（0.2.7+）。**
+1. `importBackup` 入口全面绑定 `parseBackupPayload` zod schema 强校验，并增加容错兜底。
+2. 彻底解决备份引用完整性缺失问题：在 `backupSchema.ts` 中实现 `sanitizeBackupReferentialIntegrity` 关系图自愈清洗管线。
+   - 自动自愈关联：若任务引用的 `projectId` 在备份中不存在，自动修复为 `null`；若 `parentId` 构成自引用循环或指向不存在的任务，自动修复为 `null`。
+   - 自动过滤孤儿从属实体：自动过滤目标任务不存在的孤儿 `reminders`、过滤目标任务不存在的孤儿 `attachments`、过滤孤儿 `reminderEvents`。
+   - 杜绝向 SQLite 写入时因悬挂孤儿引用触发 `FOREIGN KEY constraint failed` 异常。
+3. `saved_views.filters_json` 增加 try/catch 与安全默认值防御，`LocalRepository.load()` 增加 JSON 容错兜底。
+4. 在 `backupSchema.test.ts` 中新增覆盖各种孤儿引用场景的图自愈专项单测。
 
 - `repository.importBackup()` 自身不校验，仅依赖 UI 层 `ImportPreviewDialog.tsx:38` 先行调用 `parseBackupPayload`。任何新调用方都能绕过。**建议把校验下沉到 `importBackup` 入口。**（已修复）
 - `saved_views.filters_json` 从库中读出后 `JSON.parse` 未包 try/catch（`repositoryMappers.ts:187-194`），一条损坏数据会让整个工作区加载失败；解析结果也不经 schema 校验就喂给 SQL 构造器。（已修复）
 - `LocalRepository.load()` 对 localStorage 内容直接断言（`repository.ts:522-527`），`JSON.parse` 抛错会让应用起不来。（已修复）
-- 备份缺引用完整性校验：zod 只做逐实体校验，不检查 `reminder.taskId` / `attachment.task_id` / `task.projectId` 是否指向备份内存在的实体，孤儿引用会在导入写到一半时被外键拒绝。
+- 备份缺引用完整性校验：已通过 `sanitizeBackupReferentialIntegrity` 完成图自愈与清洗保护（已修复）。
 
 ---
 

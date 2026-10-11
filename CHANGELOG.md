@@ -11,9 +11,10 @@
   - Improves tray localization (SEC-008): Automatically detects the native system locale on startup, removing hardcoded English fallback before frontend initialization completes.
   - Fixes `SEC-004`: Constrains `export_attachment_sidecar` strictly to the managed attachments directory via `is_path_within_root_lenient`, eliminating the arbitrary file copy primitive and blocking outside system file exfiltration.
   - Fixes `SEC-005`: Implements cross-platform critical system path protection in `validate_text_file_path`, blocking access to OS-sensitive directories (Windows `\Windows`, `\Program Files`, device/pipe paths; Unix `/etc`, `/sys`, `/proc`, `/dev`, `/root`) for `read_text_file` and `write_text_file`.
+  - Fixes `ARC-018`: Enforces referential integrity validation and automated graph healing via `sanitizeBackupReferentialIntegrity`, healing orphan `projectId`/`parentId` references and pruning dangling reminders, attachments, and events to prevent SQLite foreign key constraint failures upon backup import.
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
-  - Hardens all new submodules with thorough unit test coverage: all 306 Vitest tests (including 61 real SQLite conformance tests), 13 Playwright E2E tests, and 26 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
+  - Hardens all new submodules with thorough unit test coverage: all 307 Vitest tests (including 61 real SQLite conformance tests), 13 Playwright E2E tests, and 26 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
 
 ## 0.2.6
 
