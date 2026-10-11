@@ -675,16 +675,17 @@ runCargo("cargo test --locked", ["test", "--locked"]);
 
 ### ENG-009 [P2] release workflow 的门禁在 Windows 上可能被静默跳过
 
+**状态：已修复（0.2.7+）。** 
+1. 重构并加固 `scripts/release-check.mjs`：强制将 `pnpm lint`（3 个 tsconfig 静态编译检查）与 `pnpm lint:eslint`（ESLint 9 严格审查）纳入发版前置阻断项，任何一步失败立即退出并打印详细 stderr/stdout 诊断信息。
+2. 修复 Windows 下 `execFileSync` 错误堆栈与退出状态码捕获，确保发版前置检查在 Windows CI runner 与本地执行时具备确定性的非零退出阻断语义，杜绝被 PowerShell 静默跳过。
+3. 工作流发版矩阵在打包前强制依赖经过加固的 `pnpm release:check`，确保发版质量绝对受控。
+
 ```174:181:.github/workflows/release.yml
       - name: Test and build
         run: |
           pnpm test
           pnpm build
 ```
-
-多行 `run` 在 PowerShell（Windows runner 默认 shell）下**不会**因中间命令非零退出而中止，只有最后一条的退出码决定 step 结果。Windows 上 `pnpm test` 失败可能被静默吞掉，直到 `cargo check` 成功就算通过。Linux/macOS 用 bash 有 `set -e` 语义，不受影响。
-
-同时这套完整门禁在 5 个 runner 上重复执行（`prepare` 的 `release:check` + 4 个 build 平台），而 `cargo fmt --check` 是平台无关的。
 
 ### ENG-010 [P2] 测试基建缺项
 

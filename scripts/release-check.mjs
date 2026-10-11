@@ -88,11 +88,14 @@ const runPnpm = (label, args) => {
   } catch (error) {
     const stderr = error?.stderr ? String(error.stderr).trim() : "";
     const stdout = error?.stdout ? String(error.stdout).trim() : "";
-    const detail = [stderr, stdout].filter(Boolean).join("\n").slice(0, 2000);
+    const message = error instanceof Error ? error.message : String(error);
+    const detail = [stderr, stdout, message].filter(Boolean).join("\n").slice(0, 2000);
     errors.push(`${label} failed.${detail ? `\n${detail}` : ""}`);
   }
 };
 
+runPnpm("pnpm lint", ["lint"]);
+runPnpm("pnpm lint:eslint", ["lint:eslint"]);
 runPnpm("pnpm test", ["test"]);
 runPnpm("pnpm build", ["build"]);
 
