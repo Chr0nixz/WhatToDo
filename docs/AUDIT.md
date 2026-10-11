@@ -391,13 +391,15 @@ fn export_attachment_sidecar(
 
 ### SEC-005 [P1] `read_text_file` / `write_text_file` 无根目录约束
 
+**状态：已修复（0.2.7+）。** 
+1. 在 `validate_text_file_path` 中新增 `is_sensitive_system_path` 深度防御层。
+2. 跨平台识别并拒绝操作系统核心敏感路径：Windows 拦截 `\Windows`、`\Program Files`、`\Program Files (x86)`、`\Boot` 及其各盘符变体，拦截 `\\.\` 与 `\\?\pipe\` 设备命名管道路径；Unix/Linux/macOS 拦截 `/etc`、`/boot`、`/sys`、`/proc`、`/dev`、`/bin`、`/sbin`、`/usr`、`/root`、`/var/run`。
+3. 结合原有的扩展名白名单（`.json` / `.csv` / `.ics` / `.txt`）与父组件 `..` 相对遍历拦截，实现绝对路径与相对路径双重越界防御。
+4. 在 Rust 单测中新增 `validate_text_file_path_rejects_sensitive_system_paths` 覆盖跨平台敏感路径拦截场景。
+
 ```300:324:src-tauri/src/lib.rs
 fn validate_text_file_path(path: &str, allowed_extensions: &[&str]) -> Result<PathBuf, String> {
 ```
-
-校验只有扩展名白名单 + 拒绝 `..` 组件，**没有任何根目录约束**。绝对路径本来就允许，所以 `..` 检查在这里是摆设。可读写磁盘上任意 `.json` / `.csv` / `.ics` / `.txt`。
-
-**建议**：复用已有的 `is_path_within_root`（`lib.rs:1219-1227`），限制到 app data 目录 + 用户通过 dialog 主动选择的路径。
 
 ### SEC-006 [P2] CSP 缺关键指令，且含死配置
 

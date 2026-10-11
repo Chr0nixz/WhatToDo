@@ -138,6 +138,53 @@ fn append_floating_log(path: &Path, message: impl AsRef<str>) {
     }
 }
 
+fn is_sensitive_system_path(path: &Path) -> bool {
+    let path_str = path.to_string_lossy();
+    let lower = path_str.to_ascii_lowercase();
+
+    // Block Windows device / pipe paths
+    if lower.starts_with(r"\\.\") || lower.starts_with(r"\\?\pipe\") {
+        return true;
+    }
+
+    // Windows sensitive system roots
+    #[cfg(windows)]
+    {
+        let sensitive_prefixes = [
+            r"\windows",
+            r"\program files",
+            r"\program files (x86)",
+            r"\boot",
+        ];
+        // Strip drive letter if present (e.g. "C:\Windows" -> "\Windows")
+        let normalized = if lower.len() >= 2 && lower.as_bytes()[1] == b':' {
+            &lower[2..]
+        } else {
+            &lower
+        };
+        for prefix in sensitive_prefixes {
+            if normalized.starts_with(prefix) {
+                return true;
+            }
+        }
+    }
+
+    // Unix / Linux / macOS sensitive system roots
+    #[cfg(not(windows))]
+    {
+        let sensitive_prefixes = [
+            "/etc", "/boot", "/sys", "/proc", "/dev", "/bin", "/sbin", "/usr", "/root", "/var/run",
+        ];
+        for prefix in sensitive_prefixes {
+            if lower.starts_with(prefix) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 fn validate_text_file_path(path: &str, allowed_extensions: &[&str]) -> Result<PathBuf, String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
@@ -145,6 +192,12 @@ fn validate_text_file_path(path: &str, allowed_extensions: &[&str]) -> Result<Pa
     }
 
     let path = PathBuf::from(trimmed);
+
+    // SEC-005: Reject sensitive system directories
+    if is_sensitive_system_path(&path) {
+        return Err("Access to system critical directory is denied.".to_string());
+    }
+
     let extension = path
         .extension()
         .and_then(|value| value.to_str())
@@ -1655,6 +1708,40 @@ mod tests {
         for case in cases {
             let result = validate_text_file_path(case, &["json"]);
             assert!(result.is_ok(), "expected {case} to be accepted");
+        }
+    }
+
+    #[test]
+    fn validate_text_file_path_rejects_sensitive_system_paths() {
+        #[cfg(windows)]
+        let sensitive_cases = [
+            r"C:\Windows\System32\payload.json",
+            r"C:\Program Files\WhatToDo\test.json",
+            r"C:\Program Files (x86)\App\test.json",
+            r"C:\Boot\BCD.json",
+            r"\\.\pipe\exploit.json",
+            r"\\?\pipe\exploit.json",
+        ];
+
+        #[cfg(not(windows))]
+        let sensitive_cases = [
+            "/etc/shadow.json",
+            "/proc/self/mem.json",
+            "/sys/kernel/debug.json",
+            "/dev/null.json",
+            "/root/secret.json",
+        ];
+
+        for case in sensitive_cases {
+            let result = validate_text_file_path(case, &["json"]);
+            assert!(
+                result.is_err(),
+                "expected sensitive path {case} to be rejected"
+            );
+            assert_eq!(
+                result.unwrap_err(),
+                "Access to system critical directory is denied."
+            );
         }
     }
 
