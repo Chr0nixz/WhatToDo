@@ -7,9 +7,11 @@
   - Refactors frontend monolithic components (`OverviewView`, `SettingsView`, `TaskDetailPane`, `AppShell`, `ProjectsView`, `WorkspacesView`), extracting modular dialogs, filter controls, project detail header, and workspace management forms into dedicated submodules.
   - Fixes `PERF-009`: Decouples `AppShell` top-level state aggregation by introducing fine-grained selectors (`useCurrentWorkspace`, `useOpenTasksCount`, `useOverdueTasksCount`), enabling views (`HomeView`, `OverviewView`, `ProjectsView`, `WorkspacesView`, `SettingsView`) to subscribe directly to minimal Zustand slices and eliminating cascading re-renders on task mutations.
   - Implements `ARC-015`: Adds physical orphaned attachment garbage collection (GC) via secure Rust Tauri commands (`analyze_orphaned_attachments`, `cleanup_orphaned_attachments`) with strict managed-path jail boundaries, integrated into Settings as `StorageSettingsPanel` with capacity summary, two-step confirmation, and full bilingual i18n support.
+  - Fixes `ARC-016`: Decouples system-wide global preferences (`theme`, `accentColor`, `language`, `notificationsEnabled`, `closeToTray`) from per-workspace attributes; newly created workspaces now automatically inherit active global preferences, and updating preferences in any workspace broadcasts across all workspaces in memory and SQLite.
+  - Improves tray localization (SEC-008): Automatically detects the native system locale on startup, removing hardcoded English fallback before frontend initialization completes.
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
-  - Hardens all new submodules with thorough unit test coverage: all 302 Vitest tests (including 59 real SQLite conformance tests), 13 Playwright E2E tests, and 25 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
+  - Hardens all new submodules with thorough unit test coverage: all 306 Vitest tests (including 61 real SQLite conformance tests), 13 Playwright E2E tests, and 25 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
 
 ## 0.2.6
 

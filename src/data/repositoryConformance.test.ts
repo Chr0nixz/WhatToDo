@@ -508,6 +508,62 @@ describe("repository conformance", () => {
       const ids = [...first.tasks, ...second.tasks].map((task) => task.id);
       expect(new Set(ids).size).toBe(4);
     });
+
+    it("inherits active global preferences on workspace creation (ARC-016)", async () => {
+      const repository = await createRepo();
+      const initial = await repository.load();
+
+      // Configure distinct global preferences in current workspace
+      await repository.saveSettings({
+        ...initial.settings,
+        theme: "dark",
+        language: "en",
+        accentColor: "emerald",
+        closeToTray: true,
+        notificationsEnabled: false,
+        defaultWorkingFolder: "/workspace1/path",
+      });
+
+      // Create a new workspace
+      const created = await repository.createWorkspace({ name: "Sub-team", color: "#10b981" });
+
+      // Verify that global preferences were inherited in the new workspace
+      expect(created.data.settings.theme).toBe("dark");
+      expect(created.data.settings.language).toBe("en");
+      expect(created.data.settings.accentColor).toBe("emerald");
+      expect(created.data.settings.closeToTray).toBe(true);
+      expect(created.data.settings.notificationsEnabled).toBe(false);
+
+      // Verify that per-workspace properties stay clean/reset for the new workspace
+      expect(created.data.settings.defaultWorkingFolder).toBeNull();
+    });
+
+    it("broadcasts global preference mutations across all existing workspaces (ARC-016)", async () => {
+      const repository = await createRepo();
+      const ws1 = await repository.load();
+      const ws1Id = ws1.workspaceId;
+
+      // Create a second workspace ws2
+      const createdWs2 = await repository.createWorkspace({ name: "Workspace 2", color: "#3b82f6" });
+
+      // In workspace 2, change global theme to 'light' and accentColor to 'amber'
+      await repository.saveSettings({
+        ...createdWs2.data.settings,
+        theme: "light",
+        accentColor: "amber",
+        defaultWorkingFolder: "/ws2/folder",
+      });
+
+      // Switch back to workspace 1
+      const switchedWs1 = await repository.selectWorkspace(ws1Id);
+
+      // Global preferences must have synced to workspace 1
+      expect(switchedWs1.data.settings.theme).toBe("light");
+      expect(switchedWs1.data.settings.accentColor).toBe("amber");
+
+      // Per-workspace property remains independent
+      expect(switchedWs1.data.settings.defaultWorkingFolder).toBeNull();
+    });
   });
 });
 

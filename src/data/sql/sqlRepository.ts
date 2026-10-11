@@ -12,6 +12,8 @@ import {
   buildBackupPayload,
   createReminder,
   createRecurringTemplate,
+  broadcastGlobalPreferences,
+  createWorkspaceInitialSettings,
 } from "../repositoryDataUtils";
 import {
   appendAdvancedFilterSql,
@@ -470,13 +472,15 @@ export class SqlRepository implements TodoRepository {
         deletedAt: null,
       };
 
+      const newSettings = createWorkspaceInitialSettings(cache.settings);
+
       await this.withTransaction(db, async () => {
         await db.execute(
           `INSERT INTO workspaces (id, name, color, created_at, updated_at, deleted_at)
            VALUES (?, ?, ?, ?, ?, ?)`,
           [id, input.name, input.color, timestamp, timestamp, null],
         );
-        await insertSettings(db, id, DEFAULT_SETTINGS);
+        await insertSettings(db, id, newSettings);
       });
       this.workspaceId = id;
 
@@ -491,8 +495,8 @@ export class SqlRepository implements TodoRepository {
         savedViews: [],
         recurringTaskTemplates: [],
         attachments: [],
-        settings: DEFAULT_SETTINGS,
-        settingsByWorkspace: { ...cache.settingsByWorkspace, [id]: DEFAULT_SETTINGS },
+        settings: newSettings,
+        settingsByWorkspace: { ...cache.settingsByWorkspace, [id]: newSettings },
       };
       return this.commitCache(next, [
         "workspaceId",
@@ -676,15 +680,37 @@ export class SqlRepository implements TodoRepository {
           boolToInt(settings.closeToTray),
         ],
       );
+
+      // Broadcast global preferences to all other workspace rows in SQLite.
+      await db.execute(
+        `UPDATE settings
+         SET theme = ?, accent_color = ?, language = ?, notifications_enabled = ?, close_to_tray = ?
+         WHERE workspace_id != ?`,
+        [
+          settings.theme,
+          settings.accentColor,
+          settings.language,
+          boolToInt(settings.notificationsEnabled),
+          boolToInt(settings.closeToTray),
+          this.workspaceId,
+        ],
+      );
+
+      const updatedByWorkspace = {
+        ...cache.settingsByWorkspace,
+        [this.workspaceId]: settings,
+      };
+      const broadcasted = broadcastGlobalPreferences(updatedByWorkspace, settings);
+
       return this.commitCache(
         {
           ...cache,
           settings,
-          settingsByWorkspace: { ...cache.settingsByWorkspace, [this.workspaceId]: settings },
+          settingsByWorkspace: broadcasted,
         },
         ["settings", "settingsByWorkspace"],
       );
-        });
+    });
   }
 
   async createProject(input: CreateProjectInput) {

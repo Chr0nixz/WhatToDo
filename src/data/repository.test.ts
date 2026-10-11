@@ -90,22 +90,40 @@ describe("LocalRepository", () => {
     let data = await repository.load();
     const defaultId = data.workspaceId;
 
-    await repository.saveSettings({ ...data.settings, theme: "dark" });
+    await repository.saveSettings({
+      ...data.settings,
+      theme: "dark",
+      defaultWorkingFolder: "/default/folder",
+    });
 
     data = (await repository.createWorkspace({ name: "Second", color: "#6cc083" })).data;
     const secondId = data.workspaceId;
-    expect(data.settings.theme).toBe("system");
+    // ARC-016: Global theme is inherited from the active workspace instead of being forcibly reset.
+    expect(data.settings.theme).toBe("dark");
+    // Per-workspace attributes stay cleanly isolated and fresh.
+    expect(data.settings.defaultWorkingFolder).toBeNull();
 
-    await repository.saveSettings({ ...data.settings, theme: "light" });
+    await repository.saveSettings({
+      ...data.settings,
+      theme: "light",
+      defaultWorkingFolder: "/second/folder",
+    });
 
     data = (await repository.selectWorkspace(defaultId)).data;
-    expect(data.settings.theme).toBe("dark");
-    expect(data.settingsByWorkspace[defaultId].theme).toBe("dark");
+    // ARC-016: Global preferences stay in sync across workspaces.
+    expect(data.settings.theme).toBe("light");
+    expect(data.settingsByWorkspace[defaultId].theme).toBe("light");
     expect(data.settingsByWorkspace[secondId].theme).toBe("light");
 
+    // Per-workspace attributes remain strictly isolated per workspace.
+    expect(data.settingsByWorkspace[defaultId].defaultWorkingFolder).toBe("/default/folder");
+    expect(data.settingsByWorkspace[secondId].defaultWorkingFolder).toBe("/second/folder");
+
     const backup = await repository.exportBackup();
-    expect(backup.settingsByWorkspace[defaultId].theme).toBe("dark");
+    expect(backup.settingsByWorkspace[defaultId].theme).toBe("light");
     expect(backup.settingsByWorkspace[secondId].theme).toBe("light");
+    expect(backup.settingsByWorkspace[defaultId].defaultWorkingFolder).toBe("/default/folder");
+    expect(backup.settingsByWorkspace[secondId].defaultWorkingFolder).toBe("/second/folder");
   });
 
   it("loads cross-workspace available tasks on demand", async () => {

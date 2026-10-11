@@ -7,7 +7,6 @@ import {
   buildFullPatch,
   CANNOT_DELETE_LAST_WORKSPACE,
   createId,
-  DEFAULT_SETTINGS,
   DEFAULT_WORKSPACE_ID,
   diffPatch,
   LEGACY_LOCAL_KEY,
@@ -17,9 +16,11 @@ import {
 } from "./repositoryContract";
 import type { TodoRepository } from "./repositoryContract";
 import {
+  broadcastGlobalPreferences,
   buildBackupPayload,
   createRecurringTemplate,
   createReminder,
+  createWorkspaceInitialSettings,
   type LocalData,
   mergeById,
   normalizeBackupPayload,
@@ -193,7 +194,7 @@ export class LocalRepository implements TodoRepository {
       deletedAt: null,
     };
 
-    const newSettings = { ...DEFAULT_SETTINGS };
+    const newSettings = createWorkspaceInitialSettings(this.data.settings);
     this.workspaceId = workspace.id;
     this.data = {
       ...this.data,
@@ -285,10 +286,15 @@ export class LocalRepository implements TodoRepository {
   }
 
   async saveSettings(settings: Settings): Promise<RepositoryResult> {
+    const updatedByWorkspace = {
+      ...this.data.settingsByWorkspace,
+      [this.workspaceId]: settings,
+    };
+    const broadcasted = broadcastGlobalPreferences(updatedByWorkspace, settings);
     this.data = {
       ...this.data,
       settings,
-      settingsByWorkspace: { ...this.data.settingsByWorkspace, [this.workspaceId]: settings },
+      settingsByWorkspace: broadcasted,
     };
     return this.persist();
   }

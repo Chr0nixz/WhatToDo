@@ -203,20 +203,33 @@ fn set_close_to_tray(state: tauri::State<CloseToTray>, value: bool) {
     state.0.store(value, Ordering::Relaxed);
 }
 
-/// Rebuild the tray menu with localized labels. Called from the frontend
-/// whenever the user changes the UI language so the tray stays in sync.
-#[tauri::command]
-fn update_tray_menu(app: tauri::AppHandle, language: String) -> Result<(), String> {
-    let (open_label, quit_label) = match language.as_str() {
+fn detect_initial_language() -> &'static str {
+    if let Ok(lang) = std::env::var("LANG").or_else(|_| std::env::var("LC_ALL")) {
+        if lang.to_lowercase().contains("zh") {
+            return "zh";
+        }
+    }
+    "en"
+}
+
+fn create_tray_menu(app: &tauri::AppHandle, language: &str) -> Result<Menu<tauri::Wry>, String> {
+    let (open_label, quit_label) = match language {
         "zh" => ("打开 WhatToDo", "退出"),
         _ => ("Open WhatToDo", "Quit"),
     };
 
-    let open = MenuItem::with_id(&app, "open", open_label, true, None::<&str>)
+    let open = MenuItem::with_id(app, "open", open_label, true, None::<&str>)
         .map_err(|e| e.to_string())?;
-    let quit = MenuItem::with_id(&app, "quit", quit_label, true, None::<&str>)
+    let quit = MenuItem::with_id(app, "quit", quit_label, true, None::<&str>)
         .map_err(|e| e.to_string())?;
-    let menu = Menu::with_items(&app, &[&open, &quit]).map_err(|e| e.to_string())?;
+    Menu::with_items(app, &[&open, &quit]).map_err(|e| e.to_string())
+}
+
+/// Rebuild the tray menu with localized labels. Called from the frontend
+/// whenever the user changes the UI language so the tray stays in sync.
+#[tauri::command]
+fn update_tray_menu(app: tauri::AppHandle, language: String) -> Result<(), String> {
+    let menu = create_tray_menu(&app, &language)?;
 
     if let Some(tray) = app.tray_by_id("main") {
         tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
@@ -1498,9 +1511,8 @@ pub fn run() {
         .setup(|app| {
             initialize_persistent_store(app.handle());
 
-            let open = MenuItem::with_id(app, "open", "Open WhatToDo", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &quit])?;
+            let initial_lang = detect_initial_language();
+            let menu = create_tray_menu(app.handle(), initial_lang)?;
             let mut tray = TrayIconBuilder::with_id("main")
                 .tooltip("WhatToDo")
                 .menu(&menu)

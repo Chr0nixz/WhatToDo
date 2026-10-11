@@ -346,9 +346,14 @@ SQL 侧 `loadWorkspaceSlices` 的提醒查询同样 `INNER JOIN tasks ... WHERE 
 
 ### ARC-016 [P2] settings 把全局偏好绑到工作区
 
-主题、语言、通知开关、`closeToTray` 这些明显的全局偏好被按工作区存储。`createWorkspace` 一律使用 `DEFAULT_SETTINGS`（`repository.ts:632`、`1816`），新建工作区会把界面语言重置回 `zh`、主题重置回 `system`。`closeToTray` 还会经 `useTodos.ts:195` 推送到 Rust 侧，切工作区就改变了窗口关闭行为。
+**状态：已修复（0.2.7+）。** 
+1. 明确拆分系统全局偏好（`theme`、`accentColor`、`language`、`notificationsEnabled`、`closeToTray`）与工作区专属属性（`defaultReminderOffset`、`defaultWorkingFolder`、`defaultSavedViewId`）。
+2. 在 `LocalRepository` 与 `SqlRepository` 中重构 `createWorkspace`：新建工作区自动继承当前活跃全局偏好，杜绝倒退回硬编码默认值导致主题/语言/托盘被重置。
+3. 重构 `saveSettings`：任一工作区修改全局偏好时，自动在内存与 SQLite 中广播更新至所有工作区行与 `settingsByWorkspace` 副本，彻底消除工作区切换时的外观与行为跳变。
+4. 在 `repositoryConformance.test.ts` 中新增针对双引擎的继承与广播一致性测试覆盖。
+5. 联动优化 Rust 托盘菜单初始化：启动时原生探测系统语言区域，白屏/恢复屏阶段不再硬编码英文（`SEC-008` 遗留项同步闭环）。
 
-**建议**：把 settings 拆成 global / per-workspace 两组。这同时是 `FUN-009` 的加重因素。
+- 缺失外键：`tasks.workspace_id`、`tasks.parent_id`、`tasks.recurrence_template_id`、`settings.workspace_id`。现有 5 条外键全部无 `ON DELETE` 子句。
 
 ### ARC-017 [P2] `repository.ts` 4233 行，责任过多
 

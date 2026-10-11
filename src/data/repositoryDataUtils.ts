@@ -327,3 +327,61 @@ export const buildBackupPayload = (
   reminderEvents,
   attachmentBundle: "none",
 });
+
+/**
+ * ARC-016: System-wide global preferences that must remain consistent across
+ * all workspaces. Mutating any of these in one workspace broadcasts the
+ * changes to all other workspaces, and creating a new workspace inherits them.
+ */
+export const GLOBAL_PREFERENCE_KEYS = [
+  "theme",
+  "accentColor",
+  "language",
+  "notificationsEnabled",
+  "closeToTray",
+] as const;
+
+export type GlobalPreferences = Pick<Settings, (typeof GLOBAL_PREFERENCE_KEYS)[number]>;
+
+export const extractGlobalPreferences = (settings: Settings): GlobalPreferences => ({
+  theme: settings.theme,
+  accentColor: settings.accentColor,
+  language: settings.language,
+  notificationsEnabled: settings.notificationsEnabled,
+  closeToTray: settings.closeToTray,
+});
+
+/**
+ * Creates initial settings for a newly created workspace: inherits current
+ * global preferences (theme, language, notifications, etc.) while using fresh
+ * per-workspace defaults for workspace-specific attributes.
+ */
+export const createWorkspaceInitialSettings = (
+  currentSettings: Settings,
+  overrides?: Partial<Settings>,
+): Settings => ({
+  ...DEFAULT_SETTINGS,
+  ...extractGlobalPreferences(currentSettings),
+  ...overrides,
+});
+
+/**
+ * Broadcasts global preferences from an updated workspace settings object
+ * across all existing workspace settings records to prevent cross-workspace
+ * preference drift.
+ */
+export const broadcastGlobalPreferences = (
+  settingsByWorkspace: Record<string, Settings>,
+  updatedSettings: Settings,
+): Record<string, Settings> => {
+  const globals = extractGlobalPreferences(updatedSettings);
+  const result: Record<string, Settings> = {};
+  for (const [wsId, wsSettings] of Object.entries(settingsByWorkspace)) {
+    result[wsId] = {
+      ...wsSettings,
+      ...globals,
+    };
+  }
+  return result;
+};
+
