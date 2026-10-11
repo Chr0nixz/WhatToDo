@@ -973,6 +973,196 @@ fn delete_managed_attachment(app: tauri::AppHandle, path: String) -> Result<(), 
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrphanedAttachmentsSummary {
+    pub orphaned_count: usize,
+    pub orphaned_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrphanedAttachmentsCleanupResult {
+    pub deleted_count: usize,
+    pub freed_bytes: u64,
+}
+
+/// Scans the managed attachments directory and returns a list of files (with sizes)
+/// that are not referenced by any record in the database.
+fn scan_orphaned_attachments_in_dir(
+    root: &Path,
+    referenced_ids: &std::collections::HashSet<String>,
+    referenced_paths: &std::collections::HashSet<PathBuf>,
+) -> Vec<(PathBuf, u64)> {
+    let mut orphaned = Vec::new();
+    if !root.is_dir() {
+        return orphaned;
+    }
+
+    let Ok(entries) = fs::read_dir(root) else {
+        return orphaned;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let dir_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            // If the directory name itself is not a known attachment id, all files inside are orphaned.
+            let is_known_id = referenced_ids.contains(&dir_name);
+
+            if let Ok(sub_entries) = fs::read_dir(&path) {
+                for sub_entry in sub_entries.flatten() {
+                    let file_path = sub_entry.path();
+                    if file_path.is_file() {
+                        let is_referenced = is_known_id
+                            && (referenced_paths.contains(&file_path)
+                                || file_path
+                                    .canonicalize()
+                                    .map(|c| referenced_paths.contains(&c))
+                                    .unwrap_or(false));
+                        if !is_referenced {
+                            let size = sub_entry.metadata().map(|m| m.len()).unwrap_or(0);
+                            orphaned.push((file_path, size));
+                        }
+                    }
+                }
+            }
+        } else if path.is_file() {
+            let is_referenced = referenced_paths.contains(&path)
+                || path
+                    .canonicalize()
+                    .map(|c| referenced_paths.contains(&c))
+                    .unwrap_or(false);
+            if !is_referenced {
+                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                orphaned.push((path, size));
+            }
+        }
+    }
+
+    orphaned
+}
+
+fn query_referenced_attachments(
+    db: &tauri::State<'_, AppDb>,
+) -> Result<
+    (
+        std::collections::HashSet<String>,
+        std::collections::HashSet<PathBuf>,
+    ),
+    String,
+> {
+    let guard = db.0.lock().map_err(|e| e.to_string())?;
+    let conn = guard
+        .as_ref()
+        .ok_or_else(|| "Database not initialized".to_string())?;
+
+    let mut referenced_ids = std::collections::HashSet::new();
+    let mut referenced_paths = std::collections::HashSet::new();
+
+    let mut stmt = conn
+        .prepare("SELECT id, path FROM attachments")
+        .map_err(|err| format!("Failed to prepare attachments query: {err}"))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            let id: String = row.get(0)?;
+            let path_str: String = row.get(1)?;
+            Ok((id, path_str))
+        })
+        .map_err(|err| format!("Failed to query attachments: {err}"))?;
+
+    for (id, path_str) in rows.flatten() {
+        let trimmed = path_str.trim();
+        if !id.is_empty() {
+            referenced_ids.insert(id);
+        }
+        if !trimmed.is_empty() {
+            let p = PathBuf::from(trimmed);
+            if let Ok(canonical) = p.canonicalize() {
+                referenced_paths.insert(canonical);
+            }
+            referenced_paths.insert(p);
+        }
+    }
+
+    Ok((referenced_ids, referenced_paths))
+}
+
+#[tauri::command]
+fn analyze_orphaned_attachments(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDb>,
+) -> Result<OrphanedAttachmentsSummary, String> {
+    let root = managed_attachments_root(&app)?;
+    if !root.exists() {
+        return Ok(OrphanedAttachmentsSummary {
+            orphaned_count: 0,
+            orphaned_bytes: 0,
+        });
+    }
+
+    let (referenced_ids, referenced_paths) = query_referenced_attachments(&db)?;
+    let orphaned = scan_orphaned_attachments_in_dir(&root, &referenced_ids, &referenced_paths);
+
+    let orphaned_count = orphaned.len();
+    let orphaned_bytes = orphaned.iter().map(|(_, size)| *size).sum();
+
+    Ok(OrphanedAttachmentsSummary {
+        orphaned_count,
+        orphaned_bytes,
+    })
+}
+
+#[tauri::command]
+fn cleanup_orphaned_attachments(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDb>,
+) -> Result<OrphanedAttachmentsCleanupResult, String> {
+    let root = managed_attachments_root(&app)?;
+    if !root.exists() {
+        return Ok(OrphanedAttachmentsCleanupResult {
+            deleted_count: 0,
+            freed_bytes: 0,
+        });
+    }
+
+    let (referenced_ids, referenced_paths) = query_referenced_attachments(&db)?;
+    let orphaned = scan_orphaned_attachments_in_dir(&root, &referenced_ids, &referenced_paths);
+
+    let mut deleted_count = 0;
+    let mut freed_bytes = 0;
+
+    for (file_path, size) in orphaned {
+        // Enforce boundary check to prevent deleting files outside managed attachments root.
+        if !is_path_within_root_lenient(&file_path, &root) {
+            continue;
+        }
+
+        if fs::remove_file(&file_path).is_ok() {
+            deleted_count += 1;
+            freed_bytes += size;
+
+            // Attempt to remove empty parent directory if inside managed root.
+            if let Some(parent) = file_path.parent() {
+                if is_path_within_root_lenient(parent, &root) && parent != root {
+                    let _ = fs::remove_dir(parent);
+                }
+            }
+        }
+    }
+
+    Ok(OrphanedAttachmentsCleanupResult {
+        deleted_count,
+        freed_bytes,
+    })
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AttachmentSidecarItem {
@@ -1352,6 +1542,8 @@ pub fn run() {
             copy_managed_attachment,
             delete_managed_attachment,
             open_managed_attachment,
+            analyze_orphaned_attachments,
+            cleanup_orphaned_attachments,
             export_attachment_sidecar,
             import_attachment_sidecar,
             cleanup_auto_backups,
@@ -1821,5 +2013,49 @@ mod tests {
             &conn,
             "idx_tasks_workspace_deleted_created"
         ));
+    }
+
+    #[test]
+    fn scan_orphaned_attachments_detects_unreferenced_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("attachments");
+        fs::create_dir_all(&root).expect("create root");
+
+        // 1. Referenced attachment
+        let ref_dir = root.join("att_valid");
+        fs::create_dir_all(&ref_dir).expect("create valid dir");
+        let ref_file = ref_dir.join("doc.pdf");
+        fs::write(&ref_file, b"valid content").expect("write valid");
+
+        // 2. Orphaned directory with file
+        let orphan_dir = root.join("att_orphan");
+        fs::create_dir_all(&orphan_dir).expect("create orphan dir");
+        let orphan_file = orphan_dir.join("stale.png");
+        fs::write(&orphan_file, b"stale image 12345").expect("write stale");
+
+        // 3. Orphaned file directly under root
+        let root_orphan_file = root.join("dangling.tmp");
+        fs::write(&root_orphan_file, b"dangling").expect("write dangling");
+
+        let mut referenced_ids = std::collections::HashSet::new();
+        referenced_ids.insert("att_valid".to_string());
+
+        let mut referenced_paths = std::collections::HashSet::new();
+        referenced_paths.insert(ref_file.clone());
+
+        let result =
+            super::scan_orphaned_attachments_in_dir(&root, &referenced_ids, &referenced_paths);
+
+        assert_eq!(result.len(), 2);
+        let found_paths: Vec<_> = result.iter().map(|(p, _)| p.clone()).collect();
+        assert!(found_paths.contains(&orphan_file));
+        assert!(found_paths.contains(&root_orphan_file));
+        assert!(!found_paths.contains(&ref_file));
+
+        let total_bytes: u64 = result.iter().map(|(_, size)| *size).sum();
+        assert_eq!(
+            total_bytes,
+            b"stale image 12345".len() as u64 + b"dangling".len() as u64
+        );
     }
 }

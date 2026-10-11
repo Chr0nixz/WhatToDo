@@ -215,6 +215,17 @@ export type Settings = {
   closeToTray: boolean;
 };
 
+export const DEFAULT_SETTINGS: Settings = {
+  theme: "system",
+  accentColor: "blue",
+  language: "zh",
+  defaultReminderOffset: 0,
+  defaultWorkingFolder: null,
+  defaultSavedViewId: null,
+  notificationsEnabled: true,
+  closeToTray: false,
+};
+
 export type AppData = {
   workspaceId: string;
   workspaces: Workspace[];
@@ -238,6 +249,16 @@ export type RecoveryItems = {
   deletedWorkspaceFolders: WorkspaceFolder[];
   deletedWorkspaces: Workspace[];
   archivedProjects: Project[];
+};
+
+export type OrphanedAttachmentsSummary = {
+  orphanedCount: number;
+  orphanedBytes: number;
+};
+
+export type OrphanedAttachmentsCleanupResult = {
+  deletedCount: number;
+  freedBytes: number;
 };
 
 export type AppIndexes = {

@@ -13,7 +13,18 @@ import {
   cleanupAutoBackupFiles,
   prepareBackupExport,
 } from "@/data/backupAttachments";
-import type { AccentColor, AppData, BackupPayload, ImportBackupMode, Language, RecoveryItems, Settings, ThemeMode } from "@/data/types";
+import {
+  DEFAULT_SETTINGS,
+  type AccentColor,
+  type AppData,
+  type BackupPayload,
+  type ImportBackupMode,
+  type Language,
+  type RecoveryItems,
+  type Settings,
+  type ThemeMode,
+} from "@/data/types";
+import { useSettings, useTodoData, useWorkspaceId } from "@/hooks/useTodoStore";
 import type { TodoActions } from "@/hooks/useTodos";
 import {
   AUTO_BACKUP_LAST_ERROR_KEY,
@@ -30,10 +41,11 @@ import { AutoBackupPanel } from "./settings/AutoBackupPanel";
 import { DataManagementPanel } from "./settings/DataManagementPanel";
 import { RecoveryCenterPanel } from "./settings/RecoveryCenterPanel";
 import { Segmented } from "./settings/Segmented";
+import { StorageSettingsPanel } from "./settings/StorageSettingsPanel";
 import { ToggleRow } from "./settings/ToggleRow";
 
 type SettingsViewProps = {
-  data: AppData;
+  data?: AppData | null;
   actions: TodoActions;
   onOpenHelp?: () => void;
 };
@@ -60,7 +72,14 @@ const downloadText = (filename: string, contents: string, mimeType: string) => {
 
 export function SettingsView({ data, actions, onOpenHelp }: SettingsViewProps) {
   const { i18n, t } = useTranslation();
-  const settings = data.settings;
+  const storeSettings = useSettings();
+  const storeWorkspaceId = useWorkspaceId();
+  const storeData = useTodoData();
+
+  const settings = data?.settings ?? storeSettings ?? DEFAULT_SETTINGS;
+  const workspaceId = data?.workspaceId ?? storeWorkspaceId ?? "";
+  const effectiveData = data ?? storeData;
+
   const [defaultWorkingFolder, setDefaultWorkingFolder] = useState(settings.defaultWorkingFolder ?? "");
   const [reminderOffsetInput, setReminderOffsetInput] = useState(String(settings.defaultReminderOffset));
   const [isSaving, setIsSaving] = useState(false);
@@ -147,7 +166,7 @@ export function SettingsView({ data, actions, onOpenHelp }: SettingsViewProps) {
     return () => {
       active = false;
     };
-  }, [actions, data.workspaceId]);
+  }, [actions, workspaceId]);
 
   const restoreRecoveryItem = async (restore: () => Promise<unknown>) => {
     await restore();
@@ -662,6 +681,8 @@ export function SettingsView({ data, actions, onOpenHelp }: SettingsViewProps) {
         onRunNow={() => void runAutoBackupNow()}
         onUpdateAutoBackup={updateAutoBackup}
       />
+
+      <StorageSettingsPanel actions={actions} />
       </div>
 
       <div className="grid gap-3">
@@ -685,13 +706,15 @@ export function SettingsView({ data, actions, onOpenHelp }: SettingsViewProps) {
       <UpdateSettingsPanel />
       </div>
 
-      <ImportPreviewDialog
-        currentData={data}
-        open={importPreview.open}
-        rawPayload={importPreview.payload}
-        onOpenChange={(open) => setImportPreview((prev) => ({ ...prev, open }))}
-        onConfirm={(payload, mode) => void confirmImportBackup(payload, mode)}
-      />
+      {effectiveData && (
+        <ImportPreviewDialog
+          currentData={effectiveData}
+          open={importPreview.open}
+          rawPayload={importPreview.payload}
+          onOpenChange={(open) => setImportPreview((prev) => ({ ...prev, open }))}
+          onConfirm={(payload, mode) => void confirmImportBackup(payload, mode)}
+        />
+      )}
     </main>
   );
 }

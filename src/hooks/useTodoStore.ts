@@ -1,6 +1,7 @@
 import { useStore } from "zustand";
 import { create } from "zustand";
 
+import { overdueTasks } from "@/data/date";
 import type { AppData, AppDataKey, Settings } from "@/data/types";
 import type { Project, Reminder, SavedTaskView, TaskSummary, Workspace, WorkspaceFolder, Attachment, RecurringTaskTemplate } from "@/data/types";
 
@@ -71,3 +72,31 @@ export const useSettings = (): Settings | null => useStore(useTodoStore, (state)
 export const useSettingsByWorkspace = (): Record<string, Settings> =>
   useStore(useTodoStore, (state) => state.data?.settingsByWorkspace) ?? EMPTY_SETTINGS_BY_WORKSPACE;
 export const useWorkspaceId = (): string | null => useStore(useTodoStore, (state) => state.data?.workspaceId ?? null);
+
+export const useCurrentWorkspace = (): Workspace | null =>
+  useStore(useTodoStore, (state) => {
+    const wsId = state.data?.workspaceId;
+    if (!wsId || !state.data?.workspaces) return null;
+    return state.data.workspaces.find((ws) => ws.id === wsId) ?? null;
+  });
+
+export const useOverdueTasksCount = (): number =>
+  useStore(useTodoStore, (state) => {
+    const tasks = state.data?.tasks;
+    if (!tasks || tasks.length === 0) return 0;
+    return overdueTasks(tasks).length;
+  });
+
+export const useOpenTasksCount = (): number =>
+  useStore(useTodoStore, (state) => {
+    const tasks = state.data?.tasks;
+    if (!tasks || tasks.length === 0) return 0;
+    let count = 0;
+    for (const task of tasks) {
+      if (task.deletedAt === null && (task.status === "todo" || task.status === "in_progress")) {
+        count++;
+      }
+    }
+    return count;
+  });
+

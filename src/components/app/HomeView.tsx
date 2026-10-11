@@ -6,9 +6,16 @@ import { Button } from "@/components/ui/button";
 import { todayKey } from "@/data/date";
 import { formatHeaderDate, selectedDateTaskLabel } from "@/data/dateFormat";
 import { planRescheduleDrop } from "@/data/taskDrag";
-import type { AppData } from "@/data/types";
+import { DEFAULT_SETTINGS, type AppData } from "@/data/types";
 import { useTaskPage } from "@/hooks/useTaskPage";
-import { useTasksRevision } from "@/hooks/useTodoStore";
+import {
+  useProjects,
+  useReminders,
+  useSettings,
+  useTasks,
+  useTasksRevision,
+  useWorkspaceId,
+} from "@/hooks/useTodoStore";
 import type { TodoActions } from "@/hooks/useTodos";
 
 import { DatePane } from "./DatePane";
@@ -16,7 +23,7 @@ import { TaskList } from "./TaskList";
 import { TaskCreateDialog } from "./TaskCreateDialog";
 
 type HomeViewProps = {
-  data: AppData;
+  data?: AppData | null;
   actions: TodoActions;
   selectedDate: string;
   setSelectedDate: (date: string) => void;
@@ -42,6 +49,19 @@ export function HomeView({
 }: HomeViewProps) {
   const { i18n, t } = useTranslation();
   const tasksRevision = useTasksRevision();
+
+  const storeWorkspaceId = useWorkspaceId();
+  const storeProjects = useProjects();
+  const storeTasks = useTasks();
+  const storeSettings = useSettings();
+  const storeReminders = useReminders();
+
+  const workspaceId = data?.workspaceId ?? storeWorkspaceId ?? "";
+  const projects = data?.projects ?? storeProjects;
+  const tasks = data?.tasks ?? storeTasks;
+  const settings = data?.settings ?? storeSettings ?? DEFAULT_SETTINGS;
+  const reminders = data?.reminders ?? storeReminders;
+
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [dueDateCounts, setDueDateCounts] = useState<Record<string, number>>({});
@@ -55,13 +75,13 @@ export function HomeView({
 
   const taskPageInput = useMemo(
     () => ({
-      workspaceId: data.workspaceId,
+      workspaceId,
       scope: "all" as const,
       date: selectedDate,
       query: debouncedSearchQuery,
       sort: "dueAsc" as const,
     }),
-    [data.workspaceId, debouncedSearchQuery, selectedDate],
+    [workspaceId, debouncedSearchQuery, selectedDate],
   );
   const taskPage = useTaskPage({
     actions,
@@ -71,11 +91,11 @@ export function HomeView({
 
   const refreshCounts = useCallback(
     (from: string, to: string) => {
-      void actions.loadDueDateCounts({ workspaceId: data.workspaceId, from, to }).then(setDueDateCounts).catch(() => {
+      void actions.loadDueDateCounts({ workspaceId, from, to }).then(setDueDateCounts).catch(() => {
         setDueDateCounts({});
       });
     },
-    [actions, data.workspaceId],
+    [actions, workspaceId],
   );
 
   const onVisibleRangeChange = useCallback(
@@ -90,7 +110,7 @@ export function HomeView({
     async (taskId: string, nextDueDate: string) => {
       const task =
         taskPage.tasks.find((item) => item.id === taskId) ??
-        data.tasks.find((item) => item.id === taskId) ??
+        tasks.find((item) => item.id === taskId) ??
         null;
       const planned = planRescheduleDrop({
         taskId,
@@ -114,14 +134,14 @@ export function HomeView({
         onRescheduleError?.(t("taskRescheduleFailed"));
       }
     },
-    [actions, data.tasks, onRescheduleError, onRescheduleSuccess, refreshCounts, t, taskPage.tasks],
+    [actions, tasks, onRescheduleError, onRescheduleSuccess, refreshCounts, t, taskPage.tasks],
   );
 
   useEffect(() => {
     let active = true;
     void actions
       .loadTaskPage({
-        workspaceId: data.workspaceId,
+        workspaceId,
         scope: "open",
         dateRange: "overdue",
         referenceDate: todayKey(),
@@ -142,7 +162,7 @@ export function HomeView({
     return () => {
       active = false;
     };
-  }, [actions, data.workspaceId, tasksRevision]);
+  }, [actions, workspaceId, tasksRevision]);
 
   const skipCountRefreshOnMount = useRef(true);
   useEffect(() => {
@@ -156,7 +176,7 @@ export function HomeView({
     }
   }, [refreshCounts, tasksRevision]);
 
-  const isFirstRun = taskPage.total === 0 && data.tasks.length === 0 && localStorage.getItem("whattodo:firstRunSeen") === null;
+  const isFirstRun = taskPage.total === 0 && tasks.length === 0 && localStorage.getItem("whattodo:firstRunSeen") === null;
 
   useEffect(() => {
     if (isFirstRun) {
@@ -219,8 +239,8 @@ export function HomeView({
               <TaskCreateDialog
                 actions={actions}
                 defaultDate={selectedDate}
-                projects={data.projects.filter((project) => project.deletedAt === null && project.status !== "archived")}
-                settings={data.settings}
+                projects={projects.filter((project) => project.deletedAt === null && project.status !== "archived")}
+                settings={settings}
                 triggerTestId="add-task"
               />
             </div>
@@ -256,8 +276,8 @@ export function HomeView({
               emptyLabel={isFirstRun ? t("firstRunHint") : t("emptyDay")}
               emptyHint={isFirstRun ? undefined : t("emptyDayHint")}
               onSelectTask={setSelectedTaskId}
-              projects={data.projects}
-              reminders={taskPage.reminders.length > 0 ? taskPage.reminders : data.reminders}
+              projects={projects}
+              reminders={taskPage.reminders.length > 0 ? taskPage.reminders : reminders}
               selectedTaskId={selectedTaskId}
               tasks={taskPage.tasks}
               totalCount={taskPage.total}

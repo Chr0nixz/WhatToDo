@@ -334,12 +334,14 @@ SQL 侧 `loadWorkspaceSlices` 的提醒查询同样 `INNER JOIN tasks ... WHERE 
 
 ### ARC-015 [P2] 孤儿数据与引用完整性
 
-**状态：部分修复（0.2.6+）。** `loadAvailableTasks` 已在 Local 与 SQLite 两个引擎中均增加软删除工作区过滤，隔离已软删工作区的孤儿任务。
+**状态：已修复（0.2.7+）。** 
+1. `loadAvailableTasks` 已在 Local 与 SQLite 两个引擎中均增加软删除工作区过滤，隔离已软删工作区的孤儿任务。
+2. 落地受管附件安全垃圾回收 (GC) 机制：Tauri 后端新增 `analyze_orphaned_attachments` 与 `cleanup_orphaned_attachments` 托管命令，通过差集算法识别未被任何任务引用的磁盘残留物理文件，并以 `is_path_within_root_lenient` 强制校验白名单受管根目录防路径逃逸；前端“设置 -> 存储与物理磁盘”上线 `StorageSettingsPanel` 面板，支持容量统计、二次确认清理与操作反馈。
 
 - `reminder_events` 整张表**零外键**（`lib.rs:259-266`），且 `deleteReminder` 硬删提醒时不清理事件行，无保留期策略。这张表随每次触发/失败/贪睡/禁用单调增长，长期运行后会成为最大的表。
 - 软删工作区后其任务仍出现在跨工作区任务选择器——`loadAvailableTasks`（`repository.ts:1619-1627`）没有 join 工作区表。（已修复）
 - 归档项目导致任务的项目名丢失：代码中不存在删除项目的路径，只有归档；归档后项目移出 `projects` 切片但任务的 `project_id` 不变，CSV 导出项目列变空、ICS 的 `CATEGORIES` 整行消失。
-- 软删任务的附件文件永久残留磁盘（不存在永久删除任务的入口）；`importBackup(replace)` 清空 `attachments` 表但不删任何托管文件。
+- 软删任务的附件文件永久残留磁盘：已落地物理孤儿附件垃圾回收机制（已修复）。
 - 缺失外键：`tasks.workspace_id`、`tasks.parent_id`、`tasks.recurrence_template_id`、`settings.workspace_id`。现有 5 条外键全部无 `ON DELETE` 子句。
 
 ### ARC-016 [P2] settings 把全局偏好绑到工作区
@@ -461,6 +463,8 @@ Tauri 中不带 `async` 的命令在主线程执行。当前只有 `open_workspa
 ## 7. 前端架构
 
 ### PERF-009 [P2] AppShell 把切片重新拼回整体，抵消切片订阅的全部收益
+
+**状态：已修复（0.2.7+）。** 彻底解耦 `AppShell` 的顶层巨石聚合，各主要视图（`HomeView`、`OverviewView`、`ProjectsView`、`WorkspacesView`、`SettingsView`）全面改为直接按需订阅 Zustand 细粒度切片。在 `useTodoStore` 中新增 `useCurrentWorkspace`、`useOpenTasksCount`、`useOverdueTasksCount` 派生选择器，任务或提醒变动不再触发 `AppShell` 自身重渲染，`applyRepositoryPatch` 的引用稳定性全量兑现。原 `data` 伪造空数组的类型隐患同步消除。
 
 `AppShell` 订阅 11 个 zustand 切片，然后立刻拼装回一个 `AppData` 对象：
 

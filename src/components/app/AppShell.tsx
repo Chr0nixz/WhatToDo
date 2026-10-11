@@ -26,7 +26,7 @@ import { TaskCreateDialog } from "@/components/app/TaskCreateDialog";
 import { WorkspaceEditDialog } from "@/components/app/WorkspaceEditDialog";
 import { Button } from "@/components/ui/button";
 import { buildCommandItems, type CommandItem } from "@/data/commandPalette";
-import { openTasks, overdueTasks, todayKey } from "@/data/date";
+import { todayKey } from "@/data/date";
 import { buildAppIndexes } from "@/data/appIndexes";
 import type {
   AppView,
@@ -44,6 +44,9 @@ import { useTheme } from "@/hooks/useTheme";
 import type { TodoActions } from "@/hooks/useTodos";
 import {
   useAttachments,
+  useCurrentWorkspace,
+  useOpenTasksCount,
+  useOverdueTasksCount,
   useProjects,
   useRecurringTaskTemplates,
   useReminders as useReminderSlice,
@@ -447,17 +450,9 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
     setPendingSavedView(null);
   }, [pendingSavedView]);
 
-  const stats = useMemo(
-    () => ({
-      open: openTasks(tasks).length,
-      overdue: overdueTasks(tasks).length,
-    }),
-    [tasks],
-  );
-
-  const currentWorkspace = workspaceId
-    ? workspaces.find((workspace) => workspace.id === workspaceId) ?? null
-    : null;
+  const overdueTotal = useOverdueTasksCount();
+  const openTotal = useOpenTasksCount();
+  const currentWorkspace = useCurrentWorkspace();
   const editingProject = editingProjectId ? projects.find((project) => project.id === editingProjectId) ?? null : null;
   const shortcutHint =
     typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? "\u2318K" : "Ctrl+K";
@@ -557,7 +552,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
               !isRailExpanded && "hidden",
             )}
           >
-            {stats.open === 0 && stats.overdue === 0 ? (
+            {openTotal === 0 && overdueTotal === 0 ? (
               <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
                 <Check className="size-3.5 text-success" aria-hidden="true" />
                 <span>{t("allClear")}</span>
@@ -566,11 +561,11 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
               <>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">{t("openTasks")}</span>
-                  <strong>{stats.open}</strong>
+                  <strong>{openTotal}</strong>
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">{t("overdue")}</span>
-                  <strong className={stats.overdue > 0 ? "text-destructive" : ""}>{stats.overdue}</strong>
+                  <strong className={overdueTotal > 0 ? "text-destructive" : ""}>{overdueTotal}</strong>
                 </div>
               </>
             )}
@@ -619,9 +614,9 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
             {currentWorkspace && (
               <span className="truncate text-sm font-medium">{currentWorkspace.name}</span>
             )}
-            {stats.overdue > 0 && (
+            {overdueTotal > 0 && (
               <span className="motion-status shrink-0 rounded-full bg-destructive/12 px-2 py-0.5 text-xs font-medium text-destructive">
-                {t("overdue")} {stats.overdue}
+                {t("overdue")} {overdueTotal}
               </span>
             )}
           </div>
@@ -708,7 +703,6 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
                 {view === "home" && (
                   <HomeView
                     actions={appActions}
-                    data={data}
                     searchQuery={searchQuery}
                     selectedDate={selectedDate}
                     selectedTaskId={selectedTaskId}
@@ -725,7 +719,6 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
                 {view === "overview" && (
                   <OverviewView
                     actions={appActions}
-                    data={data}
                     externalFilters={overviewFilters}
                     externalSelectedViewId={overviewSelectedViewId}
                     onExternalFiltersApplied={clearExternalOverviewFilters}
@@ -736,7 +729,6 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
                 {view === "projects" && (
                   <ProjectsView
                     actions={appActions}
-                    data={data}
                     initialProjectId={editingProjectId}
                     selectedDate={selectedDate}
                     selectedTaskId={selectedTaskId}
@@ -750,7 +742,6 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
                 {view === "workspaces" && (
                   <WorkspacesView
                     actions={appActions}
-                    data={data}
                     onEditWorkspace={() => setWorkspaceEditOpen(true)}
                     selectedTaskId={selectedTaskId}
                     setSelectedTaskId={safeSetSelectedTaskId}
@@ -759,7 +750,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
                 {view === "reminders" && <ReminderCenterView actions={appActions} onOpenTask={onOpenTask} />}
                 {view === "settings" && (
                   <div className="h-full overflow-auto p-4">
-                    <SettingsView actions={appActions} data={data} onOpenHelp={() => setHelpOpen(true)} />
+                    <SettingsView actions={appActions} onOpenHelp={() => setHelpOpen(true)} />
                   </div>
                 )}
               </Suspense>

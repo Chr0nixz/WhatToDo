@@ -10,7 +10,14 @@ import { Button } from "@/components/ui/button";
 import { defaultAccentSwatch } from "@/data/accentSwatches";
 import type { AppData, TaskSummary } from "@/data/types";
 import { useTaskPage } from "@/hooks/useTaskPage";
-import { useTasksRevision } from "@/hooks/useTodoStore";
+import {
+  useProjects,
+  useTasks,
+  useTasksRevision,
+  useWorkspaceFolders,
+  useWorkspaceId,
+  useWorkspaces,
+} from "@/hooks/useTodoStore";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
@@ -19,7 +26,7 @@ import { WorkspaceCreateForm } from "./workspaces/WorkspaceCreateForm";
 import { WorkspaceDetailHeader } from "./workspaces/WorkspaceDetailHeader";
 
 type WorkspacesViewProps = {
-  data: AppData;
+  data?: AppData | null;
   actions: TodoActions;
   selectedTaskId: string | null;
   setSelectedTaskId: (taskId: string | null) => void;
@@ -34,6 +41,19 @@ const folderNameFromPath = (path: string) => {
 export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskId, onEditWorkspace }: WorkspacesViewProps) {
   const { t } = useTranslation();
   const tasksRevision = useTasksRevision();
+
+  const storeWorkspaceId = useWorkspaceId();
+  const storeWorkspaces = useWorkspaces();
+  const storeWorkspaceFolders = useWorkspaceFolders();
+  const storeTasks = useTasks();
+  const storeProjects = useProjects();
+
+  const workspaceId = data?.workspaceId ?? storeWorkspaceId ?? "";
+  const workspaces = data?.workspaces ?? storeWorkspaces;
+  const workspaceFolders = data?.workspaceFolders ?? storeWorkspaceFolders;
+  const tasks = data?.tasks ?? storeTasks;
+  const projects = data?.projects ?? storeProjects;
+
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceColor, setWorkspaceColor] = useState(defaultAccentSwatch);
   const [folderName, setFolderName] = useState("");
@@ -49,20 +69,20 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
   const [availableTasksError, setAvailableTasksError] = useState<string | null>(null);
 
   const currentWorkspace = useMemo(
-    () => data.workspaces.find((workspace) => workspace.id === data.workspaceId) ?? data.workspaces[0] ?? null,
-    [data.workspaceId, data.workspaces],
+    () => workspaces.find((workspace) => workspace.id === workspaceId) ?? workspaces[0] ?? null,
+    [workspaceId, workspaces],
   );
   const openTasks = useMemo(
-    () => data.tasks.filter((task) => task.deletedAt === null && (task.status === "todo" || task.status === "in_progress")),
-    [data.tasks],
+    () => tasks.filter((task) => task.deletedAt === null && (task.status === "todo" || task.status === "in_progress")),
+    [tasks],
   );
   const taskPageInput = useMemo(
     () => ({
-      workspaceId: data.workspaceId,
+      workspaceId,
       scope: "open" as const,
       sort: "overview" as const,
     }),
-    [data.workspaceId],
+    [workspaceId],
   );
   const taskPage = useTaskPage({
     actions,
@@ -193,16 +213,16 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
         <section className="border-b border-border p-3">
           <div className="mb-3 flex items-center justify-between">
             <h1 className="text-sm font-semibold">{t("workspaces")}</h1>
-            <span className="text-xs text-muted-foreground">{data.workspaces.length}</span>
+            <span className="text-xs text-muted-foreground">{workspaces.length}</span>
           </div>
           <div className="space-y-2">
-            {data.workspaces.map((workspace) => (
+            {workspaces.map((workspace) => (
               <button
-                aria-current={workspace.id === data.workspaceId ? "true" : undefined}
+                aria-current={workspace.id === workspaceId ? "true" : undefined}
                 key={workspace.id}
                 className={cn(
                   "motion-surface flex w-full items-center justify-between rounded-md border border-transparent px-2.5 py-2 text-left text-sm hover:bg-accent",
-                  workspace.id === data.workspaceId && "border-ring bg-accent text-accent-foreground",
+                  workspace.id === workspaceId && "border-ring bg-accent text-accent-foreground",
                 )}
                 type="button"
                 onClick={() => {
@@ -214,7 +234,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
                   <span className="size-2.5 shrink-0 rounded-full border border-border" style={{ backgroundColor: workspace.color }} />
                   <span className="truncate">{workspace.name}</span>
                 </span>
-                {workspace.id === data.workspaceId && (
+                {workspace.id === workspaceId && (
                   <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{t("active")}</span>
                 )}
               </button>
@@ -261,8 +281,8 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
             onOpenFloatingWindow={() => void openFloatingWindow()}
             openTasksCount={openTasks.length}
             workspaceActionError={workspaceActionError}
-            workspaceFoldersCount={data.workspaceFolders.length}
-            workspaces={data.workspaces}
+            workspaceFoldersCount={workspaceFolders.length}
+            workspaces={workspaces}
           />
 
           <form className="mt-4 grid grid-cols-[minmax(120px,180px)_minmax(0,1fr)_40px_auto] gap-2 max-xl:grid-cols-2 max-sm:grid-cols-1" onSubmit={createFolder}>
@@ -309,15 +329,15 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
           <section className="min-h-0 overflow-auto border-r border-border p-4 max-xl:border-b max-xl:border-r-0">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold">{t("commonFolders")}</h3>
-              <span className="text-xs text-muted-foreground">{data.workspaceFolders.length}</span>
+              <span className="text-xs text-muted-foreground">{workspaceFolders.length}</span>
             </div>
-            {data.workspaceFolders.length === 0 ? (
+            {workspaceFolders.length === 0 ? (
               <div className="motion-status flex min-h-28 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-4 text-center text-sm text-muted-foreground">
                 {t("emptyFolders")}
               </div>
             ) : (
               <div className="motion-list space-y-2">
-                {data.workspaceFolders.map((folder, index) => (
+                {workspaceFolders.map((folder, index) => (
                   <div
                     key={folder.id}
                     className="motion-surface grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-border bg-card/65 px-3 py-2"
@@ -375,7 +395,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
                 emptyLabel={t("emptyTaskList")}
                 emptyHint={t("emptyWorkspaceTasksHint")}
                 onSelectTask={setSelectedTaskId}
-                projects={data.projects}
+                projects={projects}
                 reminders={taskPage.reminders}
                 selectedTaskId={selectedTaskId}
                 tasks={taskPage.tasks}
@@ -383,7 +403,7 @@ export function WorkspacesView({ data, actions, selectedTaskId, setSelectedTaskI
                 isLoadingMore={taskPage.isLoadingMore}
                 loadError={taskPage.error}
                 onLoadMore={() => void taskPage.loadMore()}
-                windowKey={data.workspaceId}
+                windowKey={workspaceId}
               />
             )}
           </section>

@@ -17,6 +17,8 @@ import type {
   CreateWorkspaceInput,
   DueReminder,
   ImportBackupMode,
+  OrphanedAttachmentsCleanupResult,
+  OrphanedAttachmentsSummary,
   Project,
   RecoveryItems,
   ReminderEvent,
@@ -34,6 +36,10 @@ import type {
 import { getInitialWorkspaceId } from "@/lib/windowContext";
 import { measureDevAsync } from "@/lib/performance";
 import { setTodoData, setTodoError, setTodoLoading, useTodoStore } from "@/hooks/useTodoStore";
+import {
+  analyzeOrphanedAttachments,
+  cleanupOrphanedAttachments,
+} from "@/data/managedAttachments";
 
 const LOAD_TIMEOUT_MS = 8000;
 
@@ -115,6 +121,8 @@ export type TodoActions = {
   exportCurrentWorkspaceCsv: () => Promise<string>;
   exportCurrentWorkspaceIcs: () => Promise<string>;
   saveSettings: (settings: Settings) => Promise<AppData>;
+  analyzeOrphanedAttachments: () => Promise<OrphanedAttachmentsSummary>;
+  cleanupOrphanedAttachments: () => Promise<OrphanedAttachmentsCleanupResult>;
 };
 
 export const useTodos = () => {
@@ -292,6 +300,8 @@ export const useTodos = () => {
       exportCurrentWorkspaceCsv: () => repository.exportCurrentWorkspaceCsv(),
       exportCurrentWorkspaceIcs: () => repository.exportCurrentWorkspaceIcs(),
       saveSettings: (settings: Settings) => runMutation(() => repository.saveSettings(settings)),
+      analyzeOrphanedAttachments: () => analyzeOrphanedAttachments(),
+      cleanupOrphanedAttachments: () => cleanupOrphanedAttachments(),
     }),
     [repository, runMutation],
   );

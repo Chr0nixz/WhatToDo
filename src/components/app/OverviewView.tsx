@@ -6,9 +6,16 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { applySavedViewFilters, sortSavedViews } from "@/data/savedViews";
 import { defaultTaskViewFilters } from "@/data/taskFilters";
-import type { AppData, TaskViewFilters } from "@/data/types";
+import { DEFAULT_SETTINGS, type AppData, type TaskViewFilters } from "@/data/types";
 import { useTaskPage } from "@/hooks/useTaskPage";
-import { useTasksRevision } from "@/hooks/useTodoStore";
+import {
+  useProjects,
+  useSavedViews,
+  useSettings,
+  useTasks,
+  useTasksRevision,
+  useWorkspaceId,
+} from "@/hooks/useTodoStore";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +27,7 @@ import { ManageViewsDialog } from "./overview/ManageViewsDialog";
 import { TagFilterPanel } from "./overview/TagFilterPanel";
 
 type OverviewViewProps = {
-  data: AppData;
+  data?: AppData | null;
   actions: TodoActions;
   selectedTaskId: string | null;
   setSelectedTaskId: (taskId: string | null) => void;
@@ -40,6 +47,19 @@ export function OverviewView({
 }: OverviewViewProps) {
   const { t } = useTranslation();
   const tasksRevision = useTasksRevision();
+
+  const storeWorkspaceId = useWorkspaceId();
+  const storeSettings = useSettings();
+  const storeSavedViews = useSavedViews();
+  const storeTasks = useTasks();
+  const storeProjects = useProjects();
+
+  const workspaceId = data?.workspaceId ?? storeWorkspaceId ?? "";
+  const settings = data?.settings ?? storeSettings ?? DEFAULT_SETTINGS;
+  const savedViews = data?.savedViews ?? storeSavedViews;
+  const tasks = data?.tasks ?? storeTasks;
+  const projects = data?.projects ?? storeProjects;
+
   const [filters, setFilters] = useState<TaskViewFilters>(() => defaultTaskViewFilters());
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
@@ -63,19 +83,19 @@ export function OverviewView({
       return;
     }
 
-    const defaultViewId = data.settings.defaultSavedViewId;
+    const defaultViewId = settings?.defaultSavedViewId;
     if (!defaultViewId) {
       return;
     }
 
-    const defaultView = data.savedViews.find((view) => view.id === defaultViewId);
+    const defaultView = savedViews.find((view) => view.id === defaultViewId);
     if (defaultView) {
       applySavedViewFilters(defaultView, setFilters, setSelectedViewId);
       hasAppliedDefaultView.current = true;
     }
-  }, [data.savedViews, data.settings.defaultSavedViewId, externalFilters]);
+  }, [savedViews, settings?.defaultSavedViewId, externalFilters]);
 
-  const sortedSavedViews = useMemo(() => sortSavedViews(data.savedViews), [data.savedViews]);
+  const sortedSavedViews = useMemo(() => sortSavedViews(savedViews), [savedViews]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearchQuery(searchQuery), 180);
@@ -92,7 +112,7 @@ export function OverviewView({
     let overdue = 0;
     let visible = 0;
     const today = new Date().toISOString().slice(0, 10);
-    for (const task of data.tasks) {
+    for (const task of tasks) {
       if (task.deletedAt !== null) continue;
       visible++;
       switch (task.status) {
@@ -112,21 +132,21 @@ export function OverviewView({
       }
     }
     return { all: visible, open, completed, cancelled, overdue };
-  }, [data.tasks]);
+  }, [tasks]);
   const availableTags = useMemo(() => {
     const tags = new Set<string>();
-    for (const task of data.tasks) {
+    for (const task of tasks) {
       if (task.deletedAt !== null) continue;
       for (const tag of task.tags) {
         if (tag.trim()) tags.add(tag);
       }
     }
     return Array.from(tags).sort((a, b) => a.localeCompare(b));
-  }, [data.tasks]);
+  }, [tasks]);
 
   const taskPageInput = useMemo(
     () => ({
-      workspaceId: data.workspaceId,
+      workspaceId,
       scope: filters.scope,
       priority: filters.priority,
       projectId: filters.projectId === "all" ? null : filters.projectId,
@@ -139,7 +159,7 @@ export function OverviewView({
       advancedFilter: filters.advancedFilter,
       sort: "overview" as const,
     }),
-    [data.workspaceId, debouncedSearchQuery, filters],
+    [workspaceId, debouncedSearchQuery, filters],
   );
   const taskPage = useTaskPage({
     actions,
@@ -259,7 +279,7 @@ export function OverviewView({
   };
 
   const applySavedView = (viewId: string) => {
-    const view = data.savedViews.find((item) => item.id === viewId);
+    const view = savedViews.find((item) => item.id === viewId);
     if (!view) {
       return;
     }
@@ -304,8 +324,8 @@ export function OverviewView({
             <TaskCreateDialog
               actions={actions}
               defaultDate={new Date().toISOString().slice(0, 10)}
-              projects={data.projects.filter((project) => project.deletedAt === null && project.status !== "archived")}
-              settings={data.settings}
+              projects={projects.filter((project) => project.deletedAt === null && project.status !== "archived")}
+              settings={settings}
             />
           </div>
         </div>
@@ -406,7 +426,7 @@ export function OverviewView({
                       <option key={view.id} value={view.id}>
                         {view.pinned ? `${t("pinnedSavedView")} · ` : ""}
                         {view.name}
-                        {data.settings.defaultSavedViewId === view.id ? ` · ${t("defaultSavedView")}` : ""}
+                        {settings?.defaultSavedViewId === view.id ? ` · ${t("defaultSavedView")}` : ""}
                       </option>
                     ))}
                   </select>
@@ -443,7 +463,7 @@ export function OverviewView({
               <FilterSelect label={t("projects")} value={filters.projectId} onChange={(value) => setFilter("projectId", value as TaskViewFilters["projectId"])}>
                 <option value="all">{t("allProjects")}</option>
                 <option value="none">{t("noProject")}</option>
-                {data.projects
+                {projects
                   .filter((project) => project.deletedAt === null && project.status !== "archived")
                   .map((project) => (
                     <option key={project.id} value={project.id}>
@@ -518,8 +538,8 @@ export function OverviewView({
               <TaskCreateDialog
                 actions={actions}
                 defaultDate={new Date().toISOString().slice(0, 10)}
-                projects={data.projects.filter((project) => project.deletedAt === null && project.status !== "archived")}
-                settings={data.settings}
+                projects={projects.filter((project) => project.deletedAt === null && project.status !== "archived")}
+                settings={settings}
               />
             </div>
           </div>
@@ -528,7 +548,7 @@ export function OverviewView({
             actions={actions}
             onSelectTask={setSelectedTaskId}
             onClearSelection={() => setSelectedTaskId(null)}
-            projects={data.projects}
+            projects={projects}
             selectedTaskId={selectedTaskId}
             tasks={taskPage.tasks}
             totalCount={taskPage.total}
@@ -551,7 +571,7 @@ export function OverviewView({
         open={manageOpen}
         savedViews={sortedSavedViews}
         selectedViewId={selectedViewId}
-        settings={data.settings}
+        settings={settings}
       />
     </main>
   );

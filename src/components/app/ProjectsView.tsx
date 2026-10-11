@@ -7,9 +7,15 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { defaultAccentSwatch } from "@/data/accentSwatches";
 import { NO_PROJECT_ID, getProjectProgress, visibleProjects } from "@/data/project";
-import type { AppData, TaskSummary } from "@/data/types";
+import { DEFAULT_SETTINGS, type AppData, type TaskSummary } from "@/data/types";
 import { useTaskPage } from "@/hooks/useTaskPage";
-import { useTasksRevision } from "@/hooks/useTodoStore";
+import {
+  useProjects,
+  useSettings,
+  useTasks,
+  useTasksRevision,
+  useWorkspaceId,
+} from "@/hooks/useTodoStore";
 import type { TodoActions } from "@/hooks/useTodos";
 import { cn } from "@/lib/utils";
 
@@ -18,7 +24,7 @@ import { ProjectCreateForm } from "./projects/ProjectCreateForm";
 import { ProjectDetailHeader } from "./projects/ProjectDetailHeader";
 
 type ProjectsViewProps = {
-  data: AppData;
+  data?: AppData | null;
   actions: TodoActions;
   selectedDate: string;
   selectedTaskId: string | null;
@@ -38,7 +44,17 @@ export function ProjectsView({
 }: ProjectsViewProps) {
   const { t } = useTranslation();
   const tasksRevision = useTasksRevision();
-  const { tasks: allTasks, projects: rawProjects } = data;
+
+  const storeWorkspaceId = useWorkspaceId();
+  const storeProjects = useProjects();
+  const storeTasks = useTasks();
+  const storeSettings = useSettings();
+
+  const workspaceId = data?.workspaceId ?? storeWorkspaceId ?? "";
+  const rawProjects = data?.projects ?? storeProjects;
+  const allTasks = data?.tasks ?? storeTasks;
+  const settings = data?.settings ?? storeSettings ?? DEFAULT_SETTINGS;
+
   const projects = useMemo(() => visibleProjects(rawProjects), [rawProjects]);
   const tasksByProjectId = useMemo(() => {
     const grouped = new Map<string, TaskSummary[]>();
@@ -82,12 +98,12 @@ export function ProjectsView({
   const progress = getProjectProgress(selectedTasks);
   const taskPageInput = useMemo(
     () => ({
-      workspaceId: data.workspaceId,
+      workspaceId,
       scope: "all" as const,
       projectId: selectedProject?.id ?? "none",
       sort: "overview" as const,
     }),
-    [data.workspaceId, selectedProject?.id],
+    [workspaceId, selectedProject?.id],
   );
   const taskPage = useTaskPage({
     actions,
@@ -275,7 +291,7 @@ export function ProjectsView({
           selectedDate={selectedDate}
           selectedProject={selectedProject}
           selectedWorkingFolder={selectedWorkingFolder}
-          settings={data.settings}
+          settings={settings}
         />
 
         <div className="min-h-0 flex-1 overflow-auto p-4">
@@ -293,7 +309,7 @@ export function ProjectsView({
               emptyLabel={t("emptyTaskList")}
               emptyHint={t("emptyProjectsHint")}
               onSelectTask={setSelectedTaskId}
-              projects={data.projects}
+              projects={projects}
               reminders={taskPage.reminders}
               selectedTaskId={selectedTaskId}
               tasks={taskPage.tasks}

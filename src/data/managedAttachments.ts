@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { isTauriRuntime } from "./repositoryContract";
-import type { Attachment } from "./types";
+import type { Attachment, OrphanedAttachmentsCleanupResult, OrphanedAttachmentsSummary } from "./types";
 
 /** Heuristic: managed copies live under `{appData}/attachments/{id}/{filename}`. */
 export const isManagedAttachmentPath = (path: string): boolean => {
@@ -47,4 +47,26 @@ export const deleteManagedAttachmentFile = async (path: string): Promise<void> =
   } catch {
     // Prefer removing DB metadata over failing the mutation when the file is already gone.
   }
+};
+
+export const analyzeOrphanedAttachments = async (): Promise<OrphanedAttachmentsSummary> => {
+  if (!isTauriRuntime()) {
+    return { orphanedCount: 0, orphanedBytes: 0 };
+  }
+  return invoke<OrphanedAttachmentsSummary>("analyze_orphaned_attachments");
+};
+
+export const cleanupOrphanedAttachments = async (): Promise<OrphanedAttachmentsCleanupResult> => {
+  if (!isTauriRuntime()) {
+    return { deletedCount: 0, freedBytes: 0 };
+  }
+  return invoke<OrphanedAttachmentsCleanupResult>("cleanup_orphaned_attachments");
+};
+
+export const formatBytes = (bytes: number): string => {
+  if (bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / Math.pow(1024, i);
+  return `${value.toFixed(value >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
 };
