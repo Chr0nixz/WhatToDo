@@ -1264,6 +1264,7 @@ fn remove_dir_all_best_effort(path: &Path) {
 }
 
 fn export_attachment_sidecar_sync(
+    managed_root: Option<&Path>,
     backup_json_path: String,
     items: Vec<AttachmentSidecarItem>,
 ) -> Result<Vec<String>, String> {
@@ -1286,6 +1287,14 @@ fn export_attachment_sidecar_sync(
         if !source.is_file() {
             continue;
         }
+
+        // SEC-004: Enforce that exported attachments MUST originate from within the managed attachments directory.
+        if let Some(root) = managed_root {
+            if !is_path_within_root_lenient(&source, root) {
+                continue;
+            }
+        }
+
         let dest_dir = sidecar_root.join(&id);
         if create_dir_all(&dest_dir).is_err() {
             continue;
@@ -1300,10 +1309,12 @@ fn export_attachment_sidecar_sync(
 
 #[tauri::command]
 async fn export_attachment_sidecar(
+    app: tauri::AppHandle,
     backup_json_path: String,
     items: Vec<AttachmentSidecarItem>,
 ) -> Result<Vec<String>, String> {
-    export_attachment_sidecar_sync(backup_json_path, items)
+    let managed_root = managed_attachments_root(&app)?;
+    export_attachment_sidecar_sync(Some(&managed_root), backup_json_path, items)
 }
 
 #[tauri::command]
@@ -1946,26 +1957,48 @@ mod tests {
     #[test]
     fn export_attachment_sidecar_copies_existing_files() {
         let dir = tempfile::tempdir().expect("tempdir");
+        let managed_root = dir.path().join("attachments");
+        fs::create_dir_all(&managed_root).expect("create managed root");
+
         let json_path = dir.path().join("whattodo-backup.json");
         fs::write(&json_path, "{}").expect("json");
-        let source = dir.path().join("source.txt");
-        fs::write(&source, "hello").expect("source");
+
+        // 1. Valid managed source file
+        let valid_source = managed_root.join("att_1").join("source.txt");
+        fs::create_dir_all(valid_source.parent().unwrap()).expect("create att_1");
+        fs::write(&valid_source, "hello inside").expect("source inside");
+
+        // 2. Malicious outside file attempting exfiltration (SEC-004)
+        let outside_source = dir.path().join("secret_outside.txt");
+        fs::write(&outside_source, "sensitive system data").expect("outside");
 
         let exported = export_attachment_sidecar_sync(
+            Some(&managed_root),
             json_path.to_string_lossy().to_string(),
-            vec![super::AttachmentSidecarItem {
-                id: "att_1".to_string(),
-                filename: "source.txt".to_string(),
-                source_path: source.to_string_lossy().to_string(),
-            }],
+            vec![
+                super::AttachmentSidecarItem {
+                    id: "att_1".to_string(),
+                    filename: "source.txt".to_string(),
+                    source_path: valid_source.to_string_lossy().to_string(),
+                },
+                super::AttachmentSidecarItem {
+                    id: "att_evil".to_string(),
+                    filename: "secret_outside.txt".to_string(),
+                    source_path: outside_source.to_string_lossy().to_string(),
+                },
+            ],
         )
         .expect("export");
+
+        // Only the valid managed item was exported; the outside item was safely blocked.
         assert_eq!(exported, vec!["att_1".to_string()]);
-        let copied = sidecar_dir_for_backup_json(&json_path)
-            .expect("sidecar")
-            .join("att_1")
-            .join("source.txt");
-        assert_eq!(fs::read_to_string(copied).expect("read"), "hello");
+
+        let sidecar_dir = sidecar_dir_for_backup_json(&json_path).expect("sidecar");
+        let copied = sidecar_dir.join("att_1").join("source.txt");
+        assert_eq!(fs::read_to_string(copied).expect("read"), "hello inside");
+
+        let evil_copied = sidecar_dir.join("att_evil");
+        assert!(!evil_copied.exists());
     }
 
     #[test]

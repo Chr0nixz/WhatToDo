@@ -378,16 +378,18 @@ SQL 侧 `loadWorkspaceSlices` 的提醒查询同样 `INNER JOIN tasks ... WHERE 
 
 ### SEC-004 [P1] `export_attachment_sidecar` 是无约束的任意文件复制原语
 
-**状态：已修复（0.2.6+）。** `backup_json_path` 必须通过 `validate_text_file_path(&backup_json_path, &["json"])` 校验，杜绝路径穿越。
+**状态：已修复（0.2.7+）。** 
+1. `backup_json_path` 必须通过 `validate_text_file_path(&backup_json_path, &["json"])` 校验，杜绝路径穿越与敏感系统目录写入。
+2. 彻底收敛 `source_path` 任意文件复制原语：后端通过 `managed_attachments_root(&app)` 强制获取受管附件根目录，并通过 `is_path_within_root_lenient(&source, managed_root)` 校验所有导出的源文件必须严格位于受管附件目录（`attachments/`）内部，坚决阻断对受管目录之外任意主机文件的非法外溢读取与复制。
+3. 在 Rust 单元测试中新增针对未托管外部文件拦截与合法受管附件复制的断言。
 
 ```1321:1358:src-tauri/src/lib.rs
 fn export_attachment_sidecar(
+    app: tauri::AppHandle,
     backup_json_path: String,
     items: Vec<AttachmentSidecarItem>,
 ) -> Result<Vec<String>, String> {
 ```
-
-`backup_json_path` 完全不校验（连 `validate_text_file_path` 都没调用），`source_path` 也不校验、不限扩展名。等价于"把任意源文件复制到任意可创建目录"。`sanitize_attachment_id` 与 `sanitize_attachment_filename` 只保证最后一段安全，管不住 `sidecar_root` 本身。这是当前权限最宽的命令。
 
 ### SEC-005 [P1] `read_text_file` / `write_text_file` 无根目录约束
 
