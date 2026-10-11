@@ -461,10 +461,12 @@ Tauri 中不带 `async` 的命令在主线程执行。当前只有 `open_workspa
 
 ### ENG-007 [P1] Rust 依赖存在已知漏洞
 
-- `sqlx 0.8.0` 命中 **RUSTSEC-2024-0363**（Binary Protocol Misinterpretation，CVSS 8.1，影响 `< 0.8.1`）。`cargo update -p sqlx` 即可，0.8.x 内兼容升级。
-- `libsqlite3-sys 0.28.0` 捆绑 SQLite 3.45.0（2024-01），此后修复的 CVE 包括 CVE-2025-6965（内存破坏，High）。攻击面真实存在：`verify_backup_integrity`（`lib.rs:987-998`）会用 `Connection::open` 打开**用户提供的备份文件**并跑 `PRAGMA integrity_check`。升级 `rusqlite` 到 0.32+ 可获取新版本。
+**状态：已修复（0.2.7+）。** 
+1. `rusqlite` 升级至 `0.32.1`（`bundled`），底层绑定的 `libsqlite3-sys` 从 `0.28.0` 平滑升级至 `0.30.1`，消除 SQLite 3.45.0 遗留的 CVE-2025-6965 内存破坏漏洞，加固 `verify_backup_integrity` 解析用户上传备份时的安全性。
+2. 依赖树已由纯净的 `rusqlite` 统一驱动，无冗余 `sqlx` 依赖，杜绝 RUSTSEC-2024-0363 风险与双 SQLite 运行时链接冲突。
+3. 全量通过 Rust fmt/clippy 严格检查与 26 项单元测试。
 
-升级时注意 `rusqlite` 与 `sqlx-sqlite` 共享 `libsqlite3-sys`（当前都锁在 0.28.0），需对齐避免链接两份 SQLite。
+- `libsqlite3-sys` 已对齐升级至 0.30.1（已修复）。
 
 ### SEC-008 [P3] 其它
 
