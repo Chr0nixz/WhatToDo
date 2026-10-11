@@ -153,4 +153,56 @@ describe("TaskDetailPane", () => {
     expect(screen.getByLabelText("Task title")).toHaveValue("Local edit");
     expect(screen.getByText("Unsaved")).toBeInTheDocument();
   });
+
+  it("provides modal dialog semantics in narrow viewport (UX-010)", async () => {
+    // Mock narrow viewport media query (< 768px)
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query) => ({
+      matches: query === "(max-width: 767px)",
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    const task = makeTask({ title: "Modal check" });
+    renderPane(task);
+
+    // When viewport is narrow and task is open, pane must announce as modal dialog
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAttribute("aria-label", "Task detail");
+
+    window.matchMedia = originalMatchMedia;
+  });
+
+  it("closes pane safely on Escape key press (UX-010)", async () => {
+    const handleClose = vi.fn();
+    const task = makeTask({ title: "Escape check" });
+
+    render(
+      <TaskDetailPane
+        actions={actions}
+        attachments={[]}
+        onClose={handleClose}
+        projects={[]}
+        recurringTaskTemplates={[]}
+        reminders={[]}
+        settings={settings}
+        task={task}
+        tasks={[task]}
+      />,
+    );
+
+    // Press Escape key
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    await waitFor(() => {
+      expect(handleClose).toHaveBeenCalledTimes(1);
+    });
+  });
 });

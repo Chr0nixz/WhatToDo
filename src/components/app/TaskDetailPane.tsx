@@ -2,7 +2,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { revealLocalPath } from "@/lib/openLocalPath";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, ChevronDown, FolderOpen, PanelRightClose, Plus, Trash2, X } from "lucide-react";
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { Ref } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -79,6 +79,9 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
   const [futureUpdateMode, setFutureUpdateMode] = useState<"template" | "openFuture">("template");
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [isNarrowScreen, setIsNarrowScreen] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(max-width: 767px)").matches : false,
+  );
   const pendingSwitchRef = useRef<{ nextTaskId: string | null } | null>(null);
   const hydratedIdRef = useRef<string | null>(null);
   const recurringTemplate = task?.recurrenceTemplateId
@@ -191,6 +194,35 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
     setAdvancedOpen(Boolean(task.parentId) || Boolean(task.recurrenceTemplateId));
     setConfirmDeleteOpen(false);
   }, [task?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const media = window.matchMedia("(max-width: 767px)");
+    const handler = (event: MediaQueryListEvent) => setIsNarrowScreen(event.matches);
+    media.addEventListener("change", handler);
+    return () => media.removeEventListener("change", handler);
+  }, []);
+
+  const requestClose = useCallback(() => {
+    if (isDirty) {
+      setPendingClose(true);
+      return;
+    }
+    onClose();
+  }, [isDirty, onClose]);
+
+  // UX-010: Listen for Escape key to trigger graceful pane close (with unsaved changes guard)
+  useEffect(() => {
+    if (!task) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !pendingClose && !pendingSwitch && !pendingDelete && !futureUpdateOpen) {
+        event.preventDefault();
+        requestClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [task, pendingClose, pendingSwitch, pendingDelete, futureUpdateOpen, requestClose]);
 
   const chooseFolder = async () => {
     const selected = await openDialog({
@@ -387,14 +419,6 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
     }
   };
 
-  const requestClose = () => {
-    if (isDirty) {
-      setPendingClose(true);
-      return;
-    }
-    onClose();
-  };
-
   const requestDelete = () => {
     if (isDirty) {
       setPendingDelete(true);
@@ -451,14 +475,18 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
     <>
       {task ? (
         <button
+          aria-hidden="true"
           aria-label={t("close")}
           className="fixed inset-0 z-30 hidden bg-background/65 max-md:block max-sm:bottom-14"
+          tabIndex={-1}
           type="button"
           onClick={requestClose}
         />
       ) : null}
       <aside
         aria-label={t("taskDetail")}
+        aria-modal={isNarrowScreen && task ? "true" : undefined}
+        role={isNarrowScreen && task ? "dialog" : undefined}
         className={cn(
           "min-h-0 shrink-0 overflow-hidden border-l border-border bg-card/65 transition-[background-color,border-color] duration-150 ease-[var(--ease-out-quart)] max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-40 max-md:shadow-xl max-sm:bottom-14",
           task ? "w-[360px] max-xl:w-[332px] max-md:w-[min(360px,calc(100vw-56px))] max-sm:w-full" : "w-0",

@@ -558,6 +558,12 @@ Tauri 中不带 `async` 的命令在主线程执行。当前只有 `open_workspa
 
 ### UX-010 [P2] TaskDetailPane 窄屏是模态但无模态语义
 
+**状态：已修复（0.2.7+）。** 
+1. 响应式动态监听窄屏断点（`< 768px`），浮层展开时为 `<aside>` 容器注入 `role="dialog"` 与 `aria-modal="true"`，补齐无障碍模态上下文与屏幕阅读器语义。
+2. 接入全局 `Escape` 按键安全关闭监听：按下 `Escape` 时调用 `requestClose()`，受未保存修改二次确认保护，无修改时立即安全关闭面板。
+3. 遮罩层 `<button>` 补充 `tabIndex={-1}` 与 `aria-hidden="true"`，防止透明背景遮罩抢占键盘焦点序列。
+4. 在 `TaskDetailPane.test.tsx` 中补充窄屏模态与 Escape 按键交互的单测断言覆盖。
+
 `TaskDetailPane.tsx:460-466` 在 `max-md` 断点下是 `absolute` + `z-40` + 全屏遮罩的模态面板，但没有 `role="dialog"`、`aria-modal`、焦点陷阱、Escape 关闭或关闭后焦点恢复。键盘用户可以 Tab 到被遮罩盖住的背景内容。遮罩本身是个全屏 `<button>`（`452-459`），会出现在 Tab 序列里。
 
 ### UX-011 [P3] 其它可访问性缺口
