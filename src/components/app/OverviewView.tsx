@@ -342,11 +342,13 @@ export function OverviewView({
               const isActive = filters.scope === item.id;
               return (
                 <button
+                  aria-controls="overview-task-list-panel"
                   aria-selected={isActive}
                   className={cn(
                     "inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm transition-[background-color,border-color,color] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent hover:text-accent-foreground",
                     isActive && "border-ring bg-accent text-accent-foreground",
                   )}
+                  id={`overview-scope-tab-${item.id}`}
                   key={item.id}
                   role="tab"
                   tabIndex={isActive ? 0 : -1}
@@ -507,7 +509,12 @@ export function OverviewView({
         )}
       </section>
 
-      <section className="min-h-0 flex-1 overflow-auto p-4">
+      <section
+        aria-labelledby={`overview-scope-tab-${filters.scope}`}
+        className="min-h-0 flex-1 overflow-auto p-4"
+        id="overview-task-list-panel"
+        role="tabpanel"
+      >
         {taskPage.isLoading ? (
           <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
             {t("loadingTasks")}

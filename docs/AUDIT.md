@@ -568,11 +568,13 @@ Tauri 中不带 `async` 的命令在主线程执行。当前只有 `open_workspa
 
 ### UX-011 [P3] 其它可访问性缺口
 
+**状态：已修复（0.2.7+）。** 
+1. `OverviewView` 选项卡无障碍联动对齐：各 scope tab 补充 `id` 与 `aria-controls="overview-task-list-panel"`，任务列表展示区挂载 `id="overview-task-list-panel"`、`role="tabpanel"` 与 `aria-labelledby`，严格满足 WAI-ARIA Tabs 语义规范。
+2. `TaskDetailPane` 未保存状态徽标屏幕阅读器可达性：未保存标签注入 `role="status"`、`aria-live="polite"` 与 `aria-atomic="true"`，消除原先仅有静态样式点对辅助技术不可达的缺陷。
+3. `TaskList` 键盘导航容器语义健全：外层焦点容器声明 `role="region"` 与 `aria-label={t("tasks")}`，消除裸 div 焦点缺失区域声明问题。
+
 整体基线不错（`aria-label` 覆盖良好、9 个对话框全走 Radix、有 focus-visible outline 与 `prefers-reduced-motion`、触摸目标 44px 下限）。剩余：
 
-- Overview 的 tablist 缺 `aria-controls`，对应面板无 `role="tabpanel"`（`OverviewView.tsx:311-330`、`486`）。
-- "有未保存更改"只用一个 1.5px 色点 + `title` 表达（`TaskDetailPane.tsx:473-475`），`title` 在 `<span>` 上对屏幕阅读器基本不可达。
-- TaskList 的 j/k 键盘导航容器是 `tabIndex={0}` 的裸 div，无 `role`/`aria-activedescendant`（`TaskList.tsx:587-592`），对屏幕阅读器完全不可感知。
 - 承接旧 `UX-007`：窄屏月历占首屏过多，日期按钮约 48x34 px，`index.css:414` 还显式取消了 44px 最小目标。
 
 ### ARC-023 [P2] ErrorBoundary 只有一个，且 lazy 视图无局部边界

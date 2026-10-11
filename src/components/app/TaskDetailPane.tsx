@@ -499,7 +499,12 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
               <h2 className="flex min-w-0 items-center gap-2 text-sm font-semibold">
                 <span className="truncate">{task.title}</span>
                 {isDirty && (
-                  <span className="shrink-0 rounded-full bg-warning/12 px-1.5 py-0.5 text-xs font-medium text-warning-foreground dark:text-warning">
+                  <span
+                    aria-atomic="true"
+                    aria-live="polite"
+                    className="shrink-0 rounded-full bg-warning/12 px-1.5 py-0.5 text-xs font-medium text-warning-foreground dark:text-warning"
+                    role="status"
+                  >
                     {t("unsavedBadge")}
                   </span>
                 )}
