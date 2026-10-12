@@ -419,6 +419,12 @@ fn validate_text_file_path(path: &str, allowed_extensions: &[&str]) -> Result<Pa
 3. 消除连击置顶图标导致的操作系统窗口置顶状态与前端 state 倒置冲突。
 4. 在 `WorkspaceFloatingWindow.test.tsx` 中新增针对折叠互斥与置顶切换的专属单元测试，Vitest 单测用例数升至 351 项全绿。
 
+### FUN-010 [P2] 删除/归档工作区联动物理销毁对应浮窗
+
+**状态：已修复（0.2.7+）。** 
+1. Rust 后端实现 `close_workspace_floating_windows(app, workspace_id)` 命令并在 `generate_handler!` 注册，复用严密的定界标签匹配器定位属于该工作区的所有打开浮窗并执行原子安全销毁。
+2. 前端 `useTodos.ts` 的 `deleteWorkspace` 操作完成底层删除后，自动联动调用 `close_workspace_floating_windows`，消除工作区已软删除而桌面悬浮窗继续存活轮询导致脏数据读写或 404 崩溃的孤儿窗口漏洞。
+
 ### ARC-020 [P2] 9 个命令同步执行重 IO，阻塞主线程
 
 **状态：已修复（0.2.7+）。** 

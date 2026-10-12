@@ -34,6 +34,7 @@ import type {
   UpdateWorkspaceInput,
   WorkspaceTaskStats,
 } from "@/data/types";
+import { isTauriRuntime } from "@/data/repositoryContract";
 import { getInitialWorkspaceId } from "@/lib/windowContext";
 import { measureDevAsync } from "@/lib/performance";
 import { setTodoData, setTodoError, setTodoLoading, useTodoStore } from "@/hooks/useTodoStore";
@@ -225,7 +226,14 @@ export const useTodos = () => {
         measureDevAsync("repository.loadTaskStats", () => repository.loadTaskStats(workspaceId)),
       createWorkspace: (input: CreateWorkspaceInput) => runMutation(() => repository.createWorkspace(input)),
       updateWorkspace: (id: string, patch: UpdateWorkspaceInput) => runMutation(() => repository.updateWorkspace(id, patch)),
-      deleteWorkspace: (id: string) => runMutation(() => repository.deleteWorkspace(id)),
+      deleteWorkspace: (id: string) =>
+        runMutation(async () => {
+          const result = await repository.deleteWorkspace(id);
+          if (isTauriRuntime()) {
+            void invoke("close_workspace_floating_windows", { workspaceId: id }).catch(() => undefined);
+          }
+          return result;
+        }),
       restoreWorkspace: (id: string) => runMutation(() => repository.restoreWorkspace(id)),
       createWorkspaceFolder: (input: CreateWorkspaceFolderInput) => runMutation(() => repository.createWorkspaceFolder(input)),
       deleteWorkspaceFolder: (id: string) => runMutation(() => repository.deleteWorkspaceFolder(id)),

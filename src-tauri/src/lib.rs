@@ -555,6 +555,21 @@ JSON.stringify({
         .map_err(|err| err.to_string())
 }
 
+#[tauri::command]
+fn close_workspace_floating_windows(
+    app: tauri::AppHandle,
+    workspace_id: String,
+) -> Result<u32, String> {
+    let mut closed = 0u32;
+    for (existing_label, window) in app.webview_windows() {
+        if is_matching_workspace_floating_window_label(&existing_label, &workspace_id) {
+            let _ = window.destroy();
+            closed += 1;
+        }
+    }
+    Ok(closed)
+}
+
 fn resolve_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_config_dir()
@@ -1628,6 +1643,7 @@ pub fn run() {
             update_tray_menu,
             show_main_window_cmd,
             open_workspace_window,
+            close_workspace_floating_windows,
             read_text_file,
             write_text_file,
             db_execute,
