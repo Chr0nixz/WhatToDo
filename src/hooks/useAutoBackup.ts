@@ -7,6 +7,7 @@ import {
 } from "@/data/backupAttachments";
 import type { BackupAutoBackupPreferences } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
+import { safeGetItem, safeRemoveItem, safeSetItem } from "@/lib/safeStorage";
 
 const STORAGE_KEY = "whattodo:auto-backup";
 export const AUTO_BACKUP_LAST_RUN_KEY = "whattodo:auto-backup:last-run";
@@ -37,7 +38,7 @@ const clampPositiveInt = (value: unknown, fallback: number, max = 3650): number 
 
 export const loadAutoBackupConfig = (): AutoBackupConfig => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = safeGetItem(STORAGE_KEY);
     if (!raw) return defaultAutoBackupConfig;
     const parsed = JSON.parse(raw) as Partial<AutoBackupConfig>;
     return {
@@ -53,7 +54,7 @@ export const loadAutoBackupConfig = (): AutoBackupConfig => {
 };
 
 export const saveAutoBackupConfig = (config: AutoBackupConfig) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  safeSetItem(STORAGE_KEY, JSON.stringify(config));
 };
 
 export const toAutoBackupPreferences = (config: AutoBackupConfig): AutoBackupPreferences => ({
@@ -77,7 +78,7 @@ export const applyAutoBackupPreferencesFromBackup = (prefs: AutoBackupPreference
 
 export const loadAutoBackupLastError = (): string | null => {
   try {
-    return localStorage.getItem(AUTO_BACKUP_LAST_ERROR_KEY);
+    return safeGetItem(AUTO_BACKUP_LAST_ERROR_KEY);
   } catch {
     return null;
   }
@@ -102,7 +103,7 @@ export const runScheduledAutoBackup = async (actions: TodoActions): Promise<"ski
 
   const now = Date.now();
   const intervalMs = config.intervalHours * 60 * 60 * 1000;
-  const lastBackupRaw = localStorage.getItem(AUTO_BACKUP_LAST_RUN_KEY);
+  const lastBackupRaw = safeGetItem(AUTO_BACKUP_LAST_RUN_KEY);
   const lastBackup = lastBackupRaw ? Number(lastBackupRaw) : 0;
   if (now - lastBackup < intervalMs) {
     return "skipped";
@@ -129,12 +130,12 @@ export const runScheduledAutoBackup = async (actions: TodoActions): Promise<"ski
     } catch {
       // Retention cleanup is best-effort; the new backup already succeeded.
     }
-    localStorage.setItem(AUTO_BACKUP_LAST_RUN_KEY, String(now));
-    localStorage.removeItem(AUTO_BACKUP_LAST_ERROR_KEY);
+    safeSetItem(AUTO_BACKUP_LAST_RUN_KEY, String(now));
+    safeRemoveItem(AUTO_BACKUP_LAST_ERROR_KEY);
     return "written";
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    localStorage.setItem(AUTO_BACKUP_LAST_ERROR_KEY, message);
+    safeSetItem(AUTO_BACKUP_LAST_ERROR_KEY, message);
     return "failed";
   } finally {
     isAutoBackupInFlight = false;

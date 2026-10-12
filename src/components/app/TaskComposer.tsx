@@ -10,6 +10,7 @@ import { parseQuickAdd } from "@/data/quickAdd";
 import type { QuickAddMatch } from "@/data/quickAdd";
 import type { Project, RecurrenceFrequency, Settings, TaskPriority } from "@/data/types";
 import type { TodoActions } from "@/hooks/useTodos";
+import { safeGetItem, safeSetItem } from "@/lib/safeStorage";
 import { cn } from "@/lib/utils";
 
 type TaskComposerProps = {
@@ -78,9 +79,9 @@ export function TaskComposer({
   );
 
   const handleTitleFocus = () => {
-    if (localStorage.getItem("whattodo:quickAddHintSeen") === null) {
+    if (safeGetItem("whattodo:quickAddHintSeen") === null) {
       setShowHint(true);
-      localStorage.setItem("whattodo:quickAddHintSeen", "1");
+      safeSetItem("whattodo:quickAddHintSeen", "1");
     }
   };
 

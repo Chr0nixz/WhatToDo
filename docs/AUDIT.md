@@ -380,6 +380,14 @@ fn export_attachment_sidecar(
 2. 校验解包源路径必须满足 `is_path_within_root_lenient(&source, &sidecar_root)` 且为常规文件，坚决阻断越界读取与主机任意文件搬移。
 3. 在 Rust 单元测试中新增 `import_attachment_sidecar_path_validation_rejects_traversal_and_sensitive_paths` 专项测试，Rust 单元测试用例增至 31 项全绿。
 
+### SEC-011 [P2] 客户端偏好与 LocalStorage 存储解析容错防崩加固
+
+**状态：已修复（0.2.7+）。** 
+1. 封装统一安全存储门面 `src/lib/safeStorage.ts`（`safeGetItem`、`safeSetItem`、`safeRemoveItem`）。
+2. 全面捕获受限沙箱模式、禁用本地存储或存储配额溢出（`QuotaExceededError`）时抛出的 `DOMException`，提供安全的优雅降级回退。
+3. `AppShell.tsx`、`TaskComposer.tsx`、`useAutoBackup.ts` 等处全面收敛为 `safeStorage`，彻底消除裸调 `localStorage` 引发的未捕获异常与首屏白屏崩溃风险。
+4. 新增 `safeStorage.test.ts` 专属单元测试，覆盖正常读写、配额超限与安全限制拒绝场景，Vitest 单测用例数升至 359 项全绿。
+
 ### SEC-005 [P1] `read_text_file` / `write_text_file` 无根目录约束
 
 **状态：已修复（0.2.7+）。** 

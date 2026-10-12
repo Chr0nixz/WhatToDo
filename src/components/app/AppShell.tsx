@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { revealLocalPath } from "@/lib/openLocalPath";
+import { safeGetItem, safeSetItem } from "@/lib/safeStorage";
 import { invoke } from "@tauri-apps/api/core";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -175,7 +176,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
   const [noticeToast, setNoticeToast] = useState<string | null>(null);
   const [reminderToast, setReminderToast] = useState<{ id: string; title: string; workspaceId?: string } | null>(null);
   const [isRailExpanded, setIsRailExpanded] = useState(
-    () => (localStorage.getItem("whattodo:rail") ?? localStorage.getItem("ddl-todo:rail")) !== "collapsed",
+    () => (safeGetItem("whattodo:rail") ?? safeGetItem("ddl-todo:rail")) !== "collapsed",
   );
   const [taskCreateOpen, setTaskCreateOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -212,7 +213,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
   }, [currentLanguage, i18n]);
 
   useEffect(() => {
-    localStorage.setItem("whattodo:rail", isRailExpanded ? "expanded" : "collapsed");
+    safeSetItem("whattodo:rail", isRailExpanded ? "expanded" : "collapsed");
   }, [isRailExpanded]);
 
   useEffect(
