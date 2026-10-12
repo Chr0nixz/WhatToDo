@@ -474,6 +474,13 @@ export const runGlobalShortcut = (handler: () => void) => {
 2. 监听 `window focus` 与 `document visibilitychange`，在用户重新切回应用或唤起窗口时静默校验最新数据，确保后台到期提醒与浮窗多窗口修改实时对齐。
 3. 严格冷却防抖，彻底消除用户高频 Alt+Tab 切换窗口导致的无意义 IPC 往返风暴与 DOM 重渲染，同时在 loading 与非空草稿状态下安全静默跳过，绝不打扰用户正在进行的工作流。
 
+### ARC-026 [P2] 数据库损坏恢复屏防重入互斥与无障碍语义加固
+
+**状态：已修复（0.2.7+）。** 
+1. `DatabaseRecoveryScreen.tsx` 引入 `isActionRunningRef` 动作执行同步互斥锁，彻底杜绝快速连击“创建备份”、“重试迁移”或“重置数据库”导致的破坏性重入竞态。
+2. 错误反馈无障碍升级：行内错误展示元素声明 `role="alert"` 与 `aria-live="assertive"`，并深度接入 `formatBackendError` 双语本地化解析。
+3. 新增 `DatabaseRecoveryScreen.test.tsx` 专属单元测试，覆盖防并发拦截、重试流转与错误状态，Vitest 单测用例数升至 355 项全绿。
+
 ### ENG-007 [P1] Rust 依赖存在已知漏洞
 
 **状态：已修复（0.2.7+）。** 

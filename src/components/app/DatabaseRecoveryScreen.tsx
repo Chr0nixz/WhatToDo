@@ -2,7 +2,7 @@ import { revealLocalPath } from "@/lib/openLocalPath";
 import { formatBackendError } from "@/lib/backendError";
 import { invoke } from "@tauri-apps/api/core";
 import { Loader2, TriangleAlert } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -23,10 +23,15 @@ export function DatabaseRecoveryScreen({ status, onStatusChange }: Props) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState<"backup" | "retry" | "reset" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const isActionRunningRef = useRef(false);
 
   const hasBackup = Boolean(status.backupPath);
 
   const runAction = async (kind: "backup" | "retry" | "reset", command: string) => {
+    if (isActionRunningRef.current || busy !== null) {
+      return;
+    }
+    isActionRunningRef.current = true;
     setBusy(kind);
     setActionError(null);
     try {
@@ -41,6 +46,7 @@ export function DatabaseRecoveryScreen({ status, onStatusChange }: Props) {
         // Keep previous status if refresh fails.
       }
     } finally {
+      isActionRunningRef.current = false;
       setBusy(null);
     }
   };
@@ -85,7 +91,11 @@ export function DatabaseRecoveryScreen({ status, onStatusChange }: Props) {
         )}
 
         {actionError && (
-          <p className="mb-3 break-words rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive" role="alert">
+          <p
+            className="mb-3 break-words rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            role="alert"
+            aria-live="assertive"
+          >
             {actionError}
           </p>
         )}
