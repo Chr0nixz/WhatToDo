@@ -430,7 +430,10 @@ fn validate_text_file_path(path: &str, allowed_extensions: &[&str]) -> Result<Pa
 
 ### ARC-019 [P2] 浮窗标签前缀匹配会误销毁其它工作区的窗口
 
-**状态：已修复（0.2.6+）。** 前缀匹配增加纯数字后缀校验，避免误伤带连字符的同前缀工作区；引入原子计数器与毫秒时间戳组合保证标签绝对唯一。
+**状态：已修复（0.2.7+）。** 
+1. 浮窗标签匹配重构为严密的定界解析纯函数 `is_matching_workspace_floating_window_label`，严格匹配历史单一标签与双短横定界结构 `workspace-{id}--{nonce}-{counter}`，并强制校验单短横线历史后缀全为纯数字，彻底杜绝包含连字符的工作区（如 `team` 与 `team-alpha`）在打开浮窗时误杀彼此窗口。
+2. 窗口 nonce 引入原子计数器 `WINDOW_NONCE_COUNTER.fetch_add(1, Ordering::Relaxed)` 配合毫秒时间戳，保证同毫秒内高频连击生成的窗口标签全局唯一。
+3. 在 Rust 单元测试中新增 `workspace_floating_window_label_matching_prevents_prefix_collision`，覆盖同前缀连字符工作区防碰撞隔离场景，Rust 单测用例数升至 28 项全绿。
 
 ```472:482:src-tauri/src/lib.rs
       for (existing_label, window) in app.webview_windows() {
@@ -438,10 +441,6 @@ fn validate_text_file_path(path: &str, allowed_extensions: &[&str]) -> Result<Pa
           || existing_label.starts_with(&label_prefix)
           || existing_label.starts_with(&previous_label_prefix)
 ```
-
-工作区 id 允许包含 `-`。存在 `team` 和 `team-alpha` 两个工作区时，为 `team` 开浮窗会因 `previous_label_prefix = "workspace-team-"` 匹配到 `workspace-team-alpha--1234` 并把它一起销毁。
-
-另：标签 nonce 使用毫秒时间戳（`lib.rs:435-439`），同毫秒内两次调用会产生重复标签导致 `build()` 失败。
 
 ### ARC-020 [P2] 9 个命令同步执行重 IO，阻塞主线程
 

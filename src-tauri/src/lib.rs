@@ -378,6 +378,25 @@ fn db_select(
     })
 }
 
+fn is_matching_workspace_floating_window_label(label: &str, target_workspace_id: &str) -> bool {
+    let legacy_label = format!("workspace-{}", target_workspace_id);
+    if label == legacy_label {
+        return true;
+    }
+
+    let double_dash_prefix = format!("workspace-{}--", target_workspace_id);
+    if label.starts_with(&double_dash_prefix) {
+        return true;
+    }
+
+    let single_dash_prefix = format!("workspace-{}-", target_workspace_id);
+    if let Some(rest) = label.strip_prefix(&single_dash_prefix) {
+        return !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit());
+    }
+
+    false
+}
+
 #[tauri::command]
 async fn open_workspace_window(
     app: tauri::AppHandle,
@@ -387,9 +406,7 @@ async fn open_workspace_window(
     let workspace_id = validate_workspace_id(&workspace_id)?;
     let title = sanitize_window_title(&title);
     let log_path = floating_log_path(&app);
-    let legacy_label = format!("workspace-{}", workspace_id);
     let label_prefix = format!("workspace-{}--", workspace_id);
-    let previous_label_prefix = format!("workspace-{}-", workspace_id);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|err| err.to_string())?
@@ -428,16 +445,8 @@ window.__DDL_TODO_FLOATING_WORKSPACE_ID__ = {};
         workspace_id_json, workspace_id_json
     );
 
-    let is_workspace_window = |label: &str| -> bool {
-        label == legacy_label
-            || label.starts_with(&label_prefix)
-            || label
-                .strip_prefix(&previous_label_prefix)
-                .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit()))
-    };
-
     for (existing_label, window) in app.webview_windows() {
-        if is_workspace_window(&existing_label) {
+        if is_matching_workspace_floating_window_label(&existing_label, &workspace_id) {
             if let Some(path) = &log_path {
                 append_floating_log(path, format!("destroy stale window label={existing_label}"));
             }
@@ -2216,6 +2225,47 @@ mod tests {
         assert!(!super::migrations::index_exists(
             &conn,
             "idx_tasks_workspace_id"
+        ));
+    }
+
+    #[test]
+    fn workspace_floating_window_label_matching_prevents_prefix_collision() {
+        // Target workspace is "team"
+        let target = "team";
+
+        // 1. Valid matching labels for target "team"
+        assert!(super::is_matching_workspace_floating_window_label(
+            "workspace-team",
+            target
+        ));
+        assert!(super::is_matching_workspace_floating_window_label(
+            "workspace-team--172345-1",
+            target
+        ));
+        assert!(super::is_matching_workspace_floating_window_label(
+            "workspace-team-987654",
+            target
+        ));
+
+        // 2. Colliding prefix labels from another workspace "team-alpha" must NEVER match (ARC-019)
+        assert!(!super::is_matching_workspace_floating_window_label(
+            "workspace-team-alpha",
+            target
+        ));
+        assert!(!super::is_matching_workspace_floating_window_label(
+            "workspace-team-alpha--172345-1",
+            target
+        ));
+        assert!(!super::is_matching_workspace_floating_window_label(
+            "workspace-team-alpha-987654",
+            target
+        ));
+        assert!(!super::is_matching_workspace_floating_window_label(
+            "workspace-team_dev--123",
+            target
+        ));
+        assert!(!super::is_matching_workspace_floating_window_label(
+            "main", target
         ));
     }
 }
