@@ -94,18 +94,57 @@ export const TaskDetailPane = forwardRef<TaskDetailPaneHandle, TaskDetailPanePro
   const taskReminders = task ? reminders.filter((item) => item.taskId === task.id && item.enabled) : [];
   const taskAttachments = task ? attachments.filter((item) => item.task_id === task.id) : [];
   const tasksById = useMemo(() => new Map(tasks.map((item) => [item.id, item])), [tasks]);
-  const parentTaskOptions = useMemo(
-    () =>
-      task
-        ? tasks.filter(
-            (item) =>
-              item.id !== task.id &&
-              item.deletedAt === null &&
-              !wouldCreateParentCycle(tasksById, task.id, item.id),
-          )
-        : [],
-    [tasks, tasksById, task],
-  );
+
+  // PERF-011: Prioritize and cap parent candidates (max 100) to eliminate O(n²) cycle traversal
+  // and massive DOM option trees in large datasets (20k tasks). Always retains active parentId.
+  const parentTaskOptions = useMemo(() => {
+    if (!task) return [];
+    const activeParentId = task.parentId;
+    const currentProjectId = task.projectId;
+
+    const MAX_CANDIDATES = 100;
+    const candidates: TaskSummary[] = [];
+    const seenIds = new Set<string>();
+
+    // 1. Always prioritize and preserve active parent if present and not causing cycle
+    if (activeParentId) {
+      const activeParentTask = tasksById.get(activeParentId);
+      if (
+        activeParentTask &&
+        activeParentTask.deletedAt === null &&
+        !wouldCreateParentCycle(tasksById, task.id, activeParentTask.id)
+      ) {
+        candidates.push(activeParentTask);
+        seenIds.add(activeParentTask.id);
+      }
+    }
+
+    // 2. Filter remaining candidate pool (not deleted, not self, not already included)
+    const remainingPool = tasks.filter(
+      (item) => item.id !== task.id && item.deletedAt === null && !seenIds.has(item.id),
+    );
+
+    // Sort by relevance: same project first, active status first
+    remainingPool.sort((a, b) => {
+      const aSameProj = a.projectId === currentProjectId ? 1 : 0;
+      const bSameProj = b.projectId === currentProjectId ? 1 : 0;
+      if (aSameProj !== bSameProj) return bSameProj - aSameProj;
+      const aActive = a.status === "todo" || a.status === "in_progress" ? 1 : 0;
+      const bActive = b.status === "todo" || b.status === "in_progress" ? 1 : 0;
+      return bActive - aActive;
+    });
+
+    for (const item of remainingPool) {
+      if (candidates.length >= MAX_CANDIDATES) {
+        break;
+      }
+      if (!wouldCreateParentCycle(tasksById, task.id, item.id)) {
+        candidates.push(item);
+      }
+    }
+
+    return candidates;
+  }, [tasks, tasksById, task]);
   const childTasks = useMemo(
     () => (task ? getDirectChildren(tasks, task.id) : []),
     [tasks, task],

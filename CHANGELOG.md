@@ -28,9 +28,10 @@
   - Fixes `SEC-008`: Replaces raw backend error string passthrough in `DatabaseRecoveryScreen` with centralized i18n error formatting (`formatBackendError`), translating internal SQLite, migration, and filesystem exceptions into localized user-friendly messages backed by dedicated unit tests.
   - Fixes `ARC-020`: Fully converts all heavy disk IO, directory scanning, and backup/pruning commands (`open_managed_attachment`, `delete_managed_attachment`, `analyze_orphaned_attachments`, `cleanup_orphaned_attachments`, `cleanup_auto_backups`, `backup_database_for_recovery`, `retry_database_migration`, `confirm_reset_database`) to asynchronous commands (`async fn`) dispatched on Tokio background thread pools, completely unblocking the Tauri main event loop and rendering thread.
   - Fixes `ARC-019`: Refactors workspace floating window label matching into an isolated pure parser `is_matching_workspace_floating_window_label` with delimited double-dash semantics, preventing hyphenated workspace labels from destroying peer workspace windows while ensuring collision-free atomic nonce generation.
+  - Fixes `PERF-011`: Caps parent task candidates in `TaskDetailPane` to 100 while prioritizing same-project active tasks and strictly preserving the active parent task, eliminating O(n²) cycle traversal and thousands of redundant DOM option elements on large datasets, backed by unit tests (`TaskDetailPane.test.tsx`).
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
-  - Hardens all new submodules with thorough unit test coverage: all 328 Vitest tests (including 64 real SQLite conformance tests), 13 Playwright E2E tests, and 28 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
+  - Hardens all new submodules with thorough unit test coverage: all 329 Vitest tests (including 64 real SQLite conformance tests), 13 Playwright E2E tests, and 28 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
 
 ## 0.2.6
 

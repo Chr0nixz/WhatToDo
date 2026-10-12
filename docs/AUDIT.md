@@ -535,13 +535,16 @@ export const runGlobalShortcut = (handler: () => void) => {
 
 ### PERF-011 [P2] TaskDetailPane 父任务候选是 O(n²) 且渲染 n 个 DOM option
 
-**状态：已修复（0.2.6+）。** 预先构造单次 `tasksById` 映射，消除候选循环内重复 Map 分配。
+**状态：已修复（0.2.7+）。** 
+1. 预先构造单次 `tasksById` 映射，消除候选循环内重复 Map 分配。
+2. 重构 `parentTaskOptions` 算法：引入 `MAX_CANDIDATES = 100` 上限保护，并按“当前父任务优先 > 同项目优先 > 活跃任务优先”智能排序，避免在大规模数据集（数千到 20k 任务）下生成上千个 DOM `<option>` 节点拖慢面板挂载与交互渲染。
+3. 保证当前已关联的父任务始终优先保留在候选列表中，防止选项截断丢失。
+4. 仅对前 100 个有效候选执行 `wouldCreateParentCycle` 环路检测，彻底消除全局递归遍历开销。
+5. 在 `TaskDetailPane.test.tsx` 中增加专属单元测试覆盖候选截断与父任务保留逻辑，Vitest 单测用例数升至 329 项全绿。
 
 ```100:111:src/components/app/TaskDetailPane.tsx
   const parentTaskOptions = useMemo(
 ```
-
-`wouldCreateParentCycle` 内部同样 `new Map(tasks.map(...))`（`taskTree.ts:15`），对每个候选调用一次。结果直接渲染成 n 个 `<option>`。应改为带搜索的异步 combobox。
 
 ### ARC-022 [P2] 四个千行组件
 

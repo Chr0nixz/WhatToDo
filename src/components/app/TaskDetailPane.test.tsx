@@ -47,7 +47,7 @@ const makeTask = (patch: Partial<Task>): Task => ({
   deletedAt: null,
   recurrenceTemplateId: null,
   recurrenceInstanceDate: null,
-  parentId: null,
+  parentId: patch.parentId ?? null,
   tags: [],
 });
 
@@ -204,5 +204,54 @@ describe("TaskDetailPane", () => {
     await waitFor(() => {
       expect(handleClose).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("caps parent task candidates to 100 while strictly preserving the current parent (PERF-011)", async () => {
+    // Generate 250 tasks
+    const manyTasks: Task[] = Array.from({ length: 250 }, (_, i) =>
+      makeTask({
+        id: `task-candidate-${i}`,
+        title: `Candidate #${i}`,
+      }),
+    );
+
+    const activeParent = makeTask({
+      id: "task-parent-active",
+      title: "Active Parent Must Be Kept",
+    });
+    manyTasks.push(activeParent);
+
+    const currentTask = makeTask({
+      id: "current-task",
+      title: "Target Task",
+      parentId: "task-parent-active",
+    });
+
+    render(
+      <TaskDetailPane
+        actions={actions}
+        attachments={[]}
+        onClose={vi.fn()}
+        projects={[]}
+        recurringTaskTemplates={[]}
+        reminders={[]}
+        settings={settings}
+        task={currentTask}
+        tasks={[currentTask, ...manyTasks]}
+      />,
+    );
+
+    // Parent select is automatically visible when task has parentId (advancedOpen=true)
+    const parentSelect = await screen.findByLabelText("Parent task");
+    expect(parentSelect).toBeInTheDocument();
+
+    const options = parentSelect.querySelectorAll("option");
+    // "None" option (1) + capped candidates (at most 100) = at most 101 options
+    expect(options.length).toBeLessThanOrEqual(101);
+    expect(options.length).toBeGreaterThan(1);
+
+    // The active parent must be present in the options
+    const optionValues = Array.from(options).map((opt) => opt.value);
+    expect(optionValues).toContain("task-parent-active");
   });
 });
