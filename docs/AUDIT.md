@@ -456,6 +456,13 @@ export const runGlobalShortcut = (handler: () => void) => {
 2. 托盘菜单原生本地化：托盘在 `setup` 启动时已支持原生探测系统语言区域，消除前端就绪前固定硬编码英文的问题。
 3. 后端错误消息 i18n 本地化通道建立：实现 `formatBackendError`（`src/lib/backendError.ts`），将后端底层异常（锁中毒、迁移失败、越界拒绝等）映射为中英双语可读文案，`DatabaseRecoveryScreen.tsx` 错误呈现全面接入，消除英文堆栈直接穿透给用户的问题，并在 `backendError.test.ts` 中完成单测覆盖。
 
+### SEC-009 [P2] 自动备份与历史目录修剪敏感系统路径纵深防御
+
+**状态：已修复（0.2.7+）。** 
+1. 在 `src-tauri/src/lib.rs` 的 `join_backup_path` 与 `cleanup_auto_backups_sync` 内部强制接入 `is_sensitive_system_path` 深度防御层。
+2. 跨平台识别并拒绝操作系统核心目录（Windows `\Windows`、`\Program Files` 等；Unix `/etc`、`/usr`、`/sys` 等），坚决阻断对受保护目录的非预期遍历与文件删除破坏。
+3. 在 Rust 单元测试中新增 `join_backup_path_rejects_sensitive_system_paths` 与 `cleanup_auto_backups_rejects_sensitive_system_paths` 专属单测，Rust 后端单元测试用例增至 30 项全绿。
+
 - `macOSPrivateApi: true`（`tauri.conf.json:13`）导致无法上架 Mac App Store，且当前主窗口未使用透明/vibrancy，可能是不必要的。
 - Windows 安装包未做代码签名，首次安装会触发 SmartScreen 警告。
 

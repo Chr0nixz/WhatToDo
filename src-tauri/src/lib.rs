@@ -907,10 +907,11 @@ fn join_backup_path(folder: String, filename: String) -> Result<String, String> 
     if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
         return Err("Backup filename must be a plain file name.".to_string());
     }
-    Ok(PathBuf::from(folder)
-        .join(filename)
-        .to_string_lossy()
-        .to_string())
+    let folder_path = PathBuf::from(folder);
+    if is_sensitive_system_path(&folder_path) {
+        return Err("Access denied: path points to a sensitive system directory.".to_string());
+    }
+    Ok(folder_path.join(filename).to_string_lossy().to_string())
 }
 
 fn sanitize_attachment_filename(filename: &str) -> Result<String, String> {
@@ -1389,6 +1390,9 @@ fn cleanup_auto_backups_sync(
         return Err("Backup folder is required.".to_string());
     }
     let dir = PathBuf::from(folder);
+    if is_sensitive_system_path(&dir) {
+        return Err("Access denied: path points to a sensitive system directory.".to_string());
+    }
     if !dir.is_dir() {
         return Err("Backup folder does not exist.".to_string());
     }
@@ -1959,6 +1963,30 @@ mod tests {
         .expect("join");
         assert!(joined.contains(r"\\server\share") || joined.contains("//server/share"));
         assert!(joined.ends_with("whattodo.json"));
+    }
+
+    #[test]
+    fn join_backup_path_rejects_sensitive_system_paths() {
+        let sensitive = if cfg!(windows) {
+            r"C:\Windows\System32"
+        } else {
+            "/etc"
+        };
+        let err = join_backup_path(sensitive.to_string(), "backup.json".to_string())
+            .expect_err("should reject sensitive path");
+        assert!(err.contains("sensitive system directory"));
+    }
+
+    #[test]
+    fn cleanup_auto_backups_rejects_sensitive_system_paths() {
+        let sensitive = if cfg!(windows) {
+            r"C:\Program Files"
+        } else {
+            "/usr"
+        };
+        let err = cleanup_auto_backups_sync(sensitive.to_string(), 5, 30)
+            .expect_err("should reject sensitive directory");
+        assert!(err.contains("sensitive system directory"));
     }
 
     #[test]
