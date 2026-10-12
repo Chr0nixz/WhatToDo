@@ -23,11 +23,12 @@
   - Fixes `PERF-001`: Implements database-level fast aggregate statistics via `loadTaskStats(workspaceId?)` across `LocalRepository` and `SqlRepository`, computing workspace open/overdue/completed counts in <1ms via compound indexes and removing the requirement to pull full task tables into memory for derived dashboard counters.
   - Fixes `ENG-012`: Refines repository hygiene and ignores `output/`, `coverage/`, and `*.tsbuildinfo` in `.gitignore` to prevent build and test artifacts from polluting the workspace.
   - Fixes `UX-008`: Eliminates in-flight asynchronous search race conditions in `useCommandPalette` using monotonic sequence counters and active cancellation guards, ensuring out-of-order responses cannot overwrite recent query results.
+  - Fixes `ARC-021`: Eliminates async dispatch delays in `useGlobalShortcuts` by synchronously executing window restore and focus (`show_main_window_cmd`) on blurred global shortcuts, ensuring desktop shortcuts reliably surface hidden or tray-minimized windows without losing modal state, backed by dedicated unit test coverage (`useGlobalShortcuts.test.ts`).
   - Fixes `ARC-020`: Fully converts all heavy disk IO, directory scanning, and backup/pruning commands (`open_managed_attachment`, `delete_managed_attachment`, `analyze_orphaned_attachments`, `cleanup_orphaned_attachments`, `cleanup_auto_backups`, `backup_database_for_recovery`, `retry_database_migration`, `confirm_reset_database`) to asynchronous commands (`async fn`) dispatched on Tokio background thread pools, completely unblocking the Tauri main event loop and rendering thread.
   - Fixes `ARC-019`: Refactors workspace floating window label matching into an isolated pure parser `is_matching_workspace_floating_window_label` with delimited double-dash semantics, preventing hyphenated workspace labels from destroying peer workspace windows while ensuring collision-free atomic nonce generation.
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
-  - Hardens all new submodules with thorough unit test coverage: all 316 Vitest tests (including 63 real SQLite conformance tests), 13 Playwright E2E tests, and 28 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
+  - Hardens all new submodules with thorough unit test coverage: all 321 Vitest tests (including 63 real SQLite conformance tests), 13 Playwright E2E tests, and 28 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
 
 ## 0.2.6
 

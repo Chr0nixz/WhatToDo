@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 const isTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -17,9 +18,7 @@ export const runGlobalShortcut = (handler: () => void) => {
     return;
   }
   if (isTauriRuntime()) {
-    void import("@tauri-apps/api/core")
-      .then(({ invoke }) => invoke("show_main_window_cmd"))
-      .catch(() => undefined);
+    void invoke("show_main_window_cmd").catch(() => undefined);
   }
   handler();
 };

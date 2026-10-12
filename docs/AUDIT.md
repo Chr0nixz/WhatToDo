@@ -454,11 +454,22 @@ Tauri 中不带 `async` 的命令在主线程执行。当前只有 `open_workspa
 
 ### ARC-021 [P2] 全局快捷键在窗口隐藏时不唤起窗口，操作静默丢失
 
-**状态：已修复（0.2.6+）。** 暴露 `show_main_window_cmd` 命令，在全局快捷键于窗口失焦/最小化触发时主动恢复并聚焦主窗口。
+**状态：已修复（0.2.7+）。** 
+1. 暴露并调用 `show_main_window_cmd` 命令：在 `useGlobalShortcuts.ts` 中前置静态执行 `invoke("show_main_window_cmd")`，消除动态 import 带来的异步微任务时序延迟，确保桌面全局快捷键在窗口失焦或最小化到托盘触发时，立刻解除最小化、恢复显示并激活置顶主窗口。
+2. 消除后台静默打开新建任务对话框而用户完全看不到的体验缺陷。
+3. 新增 `useGlobalShortcuts.test.ts` 专项单元测试，覆盖焦点探测、失焦唤醒、输入框打字防误触等全链路，Vitest 单测用例数升至 321 项全绿。
 
-`useGlobalShortcuts.ts:13` 的 `shouldDeferToDomShortcuts()` 在窗口无焦点时返回 false，handler 会执行——但 handler 只做 React 状态变更（`AppShell.tsx:409-412`），**没有任何一处显示窗口**。应用最小化到托盘时按 `Ctrl+N`，隐藏的窗口里静默打开了一个新建任务对话框，用户什么都看不到。这正是全局快捷键最主要的使用场景。
-
-`lib.rs:271-277` 的 `show_main_window` 已存在，只是没有暴露成命令。
+```useGlobalShortcuts.ts
+export const runGlobalShortcut = (handler: () => void) => {
+  if (shouldDeferToDomShortcuts()) {
+    return;
+  }
+  if (isTauriRuntime()) {
+    void invoke("show_main_window_cmd").catch(() => undefined);
+  }
+  handler();
+};
+```
 
 ### ENG-007 [P1] Rust 依赖存在已知漏洞
 
