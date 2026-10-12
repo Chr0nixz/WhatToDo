@@ -185,6 +185,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
   useTheme(settings?.theme ?? "system", settings?.accentColor ?? "blue");
 
   const currentLanguage = settings?.language;
+  const lastTrayLanguageRef = useRef<string | null>(null);
   useEffect(() => {
     if (!currentLanguage) {
       return;
@@ -192,8 +193,11 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
     if (i18n.language !== currentLanguage) {
       void i18n.changeLanguage(currentLanguage);
     }
-    // Keep the desktop tray menu labels in sync with the active language.
-    void invoke("update_tray_menu", { language: currentLanguage }).catch(() => undefined);
+    // PERF-015: Deduplicate tray menu rebuilds to eliminate redundant IPC round-trips
+    if (lastTrayLanguageRef.current !== currentLanguage) {
+      lastTrayLanguageRef.current = currentLanguage;
+      void invoke("update_tray_menu", { language: currentLanguage }).catch(() => undefined);
+    }
   }, [currentLanguage, i18n]);
 
   useEffect(() => {

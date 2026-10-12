@@ -200,11 +200,12 @@ export const useTodos = () => {
   }, [repository]);
 
   const closeToTray = data?.settings?.closeToTray;
+  const lastCloseToTrayRef = useRef<boolean | undefined>(undefined);
   useEffect(() => {
-    if (closeToTray === undefined) {
+    if (closeToTray === undefined || lastCloseToTrayRef.current === closeToTray) {
       return;
     }
-
+    lastCloseToTrayRef.current = closeToTray;
     void invoke("set_close_to_tray", { value: closeToTray }).catch(() => undefined);
   }, [closeToTray]);
 

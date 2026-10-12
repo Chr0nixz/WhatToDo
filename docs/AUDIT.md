@@ -776,7 +776,10 @@ replace 模式对每个实体各发一条 `INSERT`（`repository.ts:3239-3304`�
 
 ### PERF-015 [P3] 每次 mutation 触发一次多余 IPC
 
-**状态：已修复（0.2.6+）。** `useTodos.ts` 与 `AppShell.tsx` 依赖已收敛至具体的 `data.settings.closeToTray` 与 `currentLanguage`，普通任务变更不再触发无意义的托盘 IPC 往返。
+**状态：已修复（0.2.7+）。** 
+1. `useTodos.ts` 引入 `lastCloseToTrayRef` 严格去重守卫，仅在 `closeToTray` 实际布尔值变化时才发起 `set_close_to_tray` IPC 调用。
+2. `AppShell.tsx` 引入 `lastTrayLanguageRef` 去重守卫，仅在 `currentLanguage` 实际切换时才触发 `update_tray_menu`，切换主题模式（`theme`）或强调色（`accentColor`）时绝对不触发无意义的托盘菜单重建调用。
+3. 普通任务增删改查、提醒勾选、工作区切换等高频 mutation，彻底消除了多余的桌面 IPC 通信开销。
 
 ```190:196:src/hooks/useTodos.ts
   useEffect(() => {
@@ -787,8 +790,6 @@ replace 模式对每个实体各发一条 `INSERT`（`repository.ts:3239-3304`�
     void invoke("set_close_to_tray", { value: data.settings.closeToTray }).catch(() => undefined);
   }, [data]);
 ```
-
-依赖整个 `data` 对象，任何一次 mutation 都会触发一次 IPC 往返。应依赖 `data.settings.closeToTray`。`AppShell.tsx:190-199` 的 `update_tray_menu` 同理（依赖了 `settings` 与冗余的 `settings?.language`，改主题色也会触发）。
 
 ### PERF-004 FTS 决策最终定型（实测证据已建立）
 
