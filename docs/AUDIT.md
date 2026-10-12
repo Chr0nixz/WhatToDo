@@ -582,9 +582,9 @@ export const runGlobalShortcut = (handler: () => void) => {
 
 ### ARC-023 [P2] ErrorBoundary 只有一个，且 lazy 视图无局部边界
 
-**状态：已修复（0.2.6+）。** 实现局部 `ViewErrorBoundary` 并包裹 `AppShell` 的懒加载视图与 `TaskDetailPane`，单个视图 chunk 加载失败可独立重试而不导致整屏白屏。
-
-`main.tsx:11-17` 的根边界是全应用唯一的。`AppShell.tsx:685` 的 `<Suspense>` 只有 loading fallback，**没有配套 error boundary**——生产环境 chunk 加载失败（网络抖动、更新后旧 chunk 404）会冒泡到根边界，整个应用白屏，而不是只让那个视图显示重试按钮。
+**状态：已修复（0.2.7+）。** 
+1. 实现局部 `ViewErrorBoundary` 并严密包裹 `AppShell` 的懒加载视图区域与 `TaskDetailPane` 浮层抽屉，视图 chunk 加载失败或渲染异常可局部隔离并支持一键重试，杜绝冒泡到根边界导致整屏白屏崩溃。
+2. 新增 `ViewErrorBoundary.test.tsx` 专属单元测试，全面验证正常渲染透传、抛错捕获降级 UI 呈现与重试按钮交互，Vitest 单测用例数升至 345 项全绿。
 
 ### UX-012 [P3] 错误反馈与 UI 组件层不统一
 
