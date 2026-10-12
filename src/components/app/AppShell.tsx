@@ -9,7 +9,6 @@ import {
   ListChecks,
   PanelLeftClose,
   PanelLeftOpen,
-  RotateCcw,
   Settings,
   TriangleAlert,
   X,
@@ -62,6 +61,7 @@ import type { AppData } from "@/data/types";
 import { cn } from "@/lib/utils";
 
 import { HomeView } from "./HomeView";
+import { AppToastContainer } from "./shell/AppToastContainer";
 import { HelpDialog } from "./shell/HelpDialog";
 import { ViewLoading } from "./shell/ViewLoading";
 
@@ -476,25 +476,6 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
     }
   }, []);
 
-  // Undo toast keyboard shortcuts: Ctrl/Cmd+Z triggers undo, Esc dismisses.
-  useEffect(() => {
-    if (!undoToast) {
-      return;
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
-      const modifier = isMac ? event.metaKey : event.ctrlKey;
-      if (modifier && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "z") {
-        event.preventDefault();
-        void runUndo();
-      } else if (event.key === "Escape") {
-        dismissUndo();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [undoToast, dismissUndo, runUndo]);
-
   if (!data) {
     return null;
   }
@@ -836,89 +817,29 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
         onTaskSearchScopeChange={palette.setTaskSearchScope}
       />
 
-      {undoToast && (
-        <div
-          className="motion-status absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-popover px-3 py-2 text-sm shadow-xl"
-          role="status"
-          aria-live="polite"
-          aria-label={undoToast.message}
-        >
-          <span>{undoToast.message}</span>
-          <button
-            aria-label={t("undo")}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-secondary px-2.5 font-medium text-secondary-foreground hover:bg-accent"
-            type="button"
-            onClick={() => void runUndo()}
-          >
-            <RotateCcw className="size-3.5" aria-hidden="true" />
-            {t("undo")}
-          </button>
-          <button
-            aria-label={t("close")}
-            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            type="button"
-            onClick={dismissUndo}
-          >
-            <X className="size-3.5" aria-hidden="true" />
-          </button>
-        </div>
-      )}
-
-      {reminderToast && (
-        <div
-          className="motion-status absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-popover px-3 py-2 text-sm shadow-xl"
-          role="status"
-          aria-live="polite"
-        >
-          <button
-            className="inline-flex h-8 items-center rounded-md bg-secondary px-2.5 font-medium text-secondary-foreground hover:bg-accent"
-            type="button"
-            onClick={() => {
-              onOpenTask(reminderToast.id);
-              setReminderToast(null);
-              if (reminderToastTimer.current) {
-                window.clearTimeout(reminderToastTimer.current);
-                reminderToastTimer.current = null;
-              }
-            }}
-          >
-            {t("openReminderTask", { title: reminderToast.title })}
-          </button>
-          <button
-            aria-label={t("close")}
-            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            type="button"
-            onClick={() => {
-              setReminderToast(null);
-              if (reminderToastTimer.current) {
-                window.clearTimeout(reminderToastTimer.current);
-                reminderToastTimer.current = null;
-              }
-            }}
-          >
-            <X className="size-3.5" aria-hidden="true" />
-          </button>
-        </div>
-      )}
-
-      {noticeToast && (
-        <div
-          className="motion-status absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive shadow-xl"
-          role="alert"
-          aria-live="assertive"
-        >
-          <TriangleAlert className="size-3.5" aria-hidden="true" />
-          <span>{noticeToast}</span>
-          <button
-            aria-label={t("close")}
-            className="inline-flex size-7 items-center justify-center rounded-md hover:bg-destructive/20"
-            type="button"
-            onClick={() => setNoticeToast(null)}
-          >
-            <X className="size-3.5" aria-hidden="true" />
-          </button>
-        </div>
-      )}
+      <AppToastContainer
+        noticeToast={noticeToast}
+        reminderToast={reminderToast}
+        undoToast={undoToast}
+        onDismissNotice={() => setNoticeToast(null)}
+        onDismissReminder={() => {
+          setReminderToast(null);
+          if (reminderToastTimer.current) {
+            window.clearTimeout(reminderToastTimer.current);
+            reminderToastTimer.current = null;
+          }
+        }}
+        onDismissUndo={dismissUndo}
+        onOpenReminderTask={(id) => {
+          onOpenTask(id);
+          setReminderToast(null);
+          if (reminderToastTimer.current) {
+            window.clearTimeout(reminderToastTimer.current);
+            reminderToastTimer.current = null;
+          }
+        }}
+        onRunUndo={() => void runUndo()}
+      />
     </div>
   );
 }

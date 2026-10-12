@@ -17,11 +17,12 @@
   - Fixes `PERF-014`: Resolves tag SQL LIKE escaping bugs for tags containing quotes or backslashes via JSON-token aligned escaping, adds SQLite migration v18 (`idx_tasks_workspace_deleted_due`) for hot-path task date queries, and removes redundant historical single-column index `idx_tasks_workspace_id`.
   - Fixes `UX-010`: Adds responsive modal dialog semantics (`role="dialog"`, `aria-modal="true"`) to `TaskDetailPane` on narrow viewports with backdrop aria-hidden attributes, and implements graceful global `Escape` key close handling protected by unsaved change confirmations.
   - Fixes `UX-011`: Aligns WAI-ARIA tab accessibility across `OverviewView` with `aria-controls` and `role="tabpanel"`, adds `aria-live="polite"` to `TaskDetailPane` unsaved status badges, and reinforces `role="region"` for keyboard navigation containers.
+  - Fixes `UX-012`: Consolidates ad-hoc toast states and keyboard shortcuts into a dedicated `AppToastContainer` component, standardizing error notices, undo handlers, and reminder toasts with unified stacking and timers.
   - Fixes `ENG-009`: Hardens release verification in `scripts/release-check.mjs` by enforcing TypeScript (`pnpm lint`) and ESLint (`pnpm lint:eslint`) alongside tests and builds, with robust cross-platform subprocess error handling to prevent silent pass on Windows runners.
   - Fixes `ENG-013`: Disambiguates performance benchmark naming by splitting scripts into a three-tier suite (`perf:runtime`, genuine in-memory SQLite `perf:sqlite`, and 20k local `perf:local-20k`), establishing true SQLite engine P50/P95 baselines.
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
-  - Hardens all new submodules with thorough unit test coverage: all 310 Vitest tests (including 61 real SQLite conformance tests), 13 Playwright E2E tests, and 27 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
+  - Hardens all new submodules with thorough unit test coverage: all 314 Vitest tests (including 61 real SQLite conformance tests), 13 Playwright E2E tests, and 27 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
 
 ## 0.2.6
 

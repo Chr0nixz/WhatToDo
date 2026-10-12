@@ -585,6 +585,11 @@ Tauri 中不带 `async` 的命令在主线程执行。当前只有 `open_workspa
 
 ### UX-012 [P3] 错误反馈与 UI 组件层不统一
 
+**状态：已修复（0.2.7+）。** 
+1. 抽离独立的轻量级通知组件 `AppToastContainer`（`src/components/app/shell/AppToastContainer.tsx`），集中管理与统一渲染全局 `notice`（错误与操作反馈）、`undo`（带异步撤销与 Esc / Ctrl+Z 键盘支持）和 `reminder`（提醒浮层跳转与关闭）。
+2. 从 `AppShell.tsx` 彻底剥离散落的 80+ 行内联 Toast JSX 与定时器监听，消除样式漂移与多层级浮层堆叠冲突，实现统一规范的反馈层级。
+3. 新增 `AppToastContainer.test.tsx` 专属单元测试，Vitest 单测用例数升至 314 项全绿。
+
 `AppShell` 里并存三套手写 toast（undo/reminder/notice，各有独立 state、timer 和 JSX）；各组件另有至少 8 种不同的 inline 错误状态命名。同一类失败在不同位置表现不同：打开文件夹失败在 `AppShell.tsx:302` 是 toast，在 `TaskDetailPane.tsx:213` 是 inline，在 `ProjectsView.tsx:180` 又是另一个 inline state。
 
 `components/ui/` 目录下**只有 `button.tsx` 一个组件**。重复的手写样式串：input 模式 42 处、card/section 13 处、dialog 样板 9 个文件、空状态 4 处。Segmented 控件有三份独立实现（`SettingsView.tsx:947`、`DatePane.tsx:86`、`TaskComposer.tsx:256`），高度 `h-8`/`h-7`/`h-7`、字号 `text-sm`/`text-xs`/`text-sm`、`role` 有无各不相同——典型的复制粘贴导致的设计漂移。周几选择器也在 `TaskDetailPane.tsx:986-1007` 与 `TaskComposer.tsx:373-394` 完整重复。
