@@ -20,12 +20,16 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
-  reporter: process.env.CI ? [["github"], ["list"]] : "list",
+  reporter: process.env.CI
+    ? [["github"], ["list"], ["html", { open: "never" }]]
+    : [["list"], ["html", { open: "never" }]],
   timeout: 30_000,
   expect: { timeout: 5_000 },
   use: {
     baseURL: "http://127.0.0.1:5173",
     trace: "on-first-retry",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
     viewport: { width: 1280, height: 800 },
   },
   projects: [
@@ -33,6 +37,14 @@ export default defineConfig({
       name: "chromium-webview-smoke",
       use: { ...devices["Desktop Chrome"] },
     },
+    ...(process.env.E2E_ALL_ENGINES === "true"
+      ? [
+          {
+            name: "webkit-webview-smoke",
+            use: { ...devices["Desktop Safari"] },
+          },
+        ]
+      : []),
   ],
   webServer: {
     command: "pnpm dev",

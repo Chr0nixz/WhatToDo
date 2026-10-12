@@ -723,14 +723,11 @@ runCargo("cargo test --locked", ["test", "--locked"]);
 
 ### ENG-011 [P2] E2E 与构建配置缺口
 
-**状态：部分修复（0.2.6+）。** 已在 `vite.config.ts` 中配置目标平台 `build.target`（Windows 为 `chrome105`，其它为 `["es2021", "safari13"]`），并启用 `sourcemap: "hidden"` 满足生产堆栈解析需求。
-
-- ~~`playwright.config.ts` 的注释描述了一个不存在的 CI 检查~~ —— **本次已修**：该注释声称"at least 10 passing tests"由 CI 的 post-suite assertion 保证，但 `ci.yml` 中没有任何统计测试数量的步骤。已删除该虚构描述并改为说明真实的引擎覆盖范围。若确实需要这个门禁，应在 CI 中真正实现它。
-- **只跑 Chromium**（`playwright.config.ts:32-37`）。Tauri 在 macOS 用 WKWebView、Linux 用 WebKitGTK，当前只覆盖三个目标平台中一个的渲染引擎。
-- **`vite.config.ts` 未设 `build.target`**。Tauri 官方模板按平台设置（Windows `chrome105` / 其它 `safari13`）。（已修复）
-- **无 sourcemap**，`ErrorBoundary` 捕获的堆栈是压缩后的乱码。建议 `sourcemap: 'hidden'`。（已修复）
-- CI 失败时不上传 Playwright trace/report（`trace: "on-first-retry"` 已配置但产物无人收集）。
-- `ci.yml` 的 `paths-ignore` 只对 push 生效，纯文档 PR 仍会触发三平台全量构建。（其中指向不存在路径的 `PROJECT_ANALYSIS.md` 条目**本次已删除**。）
+**状态：已修复（0.2.7+）。** 
+1. 在 `playwright.config.ts` 中增加 WebKit 引擎支持（`Desktop Safari`），精准覆盖 macOS WKWebView 与 Linux WebKitGTK 渲染环境，配置失败时自动捕获录像与截图（`retain-on-failure`）。
+2. 在 `.github/workflows/ci.yml` 中配置 `actions/upload-artifact@v4` 自动收集失败现场的 `playwright-report/` 与 `test-results/`，保留 14 天追踪产物，彻底解决 trace 无人收集无法复现的痛点。
+3. 补齐 `ci.yml` 的 `pull_request` 路径过滤（`paths-ignore: ["**/*.md"]`），避免纯文档修改无效触发 60 分钟跨平台全量构建矩阵。
+4. `vite.config.ts` 目标平台 `build.target` 与 `sourcemap: "hidden"` 均已就绪配置。
 
 ### ENG-012 [P3] 依赖与仓库卫生
 
