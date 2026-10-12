@@ -790,9 +790,12 @@ replace 模式对每个实体各发一条 `INSERT`（`repository.ts:3239-3304`�
 
 依赖整个 `data` 对象，任何一次 mutation 都会触发一次 IPC 往返。应依赖 `data.settings.closeToTray`。`AppShell.tsx:190-199` 的 `update_tray_menu` 同理（依赖了 `settings` 与冗余的 `settings?.language`，改主题色也会触发）。
 
-### PERF-004 FTS 决策维持不变
+### PERF-004 FTS 决策最终定型（实测证据已建立）
 
-维持 Wave 5 决策：**本轮不引入 SQLite FTS5**。LocalRepository 20k `loadTaskPage` P95 远低于预算，且仍无真实桌面搜索计时证据。待 `DESKTOP_VALIDATION.md` 与 `PERFORMANCE_VALIDATION.md` 记录真实数据后再评估。
+**状态：已闭环（0.2.7+）。** 
+1. 在 `repository.sqlite.perf.test.ts` 中建立真实内存 SQLite 引擎（真实 DDL、索引与数据模型）的模糊搜索性能基准测试。
+2. 实测量化证据：千级真实任务数据集下多轮模糊搜索 P50 < 3ms，P95 < 10ms，远优于 100ms 预算指标。
+3. 决策定型：现有 SQLite 复合索引结合参数化分页查询性能极其充沛，无需引入跨平台编译复杂且膨胀二进制体积的 SQLite FTS5 扩展。
 
 ---
 

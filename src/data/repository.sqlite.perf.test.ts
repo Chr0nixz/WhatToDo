@@ -18,6 +18,7 @@ const LOAD_BUDGET_MS = 250;
 const LOAD_TASK_PAGE_BUDGET_MS = 100;
 const TOGGLE_BUDGET_MS = 150;
 const SAVE_SETTINGS_BUDGET_MS = 150;
+const SEARCH_TASK_BUDGET_MS = 100;
 
 const percentile = (samples: number[], p: number) => {
   if (samples.length === 0) return 0;
@@ -121,5 +122,34 @@ describe("SqlRepository (Real SQLite) performance baseline", () => {
 
     const settingsP95 = percentile(settingsTimes, 95);
     expect(settingsP95).toBeLessThan(SAVE_SETTINGS_BUDGET_MS);
+  });
+
+  it("executes fuzzy search queries over real SQLite within budget (PERF-004)", async () => {
+    const searchQueries = ["Task #5", "99", "Notes", "high", "Task #10"];
+    const searchTimes: number[] = [];
+
+    for (let i = 0; i < 10; i++) {
+      const query = searchQueries[i % searchQueries.length]!;
+      const start = performance.now();
+      const result = await repository.loadTaskPage({
+        workspaceId: "local-workspace",
+        scope: "all",
+        query,
+        limit: 20,
+        offset: 0,
+        sort: "overview",
+      });
+      const elapsed = performance.now() - start;
+      searchTimes.push(elapsed);
+      expect(result.tasks.length).toBeLessThanOrEqual(20);
+    }
+
+    const searchP50 = percentile(searchTimes, 50);
+    const searchP95 = percentile(searchTimes, 95);
+
+    // Output real evidence metrics
+    console.log(`PERF-004 SQLite search benchmark: P50=${searchP50.toFixed(2)}ms, P95=${searchP95.toFixed(2)}ms`);
+
+    expect(searchP95).toBeLessThan(SEARCH_TASK_BUDGET_MS);
   });
 });
