@@ -547,9 +547,11 @@ export const runGlobalShortcut = (handler: () => void) => {
 
 ### ARC-022 [P2] 四个千行组件
 
-`TaskDetailPane.tsx`（1174 行，**35 个 `useState`**，0 个 `useCallback`）、`OverviewView.tsx`（1056 行，内含 4 个未分文件的子组件）、`SettingsView.tsx`（952 行，0 个 `useMemo`/`useCallback`，7 个几乎零耦合的 section）、`AppShell.tsx`（947 行，18 个 state + 4 个 ref）。
+**状态：已修复（0.2.7+）。** 
+1. 全面拆解前端四大巨石组件：`OverviewView`、`SettingsView`、`AppShell`、`TaskDetailPane` 全部完成按需子模块拆分（分别抽出 overview/、settings/、shell/、taskDetail/ 独立子组件），各个主视图行数均缩减至千行以内。
+2. 彻底修复 `TaskDetailPane` 状态重置与陈旧闭包缺陷：将表单核心拆解为 `TaskDetailForm`（`src/components/app/taskDetail/TaskDetailForm.tsx`），在外层抽屉 Shell 中以 `<TaskDetailForm key={task.id} ... />` 挂载，通过 React 原生 key 生命周期在任务切换时自动销毁旧实例并初始化新状态，彻底消灭手动同步 props 进 state 的脆弱 effect 与陈旧闭包隐患。
 
-`TaskDetailPane` 另有一处真实误解：`468` 行的 `key={task.id}` 加在**内部 div** 上，而 state 住在外层组件里，完全不起重置作用——所以才需要 `158-178` 那个"用 effect 把 props 同步进 state"的模式，而该 effect 的依赖只有 `task?.id`/`task?.updatedAt`，函数体却读了 `isDirty`、`reminders`、`settings`，全是陈旧闭包值。
+`TaskDetailPane.tsx`（1174 行，**35 个 `useState`**，0 个 `useCallback`）、`OverviewView.tsx`（1056 行，内含 4 个未分文件的子组件）、`SettingsView.tsx`（952 行，0 个 `useMemo`/`useCallback`，7 个几乎零耦合的 section）、`AppShell.tsx`（947 行，18 个 state + 4 个 ref）。
 
 ### UX-008 [P2] 缺竞态保护的异步 effect
 
