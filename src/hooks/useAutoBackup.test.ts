@@ -109,6 +109,37 @@ describe("runScheduledAutoBackup", () => {
     );
   });
 
+  it("skips concurrent auto-backup attempts when one is already in-flight (PERF-016)", async () => {
+    saveAutoBackupConfig({
+      enabled: true,
+      intervalHours: 24,
+      folder: "D:\\Backups",
+      retentionCount: 5,
+      retentionDays: 14,
+    });
+
+    let slowResolve: () => void;
+    const slowExport = new Promise<never>((resolve) => {
+      slowResolve = resolve as never;
+    });
+
+    const mockActions = {
+      exportBackup: vi.fn().mockReturnValue(slowExport),
+    };
+
+    // Trigger first in-flight backup
+    const firstCallPromise = runScheduledAutoBackup(mockActions as never);
+
+    // Concurrently trigger a second scheduled backup while first is in-flight
+    const secondCallResult = await runScheduledAutoBackup(mockActions as never);
+    expect(secondCallResult).toBe("skipped");
+
+    // Complete the first backup
+    slowResolve!();
+    // Allow first backup to finish cleanly
+    await firstCallPromise.catch(() => undefined);
+  });
+
   it("round-trips config through load/save including retention", () => {
     saveAutoBackupConfig({
       enabled: true,

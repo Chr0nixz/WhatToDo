@@ -87,8 +87,14 @@ const timestampForFile = () => new Date().toISOString().replace(/[:.]/g, "-");
 
 const isTauriRuntime = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+let isAutoBackupInFlight = false;
+
 /** Exported for unit tests: perform one auto-backup attempt. */
 export const runScheduledAutoBackup = async (actions: TodoActions): Promise<"skipped" | "written" | "failed"> => {
+  if (isAutoBackupInFlight) {
+    return "skipped";
+  }
+
   const config = loadAutoBackupConfig();
   if (!config.enabled) {
     return "skipped";
@@ -107,6 +113,7 @@ export const runScheduledAutoBackup = async (actions: TodoActions): Promise<"ski
     return "skipped";
   }
 
+  isAutoBackupInFlight = true;
   try {
     const payload = await actions.exportBackup();
     const filename = `whattodo-auto-${timestampForFile()}.json`;
@@ -129,6 +136,8 @@ export const runScheduledAutoBackup = async (actions: TodoActions): Promise<"ski
     const message = err instanceof Error ? err.message : String(err);
     localStorage.setItem(AUTO_BACKUP_LAST_ERROR_KEY, message);
     return "failed";
+  } finally {
+    isAutoBackupInFlight = false;
   }
 };
 
@@ -139,6 +148,11 @@ export const runScheduledAutoBackup = async (actions: TodoActions): Promise<"ski
  */
 export const useAutoBackup = (ready: boolean, actions: TodoActions) => {
   const lastRunRef = useRef<number>(0);
+  const actionsRef = useRef(actions);
+
+  useEffect(() => {
+    actionsRef.current = actions;
+  }, [actions]);
 
   useEffect(() => {
     if (!ready || !isTauriRuntime()) {
@@ -146,7 +160,7 @@ export const useAutoBackup = (ready: boolean, actions: TodoActions) => {
     }
 
     const runBackup = async () => {
-      const result = await runScheduledAutoBackup(actions);
+      const result = await runScheduledAutoBackup(actionsRef.current);
       if (result === "written") {
         lastRunRef.current = Date.now();
       }
@@ -159,5 +173,5 @@ export const useAutoBackup = (ready: boolean, actions: TodoActions) => {
       window.clearTimeout(startupTimer);
       window.clearInterval(intervalTimer);
     };
-  }, [ready, actions]);
+  }, [ready]);
 };

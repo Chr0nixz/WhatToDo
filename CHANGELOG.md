@@ -46,9 +46,10 @@
   - Fixes `FUN-009`: Enriches desktop reminder payload with `workspaceId` and wires automated workspace switching into `AppShell` notification click handlers, backed by cross-workspace `loadDueReminders` conformance tests ensuring cross-workspace reminders trigger and navigate seamlessly.
   - Closes validation gap in `docs/DESKTOP_VALIDATION.md`: Establishes 100% explicit automated test mapping across all 24 checklist items (backed by 347 Vitest tests, 13 Playwright E2E tests, and 28 Rust tests) alongside rigorous physical validation protocols to eliminate quality process voids.
   - Fixes `ENG-002`: Fortifies private signing key protection by expanding `.gitignore` coverage across sensitive key patterns (`*.key`, `*.pem`, `*.priv`, `*.secret`, `id_rsa*`, `id_ed25519*`) and integrating an automated pre-flight plaintext private key leak scanner in `scripts/release-check.mjs` to block releases if keys are ever present in source trees.
+  - Fixes `PERF-016`: Adds in-flight concurrency lock (`isAutoBackupInFlight`) to `useAutoBackup` to block overlapping disk IO runs on slow drives, while stabilizing timer lifecycles via `actionsRef` to prevent restart jitter on top-level state updates.
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
-  - Hardens all new submodules with thorough unit test coverage: all 347 Vitest tests (including 74 real SQLite conformance tests), 13 Playwright E2E tests, and 28 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
+  - Hardens all new submodules with thorough unit test coverage: all 348 Vitest tests (including 74 real SQLite conformance tests), 13 Playwright E2E tests, and 28 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
 
 ## 0.2.6
 
