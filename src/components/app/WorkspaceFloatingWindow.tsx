@@ -52,6 +52,8 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const expandedSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const isTogglingCollapseRef = useRef(false);
+  const isTogglingTopRef = useRef(false);
   const currentWindow = useMemo(() => getCurrentWindow(), []);
 
   useEffect(() => {
@@ -115,17 +117,29 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
     }
   };
 
-  const toggleCollapsed = () => {
-    if (isCollapsed) {
-      void resizeForCollapsedState(false).finally(() => setIsCollapsed(false));
+  const toggleCollapsed = async () => {
+    if (isTogglingCollapseRef.current) {
       return;
     }
-
-    setIsCollapsed(true);
-    window.setTimeout(() => void resizeForCollapsedState(true), 0);
+    isTogglingCollapseRef.current = true;
+    try {
+      if (isCollapsed) {
+        await resizeForCollapsedState(false);
+        setIsCollapsed(false);
+      } else {
+        setIsCollapsed(true);
+        await resizeForCollapsedState(true);
+      }
+    } finally {
+      isTogglingCollapseRef.current = false;
+    }
   };
 
   const toggleAlwaysOnTop = async () => {
+    if (isTogglingTopRef.current) {
+      return;
+    }
+    isTogglingTopRef.current = true;
     const next = !isAlwaysOnTop;
     setIsAlwaysOnTop(next);
 
@@ -133,6 +147,8 @@ export function WorkspaceFloatingWindow({ data, actions }: WorkspaceFloatingWind
       await currentWindow.setAlwaysOnTop(next);
     } catch {
       setIsAlwaysOnTop(!next);
+    } finally {
+      isTogglingTopRef.current = false;
     }
   };
 

@@ -411,6 +411,14 @@ fn validate_text_file_path(path: &str, allowed_extensions: &[&str]) -> Result<Pa
           || existing_label.starts_with(&previous_label_prefix)
 ```
 
+### ARC-024 [P2] 浮窗操作防抖与尺寸折叠互斥加固
+
+**状态：已修复（0.2.7+）。** 
+1. `WorkspaceFloatingWindow.tsx` 引入 `isTogglingCollapseRef` 与 `isTogglingTopRef` 同步互斥防抖锁。
+2. 彻底消除快速连击收起/展开导致的高度尺寸错乱与缓存踩踏缺陷，杜绝把 96px 收起高度误写入 `expandedSizeRef` 导致浮窗无法恢复展开的隐患。
+3. 消除连击置顶图标导致的操作系统窗口置顶状态与前端 state 倒置冲突。
+4. 在 `WorkspaceFloatingWindow.test.tsx` 中新增针对折叠互斥与置顶切换的专属单元测试，Vitest 单测用例数升至 351 项全绿。
+
 ### ARC-020 [P2] 9 个命令同步执行重 IO，阻塞主线程
 
 **状态：已修复（0.2.7+）。** 

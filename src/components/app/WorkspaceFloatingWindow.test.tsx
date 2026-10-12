@@ -118,4 +118,56 @@ describe("WorkspaceFloatingWindow performance list behavior", () => {
     },
     15_000,
   );
+
+  it("toggles collapse state with concurrency debounce and sets window dimensions safely (ARC-024)", async () => {
+    const tasks = [makeTask(1)];
+    const loadTaskPage = vi.fn(async () => ({
+      tasks,
+      total: 1,
+      reminders: [],
+    }));
+
+    render(
+      <WorkspaceFloatingWindow
+        actions={{ loadTaskPage } as unknown as TodoActions}
+        data={makeData(tasks)}
+      />,
+    );
+
+    expect(await screen.findByText("Task 1")).toBeInTheDocument();
+
+    const collapseButton = screen.getByTitle("折叠窗口");
+    expect(collapseButton).toBeInTheDocument();
+
+    // Trigger rapid successive clicks: mutex lock must guard against race conditions
+    fireEvent.click(collapseButton);
+    fireEvent.click(collapseButton);
+
+    expect(await screen.findByTitle("展开窗口")).toBeInTheDocument();
+  });
+
+  it("toggles always-on-top state with debounce guard (ARC-024)", async () => {
+    const tasks = [makeTask(1)];
+    const loadTaskPage = vi.fn(async () => ({
+      tasks,
+      total: 1,
+      reminders: [],
+    }));
+
+    render(
+      <WorkspaceFloatingWindow
+        actions={{ loadTaskPage } as unknown as TodoActions}
+        data={makeData(tasks)}
+      />,
+    );
+
+    const pinButton = await screen.findByTitle("取消置顶");
+    expect(pinButton).toBeInTheDocument();
+
+    // Trigger rapid successive toggles: debounce mutex guards against state inversion
+    fireEvent.click(pinButton);
+    fireEvent.click(pinButton);
+
+    expect(await screen.findByTitle("置顶")).toBeInTheDocument();
+  });
 });
