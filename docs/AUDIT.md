@@ -373,6 +373,13 @@ fn export_attachment_sidecar(
 ) -> Result<Vec<String>, String> {
 ```
 
+### SEC-010 [P2] 外部导入备份 sidecar 解包路径穿越拦截与文件名安全清洗
+
+**状态：已修复（0.2.7+）。** 
+1. `import_attachment_sidecar` 强制接入 `validate_text_file_path(&backup_json_path, &["json"])` 校验，拦截空路径、非法扩展名、`..` 相对遍历以及跨平台系统关键敏感目录。
+2. 校验解包源路径必须满足 `is_path_within_root_lenient(&source, &sidecar_root)` 且为常规文件，坚决阻断越界读取与主机任意文件搬移。
+3. 在 Rust 单元测试中新增 `import_attachment_sidecar_path_validation_rejects_traversal_and_sensitive_paths` 专项测试，Rust 单元测试用例增至 31 项全绿。
+
 ### SEC-005 [P1] `read_text_file` / `write_text_file` 无根目录约束
 
 **状态：已修复（0.2.7+）。** 

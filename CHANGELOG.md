@@ -53,9 +53,10 @@
   - Fixes `FUN-010`: Implements `close_workspace_floating_windows` backend Tauri command and connects it to `deleteWorkspace` actions, ensuring floating windows belonging to deleted workspaces are automatically and safely closed rather than lingering as orphan surfaces reading stale data.
   - Fixes `ARC-025`: Introduces throttled window focus revalidation (`FOCUS_REVALIDATION_THROTTLE_MS = 15_000`) and concurrency guards in `useTodos` across `focus` and `visibilitychange` events, ensuring multi-window data consistency while eliminating IPC revalidation storms during rapid Alt+Tab switching.
   - Fixes `PERF-018`: Automatically resets active task selection (`selectedTaskId`) and drawer state upon workspace switching in `AppShell`, eliminating ghost task details and cross-workspace draft bleeding.
+  - Fixes `SEC-010`: Hardens `import_attachment_sidecar` with strict path validation (`validate_text_file_path`) and jail boundary checks (`is_path_within_root_lenient`) on unbundled sidecar extraction, actively blocking path traversal attacks and sensitive directory reads.
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
-  - Hardens all new submodules with thorough unit test coverage: all 351 Vitest tests (including 74 real SQLite conformance tests), 13 Playwright E2E tests, and 30 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
+  - Hardens all new submodules with thorough unit test coverage: all 351 Vitest tests (including 74 real SQLite conformance tests), 13 Playwright E2E tests, and 31 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
 
 ## 0.2.6
 

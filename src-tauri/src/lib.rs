@@ -1353,10 +1353,7 @@ async fn import_attachment_sidecar(
     backup_json_path: String,
     items: Vec<AttachmentSidecarItem>,
 ) -> Result<Vec<AttachmentSidecarImportResult>, String> {
-    let json_path = PathBuf::from(backup_json_path.trim());
-    if json_path.as_os_str().is_empty() {
-        return Err("Backup JSON path is required.".to_string());
-    }
+    let json_path = validate_text_file_path(&backup_json_path, &["json"])?;
     let sidecar_root = sidecar_dir_for_backup_json(&json_path)?;
     if !sidecar_root.exists() {
         return Ok(Vec::new());
@@ -1377,7 +1374,7 @@ async fn import_attachment_sidecar(
             Err(_) => continue,
         };
         let source = sidecar_root.join(&id).join(&filename);
-        if !source.is_file() {
+        if !is_path_within_root_lenient(&source, &sidecar_root) || !source.is_file() {
             continue;
         }
         let dest_dir = managed_root.join(&id);
@@ -2010,6 +2007,23 @@ mod tests {
         let path = PathBuf::from("/tmp/whattodo-auto-1.json");
         let sidecar = sidecar_dir_for_backup_json(&path).expect("sidecar");
         assert!(sidecar.ends_with("whattodo-auto-1_attachments"));
+    }
+
+    #[test]
+    fn import_attachment_sidecar_path_validation_rejects_traversal_and_sensitive_paths() {
+        let sensitive = if cfg!(windows) {
+            r"C:\Windows\System32\malicious.json"
+        } else {
+            "/etc/malicious.json"
+        };
+        let err = validate_text_file_path(sensitive, &["json"])
+            .expect_err("should reject sensitive json path");
+        assert!(err.contains("system critical directory"));
+
+        let traversal = "../../../evil.json";
+        let err_traversal = validate_text_file_path(traversal, &["json"])
+            .expect_err("should reject path traversal");
+        assert!(err_traversal.contains("Path traversal is not allowed"));
     }
 
     #[test]
