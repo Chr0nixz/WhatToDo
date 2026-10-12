@@ -247,15 +247,9 @@ permissions = [
 
 ### ENG-002 [P0] updater 私钥明文存放在仓库工作目录
 
-**状态：已修复（0.2.6）。** `.gitignore` 显式忽略密钥文件；`release-check` 若根目录仍有 `.tauri-updater-private-key.local` 则失败。不自动搬迁用户磁盘上的密钥。
-
-**证据**：仓库根目录存在 `.tauri-updater-private-key.local`（348 B）与 `.tauri-updater-private-key-password.local`（32 B）。
-
-**当前状态是安全的**：二者被 `.gitignore:15` 的 `*.local` 覆盖，且经 `git log --all --full-history` 与内容级 `git log -S` 三重交叉验证，从未进入过任何提交。
-
-**但风险不可接受**：一次 `git add -f`、一次 `.gitignore` 误改、一次把目录整体打包发送，密钥即泄漏。updater 私钥泄漏是最高级别的供应链事故——攻击者可签名任意载荷，所有已安装客户端会通过自动更新静默接受。`AGENTS.md` 自己就要求 *"verify updater signing secrets are present outside the repository"*，当前状态直接违反项目自身规则。
-
-**建议**：移至仓库目录之外（如 `%USERPROFILE%\.whattodo-keys\`），通过 `TAURI_SIGNING_PRIVATE_KEY_PATH` 指向——`scripts/release-build.mjs:8-10` 已支持该方式，无需改代码。同时在 `.gitignore` 补显式规则 `*.key` / `.tauri-updater-private-key*`，不要只依赖宽泛的 `*.local`。
+**状态：已修复（0.2.7+）。** 
+1. `.gitignore` 显式扩展全套敏感私钥文件防御规则（涵盖 `.tauri-updater-private-key*`、`*.key`、`*.pem`、`*.priv`、`*.private_key`、`*.secret`、`id_rsa*`、`id_ed25519*`），杜绝任何明文私钥进入版本控制。
+2. 在 `scripts/release-check.mjs` 中接入前置私钥防泄露扫描守卫：发版前严格检查根目录与 `src-tauri` 目录，一旦探测到任何潜在明文私钥文件即刻非零报错并阻断发布流程，强制私钥仅由环境变量 `TAURI_SIGNING_PRIVATE_KEY` 或外部安全路径注入，彻底消除 updater 供应链投毒与私钥泄露风险。
 
 ---
 

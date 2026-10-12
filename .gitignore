@@ -33,9 +33,15 @@ src-tauri/target
 *.sln
 *.sw?
 
-# Updater signing keys — never commit
+# Updater signing keys and secrets — never commit
 .tauri-updater-private-key*
 *.key
+*.pem
+*.priv
+*.private_key
+*.secret
+id_rsa*
+id_ed25519*
 
 # Coverage
 coverage

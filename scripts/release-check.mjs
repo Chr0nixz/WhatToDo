@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -99,6 +99,29 @@ runPnpm("pnpm lint:eslint", ["lint:eslint"]);
 runPnpm("pnpm test", ["test"]);
 runPnpm("pnpm build", ["build"]);
 runPnpm("pnpm perf:build", ["perf:build"]);
+
+// ENG-002: Ensure no plaintext private signing keys are accidentally present in the repository tree
+const isPotentialPrivateKey = (filename) =>
+  /\.(key|pem|priv|private_key|secret)$/i.test(filename) ||
+  filename.startsWith(".tauri-updater-private-key") ||
+  filename.startsWith("id_rsa") ||
+  filename.startsWith("id_ed25519");
+
+const scanDirs = [root, resolve(root, "src-tauri")];
+for (const dir of scanDirs) {
+  try {
+    const files = readdirSync(dir);
+    for (const file of files) {
+      if (isPotentialPrivateKey(file)) {
+        errors.push(
+          `Security violation (ENG-002): Plaintext signing key detected in source tree: ${join(dir, file)}. Signing keys must be injected exclusively via environment variables and never reside in repository folders.`,
+        );
+      }
+    }
+  } catch {
+    // Ignore unreadable directory in scanner
+  }
+}
 
 if (!process.env.TAURI_SIGNING_PRIVATE_KEY && !process.env.TAURI_SIGNING_PRIVATE_KEY_PATH) {
   errors.push("TAURI_SIGNING_PRIVATE_KEY or TAURI_SIGNING_PRIVATE_KEY_PATH is required for signed updater artifacts.");
