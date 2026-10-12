@@ -527,11 +527,10 @@ export const runGlobalShortcut = (handler: () => void) => {
 
 ### PERF-010 [P2] TaskList 每行渲染做 O(n) 工作，且 `React.memo` 完全失效
 
-**状态：已修复（0.2.6+）。** 预计算单次 $O(n)$ 父子索引与子任务进度 Map，回调函数全部使用 `useCallback` 稳定引用，`TaskRow` 的 `React.memo` 浅比较全面恢复生效。
-
-`taskDepthInList` 与 `getDirectChildren`（`taskTree.ts:73-81`、`31-34`）每次调用都重建覆盖全表的 Map 或做全量 filter，而 `TaskList` 在渲染循环里逐行调用（`TaskList.tsx:617-620`，非虚拟化路径同样，`702-703`）。整体退化为 O(n²)，且无提前返回兜底。
-
-同时 `TaskListImpl` 有 **0 个 `useCallback`**：`toggleCollapse`(334)、`toggleCheck`(346)、`requestDeleteTask`(401) 都是裸函数，每次渲染换新引用后作为 props 传给 `React.memo` 包裹的 `TaskRow`（`TaskList.tsx:86`）。加上 `childProgress` 每次返回新对象字面量、`onDeleteTask` 是每次求值的三元表达式——**memo 的浅比较必然失败，一次都不会命中**（`TaskList.tsx:763-766` 的注释描述的效果并未实现）。
+**状态：已修复（0.2.7+）。** 
+1. 预计算单次 $O(n)$ 父子层级深度 Map `taskDepthMap` 与子任务进度 Map `childProgressMap`。
+2. 虚拟化和非虚拟化两套渲染循环全面改为 `taskDepthMap.get(task.id) ?? 0` 常数级查表，彻底消除每行渲染调用 `taskDepthInList` 引发的祖先链递归回溯与 $O(n^2)$ 级列表重渲染开销。
+3. 列表操作回调（`toggleCollapse`、`toggleCheck`、`effectiveDeleteHandler`、`onSelectTask`）全面通过 `useCallback`/`useMemo` 稳定引用，`TaskRow` 的 `React.memo` 浅比较全面恢复生效，大幅提升大数据集下的列表滚动与勾选流畅度。
 
 ### PERF-011 [P2] TaskDetailPane 父任务候选是 O(n²) 且渲染 n 个 DOM option
 

@@ -334,6 +334,14 @@ function TaskListImpl({
   );
   const visibleTasksById = useMemo(() => new Map(visibleTasks.map((task) => [task.id, task])), [visibleTasks]);
   const childProgressMap = useMemo(() => computeAllChildProgress(windowedTasks), [windowedTasks]);
+  // PERF-010: Precompute single-pass O(n) task depths to eliminate O(n²) recursive lookups in render loops.
+  const taskDepthMap = useMemo(() => {
+    const depths = new Map<string, number>();
+    for (const task of visibleTasks) {
+      depths.set(task.id, taskDepthInList(visibleTasksById, task.id));
+    }
+    return depths;
+  }, [visibleTasks, visibleTasksById]);
   const hasMore = onLoadMore ? tasks.length < (totalCount ?? tasks.length) : windowSize ? visibleCount < tasks.length : false;
   const shouldVirtualize = visibleTasks.length > VIRTUAL_THRESHOLD;
 
@@ -627,7 +635,7 @@ function TaskListImpl({
                     isSelected={selectedTaskId === task.id}
                     isCompact={compact}
                     index={virtualItem.index}
-                    indentDepth={taskDepthInList(visibleTasksById, task.id)}
+                    indentDepth={taskDepthMap.get(task.id) ?? 0}
                     childProgress={childProgressMap.get(task.id) ?? null}
                     isCollapsed={collapsedParentIds.has(task.id)}
                     onToggleCollapse={toggleCollapse}
@@ -715,7 +723,7 @@ function TaskListImpl({
               isSelected={selectedTaskId === task.id}
               isCompact={compact}
               index={index}
-              indentDepth={taskDepthInList(visibleTasksById, task.id)}
+              indentDepth={taskDepthMap.get(task.id) ?? 0}
               childProgress={childProgressMap.get(task.id) ?? null}
               isCollapsed={collapsedParentIds.has(task.id)}
               onToggleCollapse={toggleCollapse}
