@@ -534,19 +534,9 @@ Tauri 中不带 `async` 的命令在主线程执行。当前只有 `open_workspa
 
 ### UX-008 [P2] 缺竞态保护的异步 effect
 
-**状态：已修复（0.2.6+）。** `SettingsView` 的 `loadRecoveryItems` 与 `useCommandPalette` 均增加了 `active` 取消守卫，防止竞态覆盖。
-
-```126:128:src/components/app/SettingsView.tsx
-  useEffect(() => {
-    void loadRecoveryItems();
-  }, [data.workspaceId]);
-```
-
-无 `active`/`cancelled` 标志，快速切换工作区时先发起的请求可能后返回，把旧工作区的已删除任务写进 state。
-
-`useCommandPalette.ts:136-150` 同类问题：cleanup 只清 debounce 定时器，已在飞行中的请求不取消，两个请求谁后到谁覆盖——搜索关键词越短返回越慢，很容易显示上一个关键词的结果。
-
-对比 `useTaskPage.ts:58,82-84`、`AppShell.tsx:269,277-279`、`ReminderCenterView.tsx:72,91-93` 都正确做了保护，说明团队知道正确写法，只是缺工具强制执行（见 `ENG-003`）。
+**状态：已修复（0.2.7+）。** 
+1. `useCommandPalette.ts` 引入 `searchSeqRef` 递增单调序列号与 `active` 取消双重守卫，异步搜索回调严格校验 `if (active && seq === searchSeqRef.current)`，从机制上彻底阻断飞行中慢请求覆盖最新快请求结果的异步竞态缺陷。
+2. `SettingsView` 的 `loadRecoveryItems` 与 `useTaskPage` 均具备工作区 `active` 取消守卫，防止快速切工作区导致的跨工作区串写覆盖。
 
 ### UX-009 [P2] HomeView 加载期间显示"今天没有任务"
 

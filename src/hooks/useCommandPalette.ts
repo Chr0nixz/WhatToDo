@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   filterCommandItems,
@@ -32,6 +32,7 @@ export const useCommandPalette = ({ buildItems, searchTasks, onOpenTask, onClose
   const [isSearchingTasks, setIsSearchingTasks] = useState(false);
   const [taskSearchError, setTaskSearchError] = useState<string | null>(null);
   const [recentTick, setRecentTick] = useState(0);
+  const searchSeqRef = useRef(0);
 
   const recentStore = useMemo(() => {
     void recentTick;
@@ -138,21 +139,22 @@ export const useCommandPalette = ({ buildItems, searchTasks, onOpenTask, onClose
     setIsSearchingTasks(true);
     setTaskSearchError(null);
     let active = true;
+    const seq = ++searchSeqRef.current;
     const timer = window.setTimeout(() => {
       void searchTasks(trimmed, taskSearchScope)
         .then((items) => {
-          if (active) {
+          if (active && seq === searchSeqRef.current) {
             setTaskItems(items);
           }
         })
         .catch(() => {
-          if (active) {
+          if (active && seq === searchSeqRef.current) {
             setTaskItems([]);
             setTaskSearchError("operationFailed");
           }
         })
         .finally(() => {
-          if (active) {
+          if (active && seq === searchSeqRef.current) {
             setIsSearchingTasks(false);
           }
         });
