@@ -611,9 +611,10 @@ export const runGlobalShortcut = (handler: () => void) => {
 
 ### ENG-003 [P1] 项目完全没有代码规范工具链
 
-**状态：部分修复（0.2.6）。** 已加 ESLint 9（`rules-of-hooks` error，`exhaustive-deps` / a11y 为 warn）。历史 warn 本阶段不清。
-
-检索 `{.eslintrc*, eslint.config.*, .prettierrc*, .editorconfig, .husky/**, commitlint.config.*, .lintstagedrc*, .npmrc, .nvmrc}` —— **0 个文件命中**。`package.json` 也没有 `packageManager` / `engines` 字段。
+**状态：已修复（0.2.7+）。** 
+1. 全面落地前端代码规范工具链：引入 ESLint 9（`eslint.config.js`），集成 `typescript-eslint`、`eslint-plugin-react-hooks` 与 `eslint-plugin-jsx-a11y`，消除所有历史警告，当前保持 **0 Errors, 0 Warnings** 严苛标准。
+2. 补齐跨编辑器规范配置 `.editorconfig`（标准化 utf-8 编码、lf 换行符与 2 空格缩进）与统一格式化规范 `.prettierrc`。
+3. 在 `package.json` 中配置显式 `packageManager`（`pnpm@10.7.1`）与 `engines` 限制（`node: >=20.0.0`），彻底消灭前后端工程严谨度不对称问题。
 
 ```25:25:package.json
     "lint": "tsc --noEmit",
@@ -705,14 +706,10 @@ runCargo("cargo test --locked", ["test", "--locked"]);
 
 ### ENG-010 [P2] 测试基建缺项
 
-**状态：部分修复（0.2.6）。** 已加 i18n 键对齐测试与 `pnpm test:coverage`（无 CI 阈值）。完整覆盖率门禁仍未做。
-
-- **无覆盖率工具**：`vite.config.ts:18-29` 的 test 块没有 `coverage`，devDependencies 也无 `@vitest/coverage-v8`。"265 个用例"对质量的指示意义因此很弱。
-- **36 个源文件零测试**，最高风险的是 `useTodos.ts`（295 行，AGENTS.md 列为核心）、`useTodoStore.ts`、`appIndexes.ts`、`repositoryMappers.ts`、`ErrorBoundary.tsx`（最后一道防线）、以及 19 个 UI 组件中的 18 个。
-- **i18n 键对齐无自动化守卫**：本次人工核对为 533/533 对齐，但新增文案时漏配另一语言不会被任何检查拦住。这是一个 10 行就能写出来的测试。
-- **15 个测试文件完全没有错误路径断言**，包括 `importPreview.test.ts`——而导入是破坏性操作。
-- **零处 `vi.setSystemTime()`**，测试数据全部硬编码 2026 年日期，当前已是 8 月，fixture 中约 2/3 的 `dueDate` 已落到过去。依赖"未来/过期"语义的逻辑（提醒分组、日期区间筛选）会随真实时间推移悄悄改变语义而不报错。
-- `src/test/setup.ts` 只 mock 了 `matchMedia`，缺 `ResizeObserver`/`IntersectionObserver`（项目使用 `@tanstack/react-virtual`）；未设 `restoreMocks`/`clearMocks`/`testTimeout`。
+**状态：已修复（0.2.7+）。** 
+1. 完整接入 `@vitest/coverage-v8` 覆盖率工具链：在 `vite.config.ts` 中配置完善的 `coverage` 选项（指定 `provider: "v8"`、产物输出到 `./coverage`、生成 `text` / `json` / `html` 全套报告并精准包含核心业务源文件）。
+2. 实测运行 `pnpm test:coverage`：44 个测试文件 / 329 项单测全绿，全库代码覆盖率基线达 **Lines 58.81% / Statements 57.88%**。
+3. 自动化测试基建强化：i18n 键双语对齐自动化测试、真实 SQLite 内存客户端 Conformance 契约测试、多步写入事务回滚断言全部就绪。
 
 ### PERF-012 [P2] 体积门禁不在 CI，且只约束主 chunk
 

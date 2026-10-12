@@ -27,6 +27,19 @@ export default defineConfig(async () => ({
       "**/test-results/**",
       "**/*.perf.test.ts",
     ],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json", "html"],
+      reportsDirectory: "./coverage",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.test.{ts,tsx}",
+        "src/**/*.perf.test.ts",
+        "src/test/**",
+        "src/data/testSchema.sql",
+        "src/vite-env.d.ts",
+      ],
+    },
   },
   build: {
     target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : ["es2021", "safari13"],
