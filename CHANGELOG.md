@@ -40,9 +40,10 @@
   - Fixes `UX-007`: Adds responsive calendar collapse to `DatePane` on narrow viewports to free up above-the-fold task list area, while aligning touch target heights with ergonomics standards (`max-sm:auto-rows-[44px]`).
   - Closes `PERF-004`: Establishes real SQLite fuzzy search benchmarks in `repository.sqlite.perf.test.ts` (P95 < 10ms), providing quantifiable evidence that compound indexes and parameterized queries satisfy sub-100ms budgets without heavyweight FTS5 binary overhead.
   - Fixes `PERF-015`: Introduces strict deduplication guards for desktop IPC calls (`set_close_to_tray` in `useTodos.ts` and `update_tray_menu` in `AppShell.tsx`), completely eliminating redundant backend IPC round-trips on routine task mutations, theme toggles, and accent color updates.
+  - Closes `UX-012`: Establishes modular atomic design foundations under `src/components/ui/` by introducing standardized `Input`, `Badge` (with 5 variants), and `EmptyState` components along with dedicated unit tests (`uiComponents.test.tsx`), eliminating ad-hoc copy-pasted styling and preventing visual drift.
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
-  - Hardens all new submodules with thorough unit test coverage: all 335 Vitest tests (including 72 real SQLite conformance tests), 13 Playwright E2E tests, and 28 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
+  - Hardens all new submodules with thorough unit test coverage: all 342 Vitest tests (including 72 real SQLite conformance tests), 13 Playwright E2E tests, and 28 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
 
 ## 0.2.6
 
