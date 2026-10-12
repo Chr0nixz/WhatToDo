@@ -36,9 +36,10 @@
   - Fixes `ENG-010`: Configures `@vitest/coverage-v8` in `vite.config.ts` to output HTML/JSON/text test coverage reports (`pnpm test:coverage`), establishing a verified test coverage baseline across the repository (58.81% lines / 57.88% statements).
   - Fixes `ENG-008`: Re-sequences pre-flight release checks so clean working tree inspection executes before cargo builds, and resolves signing key password validation deadlock to allow unencrypted local release builds.
   - Fixes `ARC-022`: Fully completes decomposition of monolithic views by splitting `TaskDetailPane` into a lightweight drawer shell and an isolated `TaskDetailForm` mounted with native React `key={task.id}` lifecycle management, eliminating manual prop-to-state synchronization effects and stale closures while reducing the host component to ~200 lines.
+  - Fixes `ARC-013`: Eliminates all 12 behavioral semantic divergences between `LocalRepository` and `SqlRepository` (overview status ranks, reminder snoozedUntil resets, updatedAt soft-delete stamps, invalid workspace task moves, orphan reminder events, attachment disk cleanup, missing task attachment rejection, and cross-workspace parent validation), verified with 72 real SQLite conformance test cases.
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
-  - Hardens all new submodules with thorough unit test coverage: all 329 Vitest tests (including 64 real SQLite conformance tests), 13 Playwright E2E tests, and 28 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
+  - Hardens all new submodules with thorough unit test coverage: all 335 Vitest tests (including 72 real SQLite conformance tests), 13 Playwright E2E tests, and 28 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
 
 ## 0.2.6
 

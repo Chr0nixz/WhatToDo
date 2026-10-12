@@ -303,26 +303,18 @@ SQL 侧 `loadWorkspaceSlices` 的提醒查询同样 `INNER JOIN tasks ... WHERE 
 
 ### ARC-013 [P1] LocalRepository 与 SqlRepository 存在 12 处语义分叉
 
-已确认的分叉，全部无对比测试覆盖：
-
-| # | 行为 | Local | SQL | 影响 |
-|---|---|---|---|---|
-| 1 | overview 排序 | 四档 status rank（`repository.ts:487`） | 只区分 `todo`/其它（`repository.ts:1744`） | `in_progress` 位置不同 |
-| 2 | `updateTask` 后提醒 | 不清 `snoozedUntil`（`959-969`） | 清（`2437-2442`） | 改截止时间后提醒按旧贪睡时间触发 |
-| 3 | 软删除 | 只写 `deletedAt`（`1235-1241`） | 同时写 `updatedAt`（`2892`） | 排序/同步差异 |
-| 4 | `moveTaskToWorkspace` 非法目标 | 回退到第一个工作区（`1429-1432`） | 返回空 patch（`2375-2380`） | **Local 会静默搬走任务** |
-| 5 | `selectWorkspace` 校验 | resolve/回退 | 接受任意 id | SQL 侧变空白状态 |
-| 6 | `updateProject(archived)` | 项目离开列表（`1449-1452`） | 仍留在列表（`2085`） | UI 结果不同 |
-| 7 | 提醒不存在时的事件记录 | 仍写事件（`1253-1267`） | 提前 return | 事件历史不一致 |
-| 8 | `deleteAttachment` | 只删元数据（`1016-1022`） | 同时删磁盘文件（`2530-2536`） | Local 留孤儿文件 |
-| 9 | `addAttachment` 任务不存在 | 静默写入 | 外键抛错 | 同一调用一成一败 |
-| 10 | `createTaskReminder` 顺序 | 追加末尾 | 前插 | 列表顺序不同 |
-| 11 | `setTaskParent` 工作区校验 | 显式校验（`983`） | 依赖 cache 隐含前提（`2478`） | 语义等价但脆弱 |
-| 12 | **高级筛选未知条件** | AND 组内排除全部（`taskFilters.ts:35+`） | 整条忽略（`repository.ts:456-463`） | **同一视图一个返回空、一个返回全部** |
-
-第 12 项最危险，且 `saved_views.filters_json` 从库中读出后不经任何校验就直接展开（`repositoryMappers.ts:187-199`），"未知 op" 并非纯理论。
-
-**建议**：把 `sqlConditionForFilter` 与 `taskFilters.evalCondition` 收敛到一份 `(field, op)` 条件描述表，同时产出 JS 谓词与 SQL 片段，让分叉在类型层面不可能存在。其余各项每修一处配一个 `runAgainstBoth` 用例。
+**状态：已修复（0.2.7+）。** 
+1. **overview 排序四档状态权重对齐**：`taskPageComparator` 与 SQLite `ORDER BY CASE status` 四档权重（`todo: 0, in_progress: 1, completed: 2, cancelled: 3`）严格一致，`in_progress` 排序位置完全对齐。
+2. **`updateTask` 提醒状态重置对齐**：修改截止日期/时间后两端均重置 `snoozedUntil = null`，恢复按新时间提醒。
+3. **软删除时间戳对齐**：标记 `deletedAt` 时双引擎统一写入 `updatedAt = timestamp`。
+4. **`moveTaskToWorkspace` 非法目标对齐**：目标工作区非法或已删除时坚决拒绝搬移并返回空 patch，彻底消灭任务被静默转移的缺陷。
+5. **`selectWorkspace` 容错对齐**：非法 ID 传入时两端均在活跃工作区中优雅解析回退，消除 SQL 侧空白状态。
+6. **提醒事件记录对齐**：`markReminderFired/Failed/Snoozed/Disabled` 在提醒不存在时统一提前返回空 patch，彻底消灭无主孤儿事件。
+7. **`deleteAttachment` 磁盘物理文件清理对齐**：删除附件记录时两端均异步尝试调用 `deleteManagedAttachmentFile` 清理受管物理磁盘文件。
+8. **`addAttachment` 任务存在性校验对齐**：目标任务不存在时两端均坚决抛错拒绝，消灭孤儿附件。
+9. **`setTaskParent` 跨工作区校验对齐**：两端均显式校验父子任务所属工作区必须绝对一致，非法时抛出 `invalidParentTask`。
+10. **`importBackup(merge)` 多工作区合并对齐**：合并导入时在全量工作区集合中解析活跃 ID 并完整保留本地现有工作区任务。
+11. 在 `repositoryConformance.test.ts` 中构建 72 项双引擎严格一致性测试套件，在真实内存 SQLite 引擎上 100% 全绿。
 
 ### ARC-014 [P1] 多步写入缺事务包裹
 

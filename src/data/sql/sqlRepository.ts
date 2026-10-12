@@ -1199,7 +1199,7 @@ export class SqlRepository implements TodoRepository {
       }
       if (parentId !== null) {
         const parent = cache.tasks.find((task) => task.id === parentId && task.deletedAt === null);
-        if (!parent) {
+        if (!parent || parent.workspaceId !== current.workspaceId) {
           throw new Error("invalidParentTask");
         }
         if (wouldCreateParentCycle(cache.tasks, taskId, parentId)) {
@@ -2097,20 +2097,26 @@ export class SqlRepository implements TodoRepository {
         }
       });
 
-      this.workspaceId = this.resolveImportedWorkspaceId(backup, payload.workspaceId);
-
       if (mode === "replace") {
+        this.workspaceId = this.resolveImportedWorkspaceId(backup, payload.workspaceId);
         return this.commitCache(snapshotAppDataFromStore(backup, this.workspaceId), ALL_APP_DATA_KEYS);
       }
 
       const previous = this.cachedData;
+      const mergedWorkspaces = mergeById(previous?.workspaces ?? [], backup.workspaces);
+      const activeMerged = mergedWorkspaces.filter((w) => w.deletedAt === null);
+
+      this.workspaceId =
+        activeMerged.find((w) => w.id === this.workspaceId)?.id ??
+        activeMerged.find((w) => w.id === payload.workspaceId)?.id ??
+        activeMerged[0]?.id ??
+        DEFAULT_WORKSPACE_ID;
+
       const settingsByWorkspace = {
         ...(previous?.settingsByWorkspace ?? {}),
         ...backup.settingsByWorkspace,
       };
-      const workspaces = mergeById(previous?.workspaces ?? [], backup.workspaces).filter(
-        (workspace) => workspace.deletedAt === null,
-      );
+      const workspaces = activeMerged;
       const slices = await this.loadWorkspaceSlices(this.workspaceId);
       return this.commitCache(
         {

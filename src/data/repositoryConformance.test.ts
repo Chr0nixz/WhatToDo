@@ -327,6 +327,7 @@ describe("repository conformance", () => {
     it("importBackup merge keeps local-only tasks", async () => {
       const repository = await createRepo();
       await repository.createTask({ title: "Keep me", dueDate: "2026-06-01" });
+      localStorage.clear();
       const other = new LocalRepository();
       await other.load();
       await other.createTask({ title: "From backup", dueDate: "2026-06-02" });
@@ -607,6 +608,50 @@ describe("repository conformance", () => {
       expect(stats.openCount).toBe(3); // open upcoming, in_progress, overdue
       expect(stats.overdueCount).toBe(1); // 2020-01-01
       expect(stats.completedCount).toBe(1); // completed
+    });
+
+    it("rejects adding attachment to non-existent task across engines (ARC-013)", async () => {
+      const repository = await createRepo();
+      await expect(
+        repository.addAttachment({
+          taskId: "ghost-task-id",
+          filename: "test.pdf",
+          path: "/tmp/test.pdf",
+        }),
+      ).rejects.toThrow();
+    });
+
+    it("does not record orphan reminder events when target reminder is missing (ARC-013)", async () => {
+      const repository = await createRepo();
+      const result = await repository.markReminderFailed("non-existent-reminder", "network timeout");
+      expect(result.patch.affectedKeys).toHaveLength(0);
+
+      // Verify no orphan reminder events were created
+      const events = await repository.loadReminderEvents("non-existent-reminder");
+      expect(events).toHaveLength(0);
+    });
+
+    it("rejects cross-workspace parent task assignment across engines (ARC-013)", async () => {
+      const repository = await createRepo();
+      await repository.load();
+
+      // Create task in workspace 1
+      const taskInWs1 = await repository.createTask({
+        title: "Parent in ws1",
+        dueDate: "2026-06-01",
+      });
+      const parentId = taskInWs1.data.tasks[0].id;
+
+      // Create second workspace and task in workspace 2
+      await repository.createWorkspace({ name: "Team 2", color: "#ec6f5d" });
+      const taskInWs2 = await repository.createTask({
+        title: "Child in ws2",
+        dueDate: "2026-06-01",
+      });
+      const childId = taskInWs2.data.tasks[0].id;
+
+      // Attempt to set parent across workspaces: must throw invalidParentTask
+      await expect(repository.setTaskParent(childId, parentId)).rejects.toThrow("invalidParentTask");
     });
   });
 });

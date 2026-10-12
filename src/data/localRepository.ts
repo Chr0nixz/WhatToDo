@@ -2,6 +2,7 @@ import { parseBackupPayload } from "./backupSchema";
 import { buildReminderDate, todayKey } from "./date";
 import { buildTasksCsv } from "./export/tasksCsv";
 import { buildTasksIcs } from "./export/tasksIcs";
+import { deleteManagedAttachmentFile } from "./managedAttachments";
 import { buildTaskFromRecurringTemplate, getNextRecurrenceDate } from "./recurrence";
 import {
   buildFullPatch,
@@ -608,6 +609,13 @@ export class LocalRepository implements TodoRepository {
   }
 
   async addAttachment(input: CreateAttachmentInput): Promise<RepositoryResult> {
+    const targetTask = this.data.tasks.find(
+      (task) => task.id === input.taskId && task.deletedAt === null,
+    );
+    if (!targetTask) {
+      throw new Error("Task does not exist");
+    }
+
     const attachment: Attachment = {
       id: input.id?.trim() || createId("attachment"),
       task_id: input.taskId,
@@ -625,10 +633,14 @@ export class LocalRepository implements TodoRepository {
   }
 
   async deleteAttachment(id: string): Promise<RepositoryResult> {
+    const current = this.data.attachments.find((attachment) => attachment.id === id);
     this.data = {
       ...this.data,
       attachments: this.data.attachments.filter((attachment) => attachment.id !== id),
     };
+    if (current) {
+      await deleteManagedAttachmentFile(current.path).catch(() => undefined);
+    }
     return this.persist();
   }
 
@@ -863,8 +875,11 @@ export class LocalRepository implements TodoRepository {
 
   async markReminderFired(id: string): Promise<RepositoryResult> {
     const current = this.data.reminders.find((reminder) => reminder.id === id);
+    if (!current) {
+      return { data: this.snapshot(), patch: { affectedKeys: [] } };
+    }
     const timestamp = nowIso();
-    const eventType: ReminderEventType = current?.failedAt ? "retry" : "fired";
+    const eventType: ReminderEventType = current.failedAt ? "retry" : "fired";
     this.data = {
       ...this.data,
       reminders: this.data.reminders.map((reminder) =>
@@ -873,25 +888,31 @@ export class LocalRepository implements TodoRepository {
           : reminder,
       ),
     };
-    this.appendLocalReminderEvent(id, current?.taskId ?? "", eventType, null, timestamp);
+    this.appendLocalReminderEvent(id, current.taskId, eventType, null, timestamp);
     return this.persist();
   }
 
   async markReminderFailed(id: string, reason: string): Promise<RepositoryResult> {
-    const timestamp = nowIso();
     const current = this.data.reminders.find((reminder) => reminder.id === id);
+    if (!current) {
+      return { data: this.snapshot(), patch: { affectedKeys: [] } };
+    }
+    const timestamp = nowIso();
     this.data = {
       ...this.data,
       reminders: this.data.reminders.map((reminder) =>
         reminder.id === id ? { ...reminder, failedAt: timestamp, lastAttemptedAt: timestamp, lastError: reason } : reminder,
       ),
     };
-    this.appendLocalReminderEvent(id, current?.taskId ?? "", "failed", reason, timestamp);
+    this.appendLocalReminderEvent(id, current.taskId, "failed", reason, timestamp);
     return this.persist();
   }
 
   async snoozeReminder(id: string, untilIso: string): Promise<RepositoryResult> {
     const current = this.data.reminders.find((reminder) => reminder.id === id);
+    if (!current) {
+      return { data: this.snapshot(), patch: { affectedKeys: [] } };
+    }
     this.data = {
       ...this.data,
       reminders: this.data.reminders.map((reminder) =>
@@ -900,19 +921,22 @@ export class LocalRepository implements TodoRepository {
           : reminder,
       ),
     };
-    this.appendLocalReminderEvent(id, current?.taskId ?? "", "snoozed", untilIso, nowIso());
+    this.appendLocalReminderEvent(id, current.taskId, "snoozed", untilIso, nowIso());
     return this.persist();
   }
 
   async disableReminder(id: string): Promise<RepositoryResult> {
     const current = this.data.reminders.find((reminder) => reminder.id === id);
+    if (!current) {
+      return { data: this.snapshot(), patch: { affectedKeys: [] } };
+    }
     this.data = {
       ...this.data,
       reminders: this.data.reminders.map((reminder) =>
         reminder.id === id ? { ...reminder, enabled: false } : reminder,
       ),
     };
-    this.appendLocalReminderEvent(id, current?.taskId ?? "", "disabled", null, nowIso());
+    this.appendLocalReminderEvent(id, current.taskId, "disabled", null, nowIso());
     return this.persist();
   }
 
