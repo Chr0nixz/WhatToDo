@@ -547,11 +547,12 @@ export const runGlobalShortcut = (handler: () => void) => {
 
 `TaskDetailPane.tsx`（1174 行，**35 个 `useState`**，0 个 `useCallback`）、`OverviewView.tsx`（1056 行，内含 4 个未分文件的子组件）、`SettingsView.tsx`（952 行，0 个 `useMemo`/`useCallback`，7 个几乎零耦合的 section）、`AppShell.tsx`（947 行，18 个 state + 4 个 ref）。
 
-### UX-008 [P2] 缺竞态保护的异步 effect
+### UX-008 / PERF-017 [P2] 缺竞态保护的异步 effect 与任务详情单调序列号守卫
 
 **状态：已修复（0.2.7+）。** 
 1. `useCommandPalette.ts` 引入 `searchSeqRef` 递增单调序列号与 `active` 取消双重守卫，异步搜索回调严格校验 `if (active && seq === searchSeqRef.current)`，从机制上彻底阻断飞行中慢请求覆盖最新快请求结果的异步竞态缺陷。
-2. `SettingsView` 的 `loadRecoveryItems` 与 `useTaskPage` 均具备工作区 `active` 取消守卫，防止快速切工作区导致的跨工作区串写覆盖。
+2. `AppShell.tsx` 引入 `taskDetailSeqRef` 单调递增序列号守卫，在列表键盘快速切换或任务列表高频刷新触发 `actions.getTask` 时，严格校验序列号一致性，彻底杜绝飞行中慢响应意外覆盖最新选中任务详情的乱序竞态。
+3. `SettingsView` 的 `loadRecoveryItems` 与 `useTaskPage` 均具备工作区 `active` 取消守卫，防止快速切工作区导致的跨工作区串写覆盖。
 
 ### UX-009 [P2] HomeView 加载期间显示"今天没有任务"
 

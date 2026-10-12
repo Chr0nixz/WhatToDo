@@ -262,15 +262,20 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
     [tasks, projects, reminderRows],
   );
 
+  const taskDetailSeqRef = useRef(0);
+
   useEffect(() => {
     if (view === "settings" || !selectedTaskId) {
+      taskDetailSeqRef.current += 1;
       setDetailTask(null);
       return;
     }
 
     let cancelled = false;
+    const seq = ++taskDetailSeqRef.current;
+
     void actions.getTask(selectedTaskId).then((task) => {
-      if (cancelled) {
+      if (cancelled || seq !== taskDetailSeqRef.current) {
         return;
       }
       setDetailTask(task && task.deletedAt === null ? task : null);
