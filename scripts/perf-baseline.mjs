@@ -3,8 +3,10 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const DIST_ASSETS = join(process.cwd(), "dist", "assets");
-const MAIN_JS_LIMIT = 500 * 1024;
-const MAIN_JS_TARGET = 450 * 1024;
+const MAIN_JS_LIMIT = 350 * 1024;
+const MAIN_JS_TARGET = 300 * 1024;
+const TOTAL_JS_LIMIT = 1200 * 1024;
+const VENDOR_CHUNK_LIMIT = 300 * 1024;
 
 const run = spawnSync("pnpm", ["build"], {
   cwd: process.cwd(),
@@ -40,7 +42,35 @@ for (const asset of assets.slice(0, 8)) {
   console.log(`- ${asset.name}: ${formatKb(asset.size)}`);
 }
 
+const totalJsSize = jsAssets.reduce((sum, asset) => sum + asset.size, 0);
+const budgetErrors = [];
+
 if (mainJs && mainJs.size > MAIN_JS_LIMIT) {
-  console.error(`\nMain JS exceeds ${formatKb(MAIN_JS_LIMIT)}. Target is ${formatKb(MAIN_JS_TARGET)}.`);
+  budgetErrors.push(
+    `Main JS exceeds ${formatKb(MAIN_JS_LIMIT)} (actual: ${formatKb(mainJs.size)}). Target is ${formatKb(MAIN_JS_TARGET)}.`,
+  );
+}
+
+if (totalJsSize > TOTAL_JS_LIMIT) {
+  budgetErrors.push(
+    `Total JS assets exceed ${formatKb(TOTAL_JS_LIMIT)} (actual: ${formatKb(totalJsSize)}).`,
+  );
+}
+
+for (const asset of jsAssets) {
+  if (asset.name.includes("vendor") && asset.size > VENDOR_CHUNK_LIMIT) {
+    budgetErrors.push(
+      `Vendor chunk ${asset.name} exceeds ${formatKb(VENDOR_CHUNK_LIMIT)} (actual: ${formatKb(asset.size)}).`,
+    );
+  }
+}
+
+if (budgetErrors.length > 0) {
+  console.error("\nPerformance build budget violated:");
+  for (const err of budgetErrors) {
+    console.error(`- ${err}`);
+  }
   process.exit(1);
+} else {
+  console.log("\nAll build performance budgets satisfied.");
 }

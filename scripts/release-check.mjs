@@ -98,6 +98,7 @@ runPnpm("pnpm lint", ["lint"]);
 runPnpm("pnpm lint:eslint", ["lint:eslint"]);
 runPnpm("pnpm test", ["test"]);
 runPnpm("pnpm build", ["build"]);
+runPnpm("pnpm perf:build", ["perf:build"]);
 
 if (!process.env.TAURI_SIGNING_PRIVATE_KEY && !process.env.TAURI_SIGNING_PRIVATE_KEY_PATH) {
   errors.push("TAURI_SIGNING_PRIVATE_KEY or TAURI_SIGNING_PRIVATE_KEY_PATH is required for signed updater artifacts.");

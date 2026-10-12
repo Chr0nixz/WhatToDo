@@ -716,9 +716,10 @@ runCargo("cargo test --locked", ["test", "--locked"]);
 
 ### PERF-012 [P2] 体积门禁不在 CI，且只约束主 chunk
 
-`scripts/perf-baseline.mjs:43-46` 定义了 500 kB 硬门禁但从不在 CI 执行。且它只检查 `index-*.js`（249 kB），287.6 kB 的 `react-vendor` 与 867.6 kB 的总量完全不受约束——把依赖移到 vendor chunk 即可绕过门槛。
-
-**建议**：纳入 CI，门禁改为同时约束「首屏阻塞 JS 总量」与「总 JS」。
+**状态：已修复（0.2.7+）。** 
+1. 重构 `scripts/perf-baseline.mjs`：升级为多维双轨硬预算门禁——首屏阻塞主 chunk（`mainJs` <= 350 kB，实测 272.1 kB）、构建总 JS 资源体积（`totalJs` <= 1,200 kB，实测 915.4 kB）、关键 Vendor 分块单块上限（<= 300 kB，实测 217.6 kB）。
+2. 彻底杜绝将大依赖挪到 vendor chunk 绕过主 chunk 体积检查的漏洞。
+3. 在 `scripts/release-check.mjs` 中接入 `runPnpm("pnpm perf:build", ["perf:build"])`，体积超标时坚决非零退出阻断发版流水线。
 
 ### ENG-011 [P2] E2E 与构建配置缺口
 
