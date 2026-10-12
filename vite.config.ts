@@ -63,18 +63,8 @@ export default defineConfig(async () => ({
             return "date-vendor";
           }
 
-          if (
-            id.includes("/react/") ||
-            id.includes("\\react\\") ||
-            id.includes("/react-dom/") ||
-            id.includes("\\react-dom\\") ||
-            id.includes("/scheduler/") ||
-            id.includes("\\scheduler\\") ||
-            id.includes(".pnpm/react@") ||
-            id.includes(".pnpm/react-dom@") ||
-            id.includes(".pnpm/scheduler@") ||
-            id.includes("react-i18next")
-          ) {
+          // ENG-004: Isolate pure React runtime (react, react-dom, scheduler) with precise boundary regex
+          if (/[\\/]node_modules[\\/](?:\.pnpm[\\/])?(?:react|react-dom|scheduler)(?:[\\/@]|$)/.test(id)) {
             return "react-vendor";
           }
 

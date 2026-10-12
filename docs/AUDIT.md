@@ -627,25 +627,12 @@ Rust 侧有 `cargo fmt --check` + `clippy -D warnings` 强制门禁，TypeScript
 
 **同时建议开启**：`noUncheckedIndexedAccess`（最重要，代码里大量 `data.tasks[0]` 被当作非 undefined）、`exactOptionalPropertyTypes`、`noImplicitReturns`、`verbatimModuleSyntax`；`target` 从 ES2020 提到 ES2022。
 
-### PERF-008 [P1] manualChunks 顺序 bug，`ui-vendor` 分块从未生成
+### PERF-008 / ENG-004 [P1] manualChunks 顺序与边界正则精确化，纯化 `react-vendor`
 
-**状态：已修复（0.2.6+）。** 已调整分块匹配规则，对 UI 依赖优先匹配并精细化 React 核心包路径。实测成功生成 `ui-vendor-*.js`（~55 kB），首屏 `react-vendor` 纯化至 ~217 kB。
-
-```38:48:vite.config.ts
-        if (id.includes("react") || id.includes("scheduler")) {
-          return "react-vendor";
-        }
-        ...
-        if (id.includes("@radix-ui") || id.includes("lucide-react")) {
-          return "ui-vendor";
-        }
-```
-
-第 38 行对**完整模块路径**做子串匹配，会先于第 46 行命中 `@radix-ui/react-*`、`lucide-react`、`react-i18next`、`@tanstack/react-virtual`。**实测证据**：`dist/assets/` 中不存在 `ui-vendor-*.js`；`react-vendor` 内含 25 处 radix 标记、3 处 lucide、3 处 i18next。
-
-后果：287.6 kB 的单一 chunk 成为首屏阻塞依赖，UI 库更新会使整个 React 运行时缓存失效；而 `scripts/perf-baseline.mjs:28` 只看 `index-*.js`，**完全不约束这个 chunk**。
-
-**建议**：改用精确包名边界匹配（如 `/node_modules\/(\.pnpm\/)?react(-dom)?[@/]/`）。
+**状态：已修复（0.2.7+）。** 
+1. 调整分块匹配规则，对 UI 依赖优先匹配，并对 React 核心包引入严格的包边界正则 `/[\\/]node_modules[\\/](?:\.pnpm[\\/])?(?:react|react-dom|scheduler)(?:[\\/@]|$)/`。
+2. 彻底将 `react-i18next` 等外部依赖移出核心 chunk，使 `react-vendor` 仅保留纯粹的 React 运行时框架核心。
+3. 实测量化证据：生成独立的 `ui-vendor-*.js`（~77 kB），`react-vendor` 体积从 217.63 kB 进一步瘦身至 **189.81 kB**，业务/翻译更新不再使底层 React 运行时缓存失效，双轨体积预算严格达标（Main JS 273.2 kB <= 350 kB，Total JS 911.8 kB <= 1,200 kB）。
 
 ### ENG-005 [P1] CI 无 Rust 编译缓存
 
