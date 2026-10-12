@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Bell, ChevronDown, FolderOpen, Plus, Wand2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -58,6 +58,7 @@ export function TaskComposer({
   const [recurrenceByWeekday, setRecurrenceByWeekday] = useState<number[]>([]);
   const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [parseFeedback, setParseFeedback] = useState<string | null>(null);
   const [quickAddMatches, setQuickAddMatches] = useState<QuickAddMatch[]>([]);
@@ -141,6 +142,10 @@ export function TaskComposer({
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    if (submittingRef.current || isSubmitting) {
+      return;
+    }
+
     const nextTitle = title.trim();
 
     if (!nextTitle) {
@@ -160,6 +165,7 @@ export function TaskComposer({
       return;
     }
 
+    submittingRef.current = true;
     setIsSubmitting(true);
     setSubmitError(null);
 
@@ -212,6 +218,7 @@ export function TaskComposer({
     } catch {
       setSubmitError(t("taskCreateFailed"));
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };

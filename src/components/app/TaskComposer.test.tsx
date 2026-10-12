@@ -217,4 +217,40 @@ describe("TaskComposer", () => {
       );
     });
   });
+
+  it("displays inline error with role='alert' when task creation fails (UX-013)", async () => {
+    const user = userEvent.setup();
+    const createTask = vi.fn().mockRejectedValue(new Error("Database write error"));
+
+    render(
+      <TaskComposer
+        actions={makeActions(createTask)}
+        defaultDate="2026-06-01"
+        projects={[]}
+        settings={{
+          theme: "system",
+          accentColor: "blue",
+          language: "en",
+          defaultReminderOffset: 30,
+          defaultWorkingFolder: null,
+          defaultSavedViewId: null,
+          notificationsEnabled: false,
+          closeToTray: true,
+        }}
+        variant="dialog"
+      />,
+    );
+
+    await user.type(screen.getByLabelText("Task title"), "Important Task");
+    await user.click(screen.getByRole("button", { name: /add/i }));
+
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeInTheDocument();
+      expect(alert).toHaveTextContent("Could not create the task. Check the title and try again.");
+    });
+
+    const titleInput = screen.getByLabelText("Task title");
+    expect(titleInput).toHaveAttribute("aria-invalid", "true");
+  });
 });

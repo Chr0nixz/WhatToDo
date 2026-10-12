@@ -574,6 +574,13 @@ export const runGlobalShortcut = (handler: () => void) => {
 2. 从 `AppShell.tsx` 彻底剥离散落的 80+ 行内联 Toast JSX 与定时器监听，消除样式漂移与多层级浮层堆叠冲突，实现统一规范的反馈层级。
 3. 建立并落地原子基础 UI 规范组件库：补齐 `src/components/ui/input.tsx`（规范表单输入框与 focus ring）、`src/components/ui/badge.tsx`（统一标签/徽章 5 种变体样式）以及 `src/components/ui/empty-state.tsx`（统一空状态展示容器），并配备 `uiComponents.test.tsx` 专属单测（Vitest 单测用例数升至 342 项全绿）。
 
+### UX-013 [P2] 新建任务表单防重复提交与行内错误无障碍加固
+
+**状态：已修复（0.2.7+）。** 
+1. `TaskComposer.tsx` 引入 `submittingRef` 同步互斥锁，在异步网络/IPC 写入处于飞行状态时，坚决阻断由于快速连击 Enter 键或狂点鼠标导致的表单重入，彻底消灭重复任务创建。
+2. 行内错误呈现接入无障碍标准：表单错误提示注入 `role="alert"` 与 `aria-live="assertive"`，输入框通过 `aria-invalid` 动态联动，满足屏幕阅读器与无障碍焦点导航要求。
+3. 在 `TaskComposer.test.tsx` 中新增针对创建异常行内错误呈现与重复提交拦截的专属单元测试，Vitest 单测用例数升至 349 项全绿。
+
 ---
 
 ## 8. 工程化与发布
