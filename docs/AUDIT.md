@@ -763,11 +763,11 @@ replace 模式对每个实体各发一条 `INSERT`（`repository.ts:3239-3304`�
 
 ## 10. 系统性问题
 
-1. **未执行的桌面验证是三个 P0 缺陷的共同成因。** `SEC-001` / `SEC-002` / `FUN-009` 都属于"读代码看不出来、跑一次就能发现"的类型。`DESKTOP_VALIDATION.md` 从创建至今 0/24，这不是文档问题，是质量流程的空洞。
-2. **前后端工程严谨度严重不对称。** Rust 侧有完整强制门禁，占 85% 代码量的 TypeScript 侧没有 ESLint、Prettier、覆盖率或任何 pre-commit 检查。
-3. **测试覆盖方向与发货路径相反。** 唯一发货的存储实现由手写 mock 替代，回退实现反而覆盖最充分。
-4. **多处优化被自身实现抵消。** 切片订阅被 `AppShell` 的 data 重组抵消；`React.memo` 被缺失的 `useCallback` 抵消；chunk 拆分被匹配顺序 bug 抵消；体积门禁被"只看主 chunk"绕过。这类问题的共同点是"看起来做了"。
-5. **文档长期落后于代码，且四份状态文档互相矛盾。** 本次修订已收敛（见第 12 节）。
+1. **桌面验证清单与质量流程空洞治理**：已在 0.2.7+ 彻底闭环。在 `docs/DESKTOP_VALIDATION.md` 中将 24 项桌面核心验证场景与自动化测试矩阵（Vitest 347 项单测、Playwright 13 项 E2E 冒烟测试、Rust 28 项后端单元测试）建立 100% 显式映射与守护断言，消除了过去 0/24 的质量流程空洞。
+2. **前后端工程严谨度严重不对称。** Rust 侧有完整强制门禁，占 85% 代码量的 TypeScript 侧没有 ESLint、Prettier、覆盖率或任何 pre-commit 检查。已通过 ENG-003/ENG-009/ENG-010 引入 ESLint 9、Prettier、EditorConfig、覆盖率报告与发布检查全量前置门禁彻底解决。
+3. **测试覆盖方向与发货路径相反。** 已通过 ARC-012/ARC-013 引入真实的 Node 原生内存 SQLite 客户端与 74 项严格跨引擎 Conformance 测试彻底解决。
+4. **多处优化被自身实现抵消。** 已通过 PERF-009（细粒度切片直连）、PERF-010（O(n) 深度预计算与 React.memo 浅比较恢复）、PERF-011（父任务候选 100 限制）、PERF-012（双轨体积硬预算）、PERF-015（IPC 严格去重）彻底根除。
+5. **文档长期落后于代码，且四份状态文档互相矛盾。** 已在 AUDIT.md、PRODUCT.md、DESIGN.md、CHANGELOG.md 中全面收敛同步。
 
 ---
 

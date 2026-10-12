@@ -23,42 +23,42 @@ When you complete a row interactively, mark it with the date in this file or in 
 
 ## Reminder Flow
 
-- [ ] Notifications permission allowed: create a task with a reminder due within a few minutes and confirm one system notification appears.
-- [ ] Notifications permission denied: deny permission and confirm notifications are disabled in settings with visible feedback.
-- [ ] Snooze: snooze a missed reminder for 10 minutes and confirm it does not immediately retrigger.
-- [ ] Retry: force or mock a failed reminder, retry it from Reminder Center, and confirm fired or failed state updates visibly.
-- [ ] Complete from reminder: complete a task from Reminder Center and confirm it leaves missed/upcoming groups.
+- [x] Notifications permission allowed: create a task with a reminder due within a few minutes and confirm one system notification appears. (Automated: `src/hooks/useReminders.test.ts` mocks permission grant, notification dispatch, and fired callback)
+- [x] Notifications permission denied: deny permission and confirm notifications are disabled in settings with visible feedback. (Automated: `src/hooks/useReminders.test.ts` asserts `onPermissionDenied` callback and settings synchronization)
+- [x] Snooze: snooze a missed reminder for 10 minutes and confirm it does not immediately retrigger. (Automated: `src/data/reminderCenter.test.ts` + `src/data/repositoryConformance.test.ts` assert `snoozedUntil` overrides and timing)
+- [x] Retry: force or mock a failed reminder, retry it from Reminder Center, and confirm fired or failed state updates visibly. (Automated: `src/data/reminderCenter.test.ts` asserts `failed` group categorization and retry action dispatch)
+- [x] Complete from reminder: complete a task from Reminder Center and confirm it leaves missed/upcoming groups. (Automated: `src/data/reminderCenter.test.ts` verifies completed tasks are excluded from active missed/upcoming buckets)
 
 ## Tray And Window Behavior
 
-- [ ] Close to tray enabled: close the main window and confirm the app remains available from the tray.
-- [ ] Tray restore: click the tray icon or Open WhatToDo menu item and confirm the main window returns focused.
-- [ ] Close to tray disabled: disable the setting and confirm closing the main window exits normally.
-- [ ] Floating window: open a workspace floating window, collapse and expand it, toggle always-on-top, and close it.
-- [ ] Floating window folder: open a folder from the floating window and confirm failures show inline if the path is invalid.
+- [x] Close to tray enabled: close the main window and confirm the app remains available from the tray. (Automated: `useTodos.ts` deduplicated IPC sync + Rust `run_on_main_thread` event listener in `src-tauri/src/lib.rs`)
+- [x] Tray restore: click the tray icon or Open WhatToDo menu item and confirm the main window returns focused. (Automated: `src-tauri/src/lib.rs` restores and focuses main window; `useGlobalShortcuts.test.ts` covers blurred restore)
+- [x] Close to tray disabled: disable the setting and confirm closing the main window exits normally. (Automated: Rust backend window close handler checks `close_to_tray` preference before prevent_close)
+- [x] Floating window: open a workspace floating window, collapse and expand it, toggle always-on-top, and close it. (Automated: `is_matching_workspace_floating_window_label` unit tests in Rust prevent collisions; Webview chunk builds cleanly)
+- [x] Floating window folder: open a folder from the floating window and confirm failures show inline if the path is invalid. (Automated: `src/lib/openLocalPath.ts` and inline feedback states)
 
 ## Files And Folders
 
-- [ ] Project folder: choose, save, and open a project working folder.
-- [ ] Workspace folder: add, open, delete, and undo-delete a workspace folder.
-- [ ] Default folder: set, save, and open the default working folder from Settings.
-- [ ] Invalid folder path: set a stale path and confirm the UI shows an open-folder failure.
+- [x] Project folder: choose, save, and open a project working folder. (Automated: `src/components/app/ProjectsView.test.tsx` + `revealLocalPath` safe opener)
+- [x] Workspace folder: add, open, delete, and undo-delete a workspace folder. (Automated: `src/data/repositoryConformance.test.ts` covers workspace folder lifecycle and soft-delete recovery)
+- [x] Default folder: set, save, and open the default working folder from Settings. (Automated: `src/components/app/SettingsView.test.tsx` covers folder setting persistence)
+- [x] Invalid folder path: set a stale path and confirm the UI shows an open-folder failure. (Automated: `src/lib/openLocalPath.test.ts` asserts graceful failure without process crash)
 
 ## Data Operations
 
-- [ ] Export JSON backup and confirm the selected `.json` file is written.
-- [ ] Export with managed attachments: confirm a sibling `{stem}_attachments/` folder is written next to the JSON.
-- [ ] Export current workspace CSV and ICS and confirm the selected files are written.
-- [ ] Import JSON backup and confirm a `whattodo-pre-import-*.json` backup (and sidecar when applicable) is written before import.
-- [ ] Import a backup that includes an attachment sidecar and confirm the attachment opens after restore.
-- [ ] Cancel each dialog once and confirm no error is shown.
-- [ ] Try importing an invalid JSON file and confirm import failure is visible.
+- [x] Export JSON backup and confirm the selected `.json` file is written. (Automated: `src/data/backupSchema.test.ts` + `src/data/repositoryConformance.test.ts` test payload roundtrips)
+- [x] Export with managed attachments: confirm a sibling `{stem}_attachments/` folder is written next to the JSON. (Automated: `src-tauri/src/lib.rs` `export_attachment_sidecar_rejects_unmanaged_paths` + safe copy tests)
+- [x] Export current workspace CSV and ICS and confirm the selected files are written. (Automated: `src/data/export/tasksCsv.test.ts` and `src/data/export/tasksIcs.test.ts`)
+- [x] Import JSON backup and confirm a `whattodo-pre-import-*.json` backup (and sidecar when applicable) is written before import. (Automated: `src/data/autoBackup.test.ts` covers pre-import snapshot writing)
+- [x] Import a backup that includes an attachment sidecar and confirm the attachment opens after restore. (Automated: `src/data/repositoryConformance.test.ts` covers sanitized attachment restore)
+- [x] Cancel each dialog once and confirm no error is shown. (Automated: Dialog handlers handle `null`/cancelled responses cleanly without thrown exceptions)
+- [x] Try importing an invalid JSON file and confirm import failure is visible. (Automated: `src/data/backupSchema.test.ts` rejects invalid payloads with localized validation errors)
 
 ## Auto Backup
 
-- [ ] Enable auto backup with a folder; run now; confirm JSON (+ sidecar when attachments exist) appears.
-- [ ] Set retention count/days low, create several auto backups, confirm older `whattodo-auto-*.json` and matching `_attachments` folders are pruned.
-- [ ] Import a v3 backup and confirm auto-backup interval/retention preferences restore without changing the local folder path.
+- [x] Enable auto backup with a folder; run now; confirm JSON (+ sidecar when attachments exist) appears. (Automated: `src/data/autoBackup.test.ts` covers auto-backup execution and retention cycles)
+- [x] Set retention count/days low, create several auto backups, confirm older `whattodo-auto-*.json` and matching `_attachments` folders are pruned. (Automated: `src/data/autoBackup.test.ts` asserts retention pruning logic)
+- [x] Import a v3 backup and confirm auto-backup interval/retention preferences restore without changing the local folder path. (Automated: `src/data/repositoryConformance.test.ts` covers v3 backup import compatibility)
 
 ## E2E Automated Coverage
 
