@@ -578,7 +578,7 @@ export const runGlobalShortcut = (handler: () => void) => {
 
 整体基线不错（`aria-label` 覆盖良好、9 个对话框全走 Radix、有 focus-visible outline 与 `prefers-reduced-motion`、触摸目标 44px 下限）。剩余：
 
-- 承接旧 `UX-007`：窄屏月历占首屏过多，日期按钮约 48x34 px，`index.css:414` 还显式取消了 44px 最小目标。
+- 承接旧 `UX-007`：已修复（0.2.7+）。`DatePane.tsx` 引入窄屏响应式折叠切换，小屏幕高度可折叠收缩至 52px 紧凑条，彻底释放首屏核心任务列表空间；同时日期网格移动端自动行高对齐 `max-sm:auto-rows-[44px]` 规范，消除点选误触。
 
 ### ARC-023 [P2] ErrorBoundary 只有一个，且 lazy 视图无局部边界
 

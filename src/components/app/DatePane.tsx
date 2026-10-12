@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
 import { format, isSameMonth } from "date-fns";
 import type { CSSProperties, DragEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -28,6 +28,7 @@ export function DatePane({
   const { i18n, t } = useTranslation();
   const [mode, setMode] = useState<"calendar" | "week">("calendar");
   const [monthCursor, setMonthCursor] = useState(selectedDate);
+  const [isExpandedNarrow, setIsExpandedNarrow] = useState(false);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const monthDays = useMemo(() => getMonthDays(monthCursor), [monthCursor]);
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
@@ -78,34 +79,50 @@ export function DatePane({
   return (
     <aside
       aria-label={mode === "calendar" ? t("month") : t("week")}
-      className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/50 max-lg:w-[292px] max-md:max-h-[320px] max-md:w-full max-md:border-b max-md:border-r-0 max-sm:max-h-[340px]"
+      className={cn(
+        "flex min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card/50 max-lg:w-[292px] max-md:w-full max-md:border-b max-md:border-r-0 transition-[max-height] duration-200 ease-[var(--ease-out-quart)]",
+        isExpandedNarrow ? "max-md:max-h-[380px]" : "max-md:max-h-[52px] max-md:overflow-hidden",
+      )}
     >
       <div className="border-b border-border p-3">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold">{mode === "calendar" ? t("month") : t("week")}</h2>
-          <div className="inline-grid grid-flow-col gap-1 rounded-lg border border-border bg-background/50 p-1">
-            <button
-              aria-pressed={mode === "calendar"}
-              className={cn(
-                "h-7 rounded-md px-2.5 text-xs transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent active:scale-95",
-                mode === "calendar" && "bg-primary text-primary-foreground hover:bg-primary",
-              )}
+          <div className="flex items-center gap-1.5">
+            <div className="inline-grid grid-flow-col gap-1 rounded-lg border border-border bg-background/50 p-1">
+              <button
+                aria-pressed={mode === "calendar"}
+                className={cn(
+                  "h-7 rounded-md px-2.5 text-xs transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent active:scale-95",
+                  mode === "calendar" && "bg-primary text-primary-foreground hover:bg-primary",
+                )}
+                type="button"
+                onClick={() => setMode("calendar")}
+              >
+                {t("month")}
+              </button>
+              <button
+                aria-pressed={mode === "week"}
+                className={cn(
+                  "h-7 rounded-md px-2.5 text-xs transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent active:scale-95",
+                  mode === "week" && "bg-primary text-primary-foreground hover:bg-primary",
+                )}
+                type="button"
+                onClick={() => setMode("week")}
+              >
+                {t("week")}
+              </button>
+            </div>
+            <Button
+              aria-expanded={isExpandedNarrow}
+              aria-label={isExpandedNarrow ? t("collapse") : t("expand")}
+              className="hidden size-7 max-md:inline-flex"
+              size="icon-xs"
               type="button"
-              onClick={() => setMode("calendar")}
+              variant="ghost"
+              onClick={() => setIsExpandedNarrow((prev) => !prev)}
             >
-              {t("month")}
-            </button>
-            <button
-              aria-pressed={mode === "week"}
-              className={cn(
-                "h-7 rounded-md px-2.5 text-xs transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] hover:bg-accent active:scale-95",
-                mode === "week" && "bg-primary text-primary-foreground hover:bg-primary",
-              )}
-              type="button"
-              onClick={() => setMode("week")}
-            >
-              {t("week")}
-            </button>
+              {isExpandedNarrow ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+            </Button>
           </div>
         </div>
 
