@@ -40,4 +40,6 @@ src-tauri/target
 # Coverage
 coverage
 *.tsbuildinfo
+output/
+
 

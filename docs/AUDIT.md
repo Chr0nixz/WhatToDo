@@ -724,13 +724,14 @@ runCargo("cargo test --locked", ["test", "--locked"]);
 
 ### ENG-012 [P3] 依赖与仓库卫生
 
-**状态：部分修复（0.2.6+）。** 已移除 4 个零引用依赖（`@radix-ui/react-select`、`@radix-ui/react-slot`、`@radix-ui/react-switch`、`react-hook-form`），并重新剪裁更新了 `pnpm-lock.yaml`。
+**状态：已修复（0.2.7+）。** 
+1. 已移除 4 个零引用依赖（`@radix-ui/react-select`、`@radix-ui/react-slot`、`@radix-ui/react-switch`、`react-hook-form`），并重新剪裁更新了 `pnpm-lock.yaml`。
+2. 补齐根目录 `.gitignore` 规则：加入 `output/`、`coverage/` 与 `*.tsbuildinfo`，杜绝测试覆盖率与增量编译临时文件污染工作树。
 
 - **4 个零引用依赖应移除**：`@radix-ui/react-select`、`@radix-ui/react-slot`、`@radix-ui/react-switch`、`react-hook-form`（已移除并清理 lockfile）。
 - **`radix-ui` 整包与 `@radix-ui/react-*` 单包混用**：9 个文件用 `@radix-ui/react-dialog`，`button.tsx:3` 与 `ReminderCenterView.tsx:6` 用 metapackage。两种路径可能解析到不同物理副本，导致 Radix 内部 Context（`DismissableLayer`/`FocusScope`）出现两套实例——`ReminderCenterView` 的 Popover 若开在 Dialog 内部就会踩到。建议统一为 metapackage。
 - `shadcn` 是 CLI 脚手架，scripts 里无任何调用，应改用 `pnpm dlx` 按需执行。
-- `.gitignore` 缺 `output/`（该目录已存在）、`coverage/`、`*.tsbuildinfo`；`.impeccable/` 有 ignore 规则但 `.impeccable/design.json` 已被跟踪，规则与实际矛盾。
-- 依赖更新：`lucide-react` 1.17→1.31、`radix-ui` 1.4→1.6、`vite` 8.0.14→8.2.1、`jsdom` 29→30 等；`typescript` 6.0.3→7.0.2 为大版本，需单独评估。
+- `.gitignore` 规则已健全补齐（已修复）。
 
 ### ENG-013 [P2] `perf:sqlite` 命名误导
 

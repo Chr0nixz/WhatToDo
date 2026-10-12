@@ -21,6 +21,7 @@
   - Fixes `ENG-009`: Hardens release verification in `scripts/release-check.mjs` by enforcing TypeScript (`pnpm lint`) and ESLint (`pnpm lint:eslint`) alongside tests and builds, with robust cross-platform subprocess error handling to prevent silent pass on Windows runners.
   - Fixes `ENG-013`: Disambiguates performance benchmark naming by splitting scripts into a three-tier suite (`perf:runtime`, genuine in-memory SQLite `perf:sqlite`, and 20k local `perf:local-20k`), establishing true SQLite engine P50/P95 baselines.
   - Fixes `PERF-001`: Implements database-level fast aggregate statistics via `loadTaskStats(workspaceId?)` across `LocalRepository` and `SqlRepository`, computing workspace open/overdue/completed counts in <1ms via compound indexes and removing the requirement to pull full task tables into memory for derived dashboard counters.
+  - Fixes `ENG-012`: Refines repository hygiene and ignores `output/`, `coverage/`, and `*.tsbuildinfo` in `.gitignore` to prevent build and test artifacts from polluting the workspace.
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
   - Hardens all new submodules with thorough unit test coverage: all 316 Vitest tests (including 63 real SQLite conformance tests), 13 Playwright E2E tests, and 27 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
