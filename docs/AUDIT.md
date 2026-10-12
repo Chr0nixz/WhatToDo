@@ -326,7 +326,10 @@ SQL 侧 `loadWorkspaceSlices` 的提醒查询同样 `INNER JOIN tasks ... WHERE 
 
 ### ARC-014 [P1] 多步写入缺事务包裹
 
-**状态：已修复（0.2.6+）。** `markReminderFired`、`markReminderFailed`、`snoozeReminder`、`disableReminder`、`deleteSavedView`、`createWorkspace`、`deleteAttachment` 全部纳入 `withTransaction`，`importBackup` 亦收敛为标准 `withTransaction` 调用并同步事务深度。
+**状态：已修复（0.2.7+）。** 
+1. 全面审计并加固 `SqlRepository` 中所有多步写入操作：`createTask` 初始提醒关联插入、`createRecurringTask` 模板与首任务/提醒联动、`updateRecurringSeries` 模板与未来任务实例批量级联更新、`markReminderFired`、`markReminderFailed`、`snoozeReminder`、`disableReminder`、`deleteSavedView`、`createWorkspace`、`deleteAttachment`、`bulkDeleteTasks`、`bulkMoveTasksToProject` 全部 100% 纳入 `withTransaction` 的 Savepoint 事务机制保护。
+2. 消除多步更新中途失败（如约束冲突或磁盘异常）产生孤儿半成品脏数据的隐患，确保严格的 All-or-Nothing 原子性。
+3. 在 `repositoryConformance.test.ts` 中新增针对真实 SQLite 引擎的多步写入原子回滚专项单测（模拟系列更新中途异常验证模板与任务全量干净回滚），Vitest 单测用例数升至 328 项全绿。
 
 以下方法执行 2 条及以上写语句但无 `withTransaction`：`markReminderFired`（`repository.ts:2935-2951`）、`markReminderFailed`（`2970-2988`）、`snoozeReminder`（`3005-3021`）、`disableReminder`（`3039-3052`）、`deleteSavedView`（`3134-3162`）、`createWorkspace`（`1811-1816`）、`deleteAttachment`（`2532-2536`，文件删了行没删 = 死链接）、`migrateExternalAttachments`（`2573-2593`）。
 

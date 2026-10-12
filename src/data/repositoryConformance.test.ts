@@ -636,4 +636,49 @@ describe("SqlRepository real SQLite rollback", () => {
     expect(loaded.tasks.some((task) => task.title === "Keep after rollback")).toBe(true);
     expect(loaded.tasks.some((task) => task.title === "Broken import")).toBe(false);
   });
+
+  it("multi-step mutations in updateRecurringSeries roll back cleanly on failure (ARC-014)", async () => {
+    const memoryClient = createMemorySqliteClient();
+    setSqliteClientForTests(memoryClient);
+    const repository = new SqlRepository();
+    await repository.load();
+
+    // 1. Create a recurring task template and initial instance
+    const created = await repository.createRecurringTask({
+      title: "Daily Standup",
+      dueDate: "2026-06-01",
+      frequency: "daily",
+      interval: 1,
+    });
+    const templateId = created.data.recurringTaskTemplates[0].id;
+    const initialTask = created.data.tasks[0];
+
+    // 2. Mock execute to throw on the 2nd step (updating instances) while in transaction
+    const originalExecute = memoryClient.execute.bind(memoryClient);
+    memoryClient.execute = vi.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("UPDATE tasks") && sql.includes("due_time")) {
+        throw new Error("Simulated disk error mid-transaction during series update");
+      }
+      return originalExecute(sql, params);
+    });
+
+    // 3. Attempt updateRecurringSeries in openFuture mode
+    await expect(
+      repository.updateRecurringSeries(
+        templateId,
+        { title: "Renamed Standup" },
+        "openFuture",
+      ),
+    ).rejects.toThrow("Simulated disk error mid-transaction");
+
+    // 4. Restore execute and verify rollback: template title must NOT have changed, tasks intact
+    memoryClient.execute = originalExecute;
+    const loaded = await repository.load();
+    const loadedTemplate = loaded.recurringTaskTemplates.find((t) => t.id === templateId)!;
+    const loadedTask = loaded.tasks.find((t) => t.id === initialTask.id)!;
+
+    // Both template and instances must have rolled back cleanly to initial state
+    expect(loadedTemplate.title).toBe("Daily Standup");
+    expect(loadedTask.title).toBe("Daily Standup");
+  });
 });
