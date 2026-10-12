@@ -1,4 +1,5 @@
 import { revealLocalPath } from "@/lib/openLocalPath";
+import { formatBackendError } from "@/lib/backendError";
 import { invoke } from "@tauri-apps/api/core";
 import { Loader2, TriangleAlert } from "lucide-react";
 import { useState } from "react";
@@ -32,7 +33,7 @@ export function DatabaseRecoveryScreen({ status, onStatusChange }: Props) {
       const next = await invoke<DbInitStatus>(command);
       onStatusChange(next);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
+      setActionError(formatBackendError(err, t));
       try {
         const latest = await invoke<DbInitStatus>("get_db_init_status");
         onStatusChange(latest);
@@ -65,7 +66,7 @@ export function DatabaseRecoveryScreen({ status, onStatusChange }: Props) {
         {status.reason && (
           <div className="mb-3 rounded border border-border bg-muted/40 px-3 py-2 text-xs">
             <div className="mb-1 font-medium text-foreground">{t("dbRecoveryReason")}</div>
-            <p className="break-words text-muted-foreground">{status.reason}</p>
+            <p className="break-words text-muted-foreground">{formatBackendError(status.reason, t)}</p>
           </div>
         )}
 

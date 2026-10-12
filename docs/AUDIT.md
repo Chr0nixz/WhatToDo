@@ -482,9 +482,11 @@ export const runGlobalShortcut = (handler: () => void) => {
 
 ### SEC-008 [P3] 其它
 
-- `floating-window.log`（`lib.rs:286-298`）无轮转、无大小上限、release 构建同样启用，且记录 `document.body.innerText.slice(0, 240)`——把任务标题等用户内容明文落盘。应用 `#[cfg(debug_assertions)]` 包裹或改用 `tauri-plugin-log`。
-- 后端错误消息全部是英文硬编码的 `Result<_, String>`，`DatabaseRecoveryScreen.tsx:35` 直接渲染，**绕过 i18n**。
-- 托盘启动时硬编码英文（`lib.rs:1580-1581`），要等前端调用 `update_tray_menu` 才本地化；若前端启动失败（如数据库恢复屏场景）则永远是英文。
+**状态：已修复（0.2.7+）。** 
+1. 浮窗明文日志落盘保护：`floating-window.log` 已限制仅在 `#[cfg(debug_assertions)]` 下生效，Release 生产构建彻底杜绝明文记录敏感信息落盘。
+2. 托盘菜单原生本地化：托盘在 `setup` 启动时已支持原生探测系统语言区域，消除前端就绪前固定硬编码英文的问题。
+3. 后端错误消息 i18n 本地化通道建立：实现 `formatBackendError`（`src/lib/backendError.ts`），将后端底层异常（锁中毒、迁移失败、越界拒绝等）映射为中英双语可读文案，`DatabaseRecoveryScreen.tsx` 错误呈现全面接入，消除英文堆栈直接穿透给用户的问题，并在 `backendError.test.ts` 中完成单测覆盖。
+
 - `macOSPrivateApi: true`（`tauri.conf.json:13`）导致无法上架 Mac App Store，且当前主窗口未使用透明/vibrancy，可能是不必要的。
 - Windows 安装包未做代码签名，首次安装会触发 SmartScreen 警告。
 
