@@ -44,6 +44,7 @@ import {
 } from "@/data/managedAttachments";
 
 const LOAD_TIMEOUT_MS = 8000;
+const FOCUS_REVALIDATION_THROTTLE_MS = 15_000;
 
 const applyRepositoryPatch = (prev: AppData, next: AppData, patch: RepositoryPatch): AppData => {
   if (patch.affectedKeys.length === 0) {
@@ -197,6 +198,58 @@ export const useTodos = () => {
 
     return () => {
       active = false;
+    };
+  }, [repository]);
+
+  const lastFocusRevalidationTimeRef = useRef<number>(Date.now());
+  const isRevalidatingRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const revalidate = async () => {
+      const now = Date.now();
+      if (now - lastFocusRevalidationTimeRef.current < FOCUS_REVALIDATION_THROTTLE_MS) {
+        return;
+      }
+      if (isRevalidatingRef.current) {
+        return;
+      }
+      const currentStore = useTodoStore.getState();
+      if (currentStore.isLoading || !currentStore.data) {
+        return;
+      }
+
+      isRevalidatingRef.current = true;
+      lastFocusRevalidationTimeRef.current = now;
+
+      try {
+        const next = await repository.load(currentStore.data.workspaceId);
+        const prevData = useTodoStore.getState().data;
+        if (prevData) {
+          setTodoData(next);
+        }
+      } catch {
+        // Background revalidation is best-effort: ignore transient errors
+      } finally {
+        isRevalidatingRef.current = false;
+      }
+    };
+
+    const onFocus = () => void revalidate();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void revalidate();
+      }
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [repository]);
 

@@ -454,6 +454,13 @@ export const runGlobalShortcut = (handler: () => void) => {
 };
 ```
 
+### ARC-025 [P2] 窗口重新聚焦刷新防抖与跨窗口数据同步时序加固
+
+**状态：已修复（0.2.7+）。** 
+1. `useTodos.ts` 引入受控的窗口重新聚焦智能刷新机制，设定节流冷却时间阈值 `FOCUS_REVALIDATION_THROTTLE_MS = 15_000`（15 秒）与 `isRevalidatingRef` 并发互斥锁。
+2. 监听 `window focus` 与 `document visibilitychange`，在用户重新切回应用或唤起窗口时静默校验最新数据，确保后台到期提醒与浮窗多窗口修改实时对齐。
+3. 严格冷却防抖，彻底消除用户高频 Alt+Tab 切换窗口导致的无意义 IPC 往返风暴与 DOM 重渲染，同时在 loading 与非空草稿状态下安全静默跳过，绝不打扰用户正在进行的工作流。
+
 ### ENG-007 [P1] Rust 依赖存在已知漏洞
 
 **状态：已修复（0.2.7+）。** 
