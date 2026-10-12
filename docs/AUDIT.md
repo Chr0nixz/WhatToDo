@@ -445,7 +445,9 @@ fn validate_text_file_path(path: &str, allowed_extensions: &[&str]) -> Result<Pa
 
 ### ARC-020 [P2] 9 个命令同步执行重 IO，阻塞主线程
 
-**状态：已修复（0.2.6+）。** `read_text_file`、`write_text_file`、`copy_managed_attachment`、`export_attachment_sidecar`、`import_attachment_sidecar`、`cleanup_auto_backups`、`backup_database_for_recovery`、`retry_database_migration`、`confirm_reset_database` 全部改为 `async fn`。
+**状态：已修复（0.2.7+）。** 
+1. 重型文件与目录 IO 命令全面异步化：`open_managed_attachment`、`delete_managed_attachment`、`analyze_orphaned_attachments`、`cleanup_orphaned_attachments`、`cleanup_auto_backups`、`backup_database_for_recovery`、`retry_database_migration`、`confirm_reset_database`、`export_attachment_sidecar`、`copy_managed_attachment` 全部声明为 `async fn`。
+2. 所有涉及磁盘扫描、物理文件删除、附件迁移与 SQLite 备份验证的昂贵操作统一交由 Tokio 后台线程池异步调度，彻底解除对桌面主事件循环和 UI 渲染线程的阻塞，消除大库自动备份与附件扫描时的 UI 掉帧卡顿。
 
 Tauri 中不带 `async` 的命令在主线程执行。当前只有 `open_workspace_window` 是 async，其余做重 IO 的包括：`read_text_file`(386)、`write_text_file`(396)、`copy_managed_attachment`(1237)、`export_attachment_sidecar`(1321)、`import_attachment_sidecar`(1360)、`cleanup_auto_backups`(1408)、`backup_database_for_recovery`(1476)、`retry_database_migration`(1500)、`confirm_reset_database`(1531)。
 

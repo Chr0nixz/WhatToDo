@@ -981,7 +981,7 @@ fn validate_managed_attachment_path(path: &Path, root: &Path) -> Result<(), Stri
 }
 
 #[tauri::command]
-fn open_managed_attachment(app: tauri::AppHandle, path: String) -> Result<(), String> {
+async fn open_managed_attachment(app: tauri::AppHandle, path: String) -> Result<(), String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err("Attachment path is required.".to_string());
@@ -1017,7 +1017,7 @@ async fn copy_managed_attachment(
 }
 
 #[tauri::command]
-fn delete_managed_attachment(app: tauri::AppHandle, path: String) -> Result<(), String> {
+async fn delete_managed_attachment(app: tauri::AppHandle, path: String) -> Result<(), String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err("Attachment path is required.".to_string());
@@ -1166,7 +1166,7 @@ fn query_referenced_attachments(
 }
 
 #[tauri::command]
-fn analyze_orphaned_attachments(
+async fn analyze_orphaned_attachments(
     app: tauri::AppHandle,
     db: tauri::State<'_, AppDb>,
 ) -> Result<OrphanedAttachmentsSummary, String> {
@@ -1191,7 +1191,7 @@ fn analyze_orphaned_attachments(
 }
 
 #[tauri::command]
-fn cleanup_orphaned_attachments(
+async fn cleanup_orphaned_attachments(
     app: tauri::AppHandle,
     db: tauri::State<'_, AppDb>,
 ) -> Result<OrphanedAttachmentsCleanupResult, String> {
