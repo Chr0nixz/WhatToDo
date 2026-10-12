@@ -25,6 +25,7 @@ import type {
   TaskSummary,
   UpdateRecurringTaskTemplateInput,
   UpdateWorkspaceInput,
+  WorkspaceTaskStats,
 } from "./types";
 
 export const DB_URL = "sqlite:ddl_todo.db";
@@ -109,6 +110,7 @@ export interface TodoRepository {
   loadDueReminders(nowIso: string): Promise<DueReminder[]>;
   getTask(id: string): Promise<Task | null>;
   loadDueDateCounts(input: { workspaceId?: string; from: string; to: string }): Promise<Record<string, number>>;
+  loadTaskStats(workspaceId?: string): Promise<WorkspaceTaskStats>;
   createWorkspace(input: CreateWorkspaceInput): Promise<RepositoryResult>;
   updateWorkspace(id: string, patch: UpdateWorkspaceInput): Promise<RepositoryResult>;
   deleteWorkspace(id: string): Promise<RepositoryResult>;

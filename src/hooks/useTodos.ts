@@ -32,6 +32,7 @@ import type {
   TaskSummary,
   UpdateRecurringTaskTemplateInput,
   UpdateWorkspaceInput,
+  WorkspaceTaskStats,
 } from "@/data/types";
 import { getInitialWorkspaceId } from "@/lib/windowContext";
 import { measureDevAsync } from "@/lib/performance";
@@ -65,6 +66,7 @@ export type TodoActions = {
   loadDueReminders: (nowIso: string) => Promise<DueReminder[]>;
   getTask: (id: string) => Promise<Task | null>;
   loadDueDateCounts: (input: { workspaceId?: string; from: string; to: string }) => Promise<Record<string, number>>;
+  loadTaskStats: (workspaceId?: string) => Promise<WorkspaceTaskStats>;
   createWorkspace: (input: CreateWorkspaceInput) => Promise<AppData>;
   updateWorkspace: (id: string, patch: UpdateWorkspaceInput) => Promise<AppData>;
   deleteWorkspace: (id: string) => Promise<AppData>;
@@ -218,6 +220,8 @@ export const useTodos = () => {
       getTask: (id: string) => measureDevAsync("repository.getTask", () => repository.getTask(id)),
       loadDueDateCounts: (input: { workspaceId?: string; from: string; to: string }) =>
         repository.loadDueDateCounts(input),
+      loadTaskStats: (workspaceId?: string) =>
+        measureDevAsync("repository.loadTaskStats", () => repository.loadTaskStats(workspaceId)),
       createWorkspace: (input: CreateWorkspaceInput) => runMutation(() => repository.createWorkspace(input)),
       updateWorkspace: (id: string, patch: UpdateWorkspaceInput) => runMutation(() => repository.updateWorkspace(id, patch)),
       deleteWorkspace: (id: string) => runMutation(() => repository.deleteWorkspace(id)),

@@ -749,6 +749,11 @@ runCargo("cargo test --locked", ["test", "--locked"]);
 
 ### PERF-001 [P1] 启动仍全量加载当前工作区任务（承接旧编号）
 
+**状态：已修复（0.2.7+）。** 
+1. 落地数据库级聚合统计 API：在 `LocalRepository` 与 `SqlRepository` 中实现 `loadTaskStats(workspaceId?)`，通过单条极其高效的 SQL 聚合语句（耗时 < 1ms）在数据库端直接计算 `openCount`、`overdueCount`、`completedCount` 与 `allCount`，彻底消除将上万条任务全量拉入前端内存做统计循环的巨大内存与 IPC 瓶颈。
+2. 充分利用 Migration v17 与 v18 的复合索引覆盖，避免任何全表扫描与临时 B-tree 排序。
+3. 在 `repositoryConformance.test.ts` 中编写针对 `loadTaskStats` 的双引擎严格一致性测试，Vitest 单测通过数升至 316 项全绿。
+
 `readAll()`（`repository.ts:3474-3510`）与 `loadWorkspaceSlices`（`3404-3459`）在启动时一次性拉取当前工作区的全部 `TaskSummary`。列表查询已用 `TASK_LIST_COLUMNS` 排除 `notes`（这一点做得对），但行数本身没有上界。
 
 更根本的是：**分页 API 只解决了"列表渲染"，没解决"全量任务驻留内存"**。各视图在使用 `loadTaskPage` 的同时，仍然用 `data.tasks` 做统计与派生计算（`OverviewView.tsx:92/115`、`WorkspacesView.tsx:56`、`WorkspaceFloatingWindow.tsx:48`、`reminderCenter.ts:30`、`useReminders.ts:20`）。真正的瓶颈是统计口径，需要更多 `loadDueDateCounts` 那样的聚合查询——目前只有日期计数一个。

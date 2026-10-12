@@ -564,6 +564,50 @@ describe("repository conformance", () => {
       // Per-workspace property remains independent
       expect(switchedWs1.data.settings.defaultWorkingFolder).toBeNull();
     });
+
+    it("computes aggregated workspace task stats accurately across engines (PERF-001)", async () => {
+      const repository = await createRepo();
+      const loaded = await repository.load();
+      const wsId = loaded.workspaceId;
+
+      // 1. Create a set of tasks with different statuses and dates
+      await repository.createTask({
+        title: "Open upcoming task",
+        dueDate: "2099-01-01",
+      });
+      const inProgressTask = await repository.createTask({
+        title: "In progress task",
+        dueDate: "2099-01-02",
+      });
+      await repository.setTaskStatus(inProgressTask.data.tasks[0].id, "in_progress");
+
+      const completedTask = await repository.createTask({
+        title: "Completed task",
+        dueDate: "2099-01-03",
+      });
+      await repository.setTaskStatus(completedTask.data.tasks[0].id, "completed");
+
+      // Overdue task (past date, status todo)
+      await repository.createTask({
+        title: "Overdue task",
+        dueDate: "2020-01-01",
+      });
+
+      // Soft-deleted task (must not be counted)
+      const deletedTask = await repository.createTask({
+        title: "Deleted task",
+        dueDate: "2099-01-04",
+      });
+      await repository.deleteTask(deletedTask.data.tasks[0].id);
+
+      // Query aggregated stats directly from database engine
+      const stats = await repository.loadTaskStats(wsId);
+
+      expect(stats.allCount).toBe(4);
+      expect(stats.openCount).toBe(3); // open upcoming, in_progress, overdue
+      expect(stats.overdueCount).toBe(1); // 2020-01-01
+      expect(stats.completedCount).toBe(1); // completed
+    });
   });
 });
 

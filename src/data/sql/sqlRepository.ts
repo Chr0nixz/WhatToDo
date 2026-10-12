@@ -43,7 +43,7 @@ import {
   upsertWorkspaceFolder,
 } from "./sqlStatements";
 import { endOfWeek } from "date-fns";
-import { buildReminderDate, parseDateKey, toDateKey } from "../date";
+import { buildReminderDate, parseDateKey, toDateKey, todayKey } from "../date";
 import { clearDefaultSavedViewIfNeeded } from "../savedViews";
 import { wouldCreateParentCycle } from "../taskTree";
 import { buildTaskFromRecurringTemplate, getNextRecurrenceDate } from "../recurrence";
@@ -59,6 +59,7 @@ import {
   upsertById,
 } from "../repositoryContract";
 import type { TodoRepository } from "../repositoryContract";
+import type { WorkspaceTaskStats } from "../types";
 import {
   boolToInt,
   rowToAttachment,
@@ -457,6 +458,32 @@ export class SqlRepository implements TodoRepository {
       counts[String(row.dueDate)] = Number(row.total ?? 0);
     }
     return counts;
+    });
+  }
+
+  async loadTaskStats(workspaceId?: string): Promise<WorkspaceTaskStats> {
+    return this.enqueueMutation(async () => {
+      const db = await this.connect();
+      const targetWs = workspaceId ?? this.workspaceId;
+      const today = todayKey();
+      const rows = (await db.select(
+        `SELECT
+           COUNT(CASE WHEN status IN ('todo', 'in_progress') THEN 1 END) AS openCount,
+           COUNT(CASE WHEN status NOT IN ('completed', 'cancelled') AND due_date < ? THEN 1 END) AS overdueCount,
+           COUNT(CASE WHEN status = 'completed' THEN 1 END) AS completedCount,
+           COUNT(1) AS allCount
+         FROM tasks
+         WHERE workspace_id = ? AND deleted_at IS NULL`,
+        [today, targetWs],
+      )) as Record<string, unknown>[];
+
+      const row = rows[0] ?? {};
+      return {
+        openCount: Number(row.openCount ?? 0),
+        overdueCount: Number(row.overdueCount ?? 0),
+        completedCount: Number(row.completedCount ?? 0),
+        allCount: Number(row.allCount ?? 0),
+      };
     });
   }
 

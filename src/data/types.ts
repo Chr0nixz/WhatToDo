@@ -261,6 +261,13 @@ export type OrphanedAttachmentsCleanupResult = {
   freedBytes: number;
 };
 
+export type WorkspaceTaskStats = {
+  openCount: number;
+  overdueCount: number;
+  completedCount: number;
+  allCount: number;
+};
+
 export type AppIndexes = {
   projectsById: Map<string, Project>;
   tasksById: Map<string, TaskSummary>;

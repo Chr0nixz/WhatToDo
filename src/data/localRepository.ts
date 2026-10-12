@@ -1,5 +1,5 @@
 import { parseBackupPayload } from "./backupSchema";
-import { buildReminderDate } from "./date";
+import { buildReminderDate, todayKey } from "./date";
 import { buildTasksCsv } from "./export/tasksCsv";
 import { buildTasksIcs } from "./export/tasksIcs";
 import { buildTaskFromRecurringTemplate, getNextRecurrenceDate } from "./recurrence";
@@ -15,6 +15,7 @@ import {
   nowIso,
 } from "./repositoryContract";
 import type { TodoRepository } from "./repositoryContract";
+import type { WorkspaceTaskStats } from "./types";
 import {
   broadcastGlobalPreferences,
   buildBackupPayload,
@@ -181,6 +182,37 @@ export class LocalRepository implements TodoRepository {
       counts[task.dueDate] = (counts[task.dueDate] ?? 0) + 1;
     }
     return counts;
+  }
+
+  async loadTaskStats(workspaceId?: string): Promise<WorkspaceTaskStats> {
+    const targetWs = workspaceId ?? this.workspaceId;
+    const today = todayKey();
+    let openCount = 0;
+    let overdueCount = 0;
+    let completedCount = 0;
+    let allCount = 0;
+
+    for (const task of this.data.tasks) {
+      if (task.workspaceId !== targetWs || task.deletedAt !== null) {
+        continue;
+      }
+      allCount++;
+      if (task.status === "todo" || task.status === "in_progress") {
+        openCount++;
+      } else if (task.status === "completed") {
+        completedCount++;
+      }
+      if (task.status !== "completed" && task.status !== "cancelled" && task.dueDate < today) {
+        overdueCount++;
+      }
+    }
+
+    return {
+      openCount,
+      overdueCount,
+      completedCount,
+      allCount,
+    };
   }
 
   async createWorkspace(input: CreateWorkspaceInput): Promise<RepositoryResult> {
