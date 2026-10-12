@@ -322,6 +322,12 @@ permissions = [
 4. 在 `repositoryConformance.test.ts` 中新增针对双引擎的继承与广播一致性测试覆盖。
 5. 联动优化 Rust 托盘菜单初始化：启动时原生探测系统语言区域，白屏/恢复屏阶段不再硬编码英文（`SEC-008` 遗留项同步闭环）。
 
+### PERF-018 [P2] 跨工作区切换选定任务状态自动复位与幽灵抽屉消除
+
+**状态：已修复（0.2.7+）。** 
+1. `AppShell.tsx` 引入 `previousWorkspaceIdRef` 切换守卫，在检测到当前活动工作区切换时，自动复位 `selectedTaskId = null` 与 `detailTask = null`。
+2. 彻底消除在工作区 A 打开任务详情后切换至工作区 B 时右侧抽屉继续驻留的“幽灵任务详情”缺陷，坚决阻断跨工作区草稿串写与上下文混淆。
+
 - 缺失外键：`tasks.workspace_id`、`tasks.parent_id`、`tasks.recurrence_template_id`、`settings.workspace_id`。现有 5 条外键全部无 `ON DELETE` 子句。
 
 ### ARC-017 [P2] `repository.ts` 4233 行，责任过多

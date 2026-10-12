@@ -149,6 +149,17 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showResetBanner, setShowResetBanner] = useState(dbReset !== null);
   const taskDetailRef = useRef<TaskDetailPaneHandle>(null);
+  const previousWorkspaceIdRef = useRef<string | null>(workspaceId);
+
+  useEffect(() => {
+    if (previousWorkspaceIdRef.current && previousWorkspaceIdRef.current !== workspaceId) {
+      if (selectedTaskId) {
+        setSelectedTaskId(null);
+        setDetailTask(null);
+      }
+    }
+    previousWorkspaceIdRef.current = workspaceId;
+  }, [workspaceId, selectedTaskId]);
 
   const safeSetSelectedTaskId = useCallback((next: string | null) => {
     if (next && taskDetailRef.current && !taskDetailRef.current.requestSwitch(next)) {
