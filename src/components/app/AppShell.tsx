@@ -162,7 +162,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
   }, [dbReset]);
   const [undoToast, setUndoToast] = useState<{ message: string; undo: () => Promise<unknown> } | null>(null);
   const [noticeToast, setNoticeToast] = useState<string | null>(null);
-  const [reminderToast, setReminderToast] = useState<{ id: string; title: string } | null>(null);
+  const [reminderToast, setReminderToast] = useState<{ id: string; title: string; workspaceId?: string } | null>(null);
   const [isRailExpanded, setIsRailExpanded] = useState(
     () => (localStorage.getItem("whattodo:rail") ?? localStorage.getItem("ddl-todo:rail")) !== "collapsed",
   );
@@ -414,7 +414,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
     onOpenHelp: () => setHelpOpen(true),
   });
 
-  const onReminderNotified = useCallback((task: { id: string; title: string }) => {
+  const onReminderNotified = useCallback((task: { id: string; title: string; workspaceId?: string }) => {
     setReminderToast(task);
     if (reminderToastTimer.current) {
       window.clearTimeout(reminderToastTimer.current);
@@ -835,7 +835,7 @@ export function AppShell({ error, dbReset, actions }: AppShellProps) {
         }}
         onDismissUndo={dismissUndo}
         onOpenReminderTask={(id) => {
-          onOpenTask(id);
+          void onOpenTask(id, { workspaceId: reminderToast?.workspaceId });
           setReminderToast(null);
           if (reminderToastTimer.current) {
             window.clearTimeout(reminderToastTimer.current);

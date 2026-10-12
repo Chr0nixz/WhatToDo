@@ -172,30 +172,10 @@ permissions = [
 
 ### FUN-009 [P0] 跨工作区的提醒永远不会触发
 
-**状态：已修复（0.2.6）。** `loadDueReminders` 跨工作区查询，提醒 tick 不再依赖当前切片。
-
-**证据**：`AppData.reminders` 在两套实现中都被限定到当前工作区：
-
-```127:127:src/data/repository.ts
-    reminders: data.reminders.filter((reminder) => taskIds.has(reminder.taskId)),
-```
-
-SQL 侧 `loadWorkspaceSlices` 的提醒查询同样 `INNER JOIN tasks ... WHERE tasks.workspace_id = ?`（`repository.ts:3437-3444`）。而提醒 tick 的数据源正是这个切片：
-
-```143:146:src/components/app/AppShell.tsx
-  const reminderTickData = useMemo(
-    () => (settings ? { tasks, reminders: reminderRows, settings } : null),
-    [tasks, reminderRows, settings],
-  );
-```
-
-`useReminders.ts:20` 用 `tasksById.get(reminder.taskId)` 过滤，非当前工作区的任务查不到，提醒被静默丢弃。
-
-**影响**：对一个以多工作区为核心组织方式的 DDL 工具，只有"当前正在看的那个工作区"的提醒会响。用户切换工作区后，原工作区的所有 DDL 提醒静默失效。此问题在上一轮审计中未被记录。
-
-**加重因素**：`settings` 也是按工作区存储的，`notificationsEnabled` 会随工作区切换，进一步放大不确定性（见 `ARC-013` 的 settings 分组问题）。
-
-**建议**：提醒 tick 需要一个独立的、跨工作区的数据源。推荐新增 `loadDueReminders(nowIso)` 仓储方法，直接在 SQL 层查询全部工作区的到期提醒，而不是复用 UI 的工作区切片。
+**状态：已修复（0.2.7+）。** 
+1. **独立跨工作区到期提醒数据源**：双引擎统一落地 `loadDueReminders(nowIso)` 仓储 API，在底层直接跨工作区扫描活跃未完成任务到期提醒，提醒轮询完全脱离前端活动工作区切片。
+2. **通知载荷与跳转闭环**：`ReminderNotifyPayload` 载荷丰富携带 `workspaceId`，用户在桌面通知或应用内 Toast 上点击“查看”（View）时，宿主组件自动感知任务所属工作区并调用 `selectWorkspace` 平滑切换，彻底解决跨工作区提醒点击无响应或白屏的体验断层。
+3. **双引擎严格契约测试覆盖**：在 `repositoryConformance.test.ts` 中新增针对 `loadDueReminders` 的跨工作区到期提醒综合测试，验证跨工作区提醒稳定检出，且已软删除任务或已删除工作区绝不误报，在真实内存 SQLite 引擎上 100% 全绿。
 
 ### ARC-011 [P0] 事务通过连接池逐条下发，原子性无保障；`importBackup` 存在全量数据丢失风险
 

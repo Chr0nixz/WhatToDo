@@ -14,6 +14,7 @@ export type ReminderTickData = Pick<AppData, "tasks" | "reminders" | "settings">
 export type ReminderNotifyPayload = {
   id: string;
   title: string;
+  workspaceId?: string;
 };
 
 export const dueRemindersForData = (data: ReminderTickData, now = Date.now()) => {
@@ -111,7 +112,11 @@ export const useReminders = (
               title: "WhatToDo",
               body: item.task.dueTime ? `${item.task.title} · ${item.task.dueTime}` : item.task.title,
             });
-            latestStateRef.current.onReminderNotified?.({ id: item.task.id, title: item.task.title });
+            latestStateRef.current.onReminderNotified?.({
+              id: item.task.id,
+              title: item.task.title,
+              workspaceId: item.task.workspaceId,
+            });
             await latestStateRef.current.markReminderFired(item.reminder.id);
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);

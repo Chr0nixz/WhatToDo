@@ -653,6 +653,44 @@ describe("repository conformance", () => {
       // Attempt to set parent across workspaces: must throw invalidParentTask
       await expect(repository.setTaskParent(childId, parentId)).rejects.toThrow("invalidParentTask");
     });
+
+    it("loads due reminders across active workspaces while filtering deleted workspaces and tasks (FUN-009)", async () => {
+      const repository = await createRepo();
+      await repository.load();
+
+      // Workspace 1 task with due reminder
+      const ws1Task = await repository.createTask({
+        title: "WS1 Due Task",
+        dueDate: "2026-06-01",
+        dueTime: "09:00",
+      });
+      const ws1TaskId = ws1Task.data.tasks[0]!.id;
+      await repository.createTaskReminder(ws1TaskId, 0);
+
+      // Workspace 2 task with due reminder
+      await repository.createWorkspace({ name: "Work", color: "#4fb8d8" });
+      const ws2Task = await repository.createTask({
+        title: "WS2 Cross-workspace Task",
+        dueDate: "2026-06-01",
+        dueTime: "09:00",
+      });
+      const ws2TaskId = ws2Task.data.tasks[0]!.id;
+      await repository.createTaskReminder(ws2TaskId, 0);
+
+      // Switch active workspace back to WS1
+      await repository.selectWorkspace("local-workspace");
+
+      // Verify loadDueReminders returns due reminders from BOTH workspaces
+      const due = await repository.loadDueReminders("2026-06-01T12:00:00.000Z");
+      expect(due.some((item) => item.task.id === ws1TaskId)).toBe(true);
+      expect(due.some((item) => item.task.id === ws2TaskId)).toBe(true);
+
+      // Verify soft-deleted task reminder is not included
+      await repository.deleteTask(ws1TaskId);
+      const afterDelete = await repository.loadDueReminders("2026-06-01T12:00:00.000Z");
+      expect(afterDelete.some((item) => item.task.id === ws1TaskId)).toBe(false);
+      expect(afterDelete.some((item) => item.task.id === ws2TaskId)).toBe(true);
+    });
   });
 });
 

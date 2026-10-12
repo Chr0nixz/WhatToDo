@@ -181,7 +181,11 @@ describe("useReminders notification failure", () => {
     );
 
     await waitFor(() => {
-      expect(onReminderNotified).toHaveBeenCalledWith({ id: "task-a", title: "Alpha" });
+      expect(onReminderNotified).toHaveBeenCalledWith({
+        id: "task-a",
+        title: "Alpha",
+        workspaceId: "workspace",
+      });
     });
     expect(markReminderFired).toHaveBeenCalledWith("reminder-a");
 
