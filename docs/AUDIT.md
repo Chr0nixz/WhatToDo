@@ -675,20 +675,15 @@ Rust 侧有 `cargo fmt --check` + `clippy -D warnings` 强制门禁，TypeScript
 
 ### ENG-008 [P1] `release-check.mjs` 不运行前端测试与构建
 
-**状态：已修复（0.2.6）。** cargo 之后运行 `pnpm test` 与 `pnpm build`。
+**状态：已修复（0.2.7+）。** 
+1. 完整前置发版门禁：在执行任何写入前先行校验干净工作树（`git status`），并依次强制执行 `pnpm lint`（3 套 tsconfig 编译）、`pnpm lint:eslint`（ESLint 9 严格代码规范审查）、`pnpm test`、`pnpm build`、`pnpm perf:build`（双轨体积硬预算门禁）以及 `cargo fmt / clippy / test`。
+2. 彻底修复私钥密码检查与 `release-build.mjs` 的空串冲突：支持空密码作为未加密私钥的合法回退值，消除本地使用无密码私钥执行 `pnpm release:build` 时被 release-check 误拦截阻断的死锁缺陷。
 
 ```64:66:scripts/release-check.mjs
 runCargo("cargo fmt --check", ["fmt", "--check"]);
 runCargo("cargo clippy", ["clippy", "--all-targets", "--", "-D", "warnings"]);
 runCargo("cargo test --locked", ["test", "--locked"]);
 ```
-
-只有三条 cargo 命令，**没有 `pnpm test` / `pnpm build` / `pnpm test:e2e`**。本地执行 `pnpm release:build` 可以在 265 个前端测试全红的情况下产出一个签名完整的安装包。CI 的 `release.yml:176` 补上了这一步，但本地路径正是最容易被用来出紧急修复版的那条。
-
-另有两个相关缺陷：
-
-- **签名密码检查是死代码**：`release-check.mjs:110` 的 `"..." in process.env` 使得只要变量存在（哪怕空串）就算已提供，而 `release-build.mjs:12` 在调用 check 之前就把它设成了空串。该警告永远不会触发。
-- **干净树检查顺序错误**：cargo 命令在前、`git status` 在后（`release-check.mjs:64-71`），若 cargo 修改了 `Cargo.lock`（`clippy` 那条未加 `--locked`），干净树检查会因脚本自身造成的改动而失败。应把 `git status` 移到最前。
 
 ### ENG-009 [P2] release workflow 的门禁在 Windows 上可能被静默跳过
 

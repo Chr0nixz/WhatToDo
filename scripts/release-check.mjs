@@ -133,10 +133,6 @@ if (signingKeyProvided && signingPassword === undefined) {
   console.warn(
     "Warning: TAURI_SIGNING_PRIVATE_KEY_PASSWORD is not set. If the signing key is password-protected, the release build will fail.",
   );
-} else if (signingKeyProvided && signingPassword === "") {
-  errors.push(
-    "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is an empty string. Unset it for an unprotected key, or provide the real password.",
-  );
 }
 
 if (errors.length) {

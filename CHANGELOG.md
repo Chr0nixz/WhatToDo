@@ -34,6 +34,7 @@
   - Fixes `ENG-011`: Expands Playwright E2E configuration to cover WebKit (WKWebView/WebKitGTK) with on-failure screenshots and video captures, uploads Playwright reports as 14-day CI artifacts on failure, and refines PR workflow path filters.
   - Fixes `ENG-003`: Integrates comprehensive code style toolchains by adding `.editorconfig` (standardized utf-8, lf, 2-space indentation) and `.prettierrc`, along with explicit `packageManager` (pnpm@10.7.1) and `engines` constraints in `package.json` to eliminate frontend-backend tooling asymmetry.
   - Fixes `ENG-010`: Configures `@vitest/coverage-v8` in `vite.config.ts` to output HTML/JSON/text test coverage reports (`pnpm test:coverage`), establishing a verified test coverage baseline across the repository (58.81% lines / 57.88% statements).
+  - Fixes `ENG-008`: Re-sequences pre-flight release checks so clean working tree inspection executes before cargo builds, and resolves signing key password validation deadlock to allow unencrypted local release builds.
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
   - Hardens all new submodules with thorough unit test coverage: all 329 Vitest tests (including 64 real SQLite conformance tests), 13 Playwright E2E tests, and 28 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
