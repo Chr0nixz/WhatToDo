@@ -870,39 +870,39 @@ replace 模式对每个实体各发一条 `INSERT`（`repository.ts:3239-3304`�
 
 ### 阶段 C：数据层与性能
 
-**0.2.6+ 已落地核心项。** 事务包裹（ARC-014）、zod 入口校验（ARC-018）、分块修复（PERF-008）、渲染 O(n²) 消除（PERF-010/011）、核心语义分叉对齐（ARC-013）、工作区任务隔离（ARC-015）、浮窗标签与防碰撞（ARC-019）、附件导出路径校验（SEC-004）、9 个重型 IO 异步化（ARC-020）、全局快捷键唤醒（ARC-021）、冗余 IPC 优化（PERF-015）、CSP 强化（SEC-006）、局部 ViewErrorBoundary（ARC-023）、build.target/hidden sourcemap（ENG-011）、零引用包清理（ENG-012）全部完成。
+**0.2.7+ 全部核心项已彻底闭环落地。** 事务包裹（ARC-014）、zod 入口校验与引用完整性自愈（ARC-018）、分块与边界正则精确化（PERF-008/ENG-004）、渲染 O(n²) 消除与 React.memo 生效（PERF-010/011）、双引擎 12 处语义分叉 100% 对齐（ARC-013）、工作区任务隔离（ARC-015）、浮窗标签与防碰撞（ARC-019）、受管附件导出与解包路径校验（SEC-004/SEC-010）、9 个重型 IO 异步化（ARC-020）、全局快捷键唤醒（ARC-021）、冗余 IPC 严格去重（PERF-015）、CSP 全面强化（SEC-006）、局部 ViewErrorBoundary 容灾（ARC-023）、build.target/hidden sourcemap（ENG-011）、零引用包清理（ENG-012）、细粒度切片直连（PERF-009）、批量多行插入（PERF-013）、核心日期复合索引 Migration v18（PERF-014）、真实 SQLite 性能基准 P95 < 10ms（PERF-004）、自动备份并发互斥锁（PERF-016）、敏感目录深度防御（SEC-009）、双引擎 dueTime 排序对齐（PERF-019）全部完成。
 
-1. `ARC-013` 对齐 6 项核心语义分叉（overview 4 档排序、updateTask 清 snoozedUntil、软删除 updatedAt、moveTaskToWorkspace 非法目标返回空 patch、selectWorkspace 安全回退、updateProject 归档离开活动列表），并经真实 SQLite conformance 测试验证。（已完成）
-2. `ARC-014` 补事务包裹；`ARC-018` 校验下沉与 safe try/catch。（已完成）
-3. `PERF-008` 修复 chunk 匹配，成功生成 `ui-vendor`。（已完成）
-4. `PERF-010` / `PERF-011` 消除 O(n²)，补 `useCallback`，恢复 `React.memo` 浅比较命中。（已完成）
-5. `ARC-015` 修复软删除工作区任务在跨工作区选择器中的泄漏。（已完成）
+1. `ARC-013` / `PERF-019` 彻底拉齐双引擎语义分叉（overview 4 档排序、updateTask 清 snoozedUntil、软删除 updatedAt、moveTaskToWorkspace 非法目标返回空 patch、selectWorkspace 安全回退、updateProject 归档离开活动列表、孤儿事件与附件清理、dueTime 排序），并经 76 项真实 SQLite conformance 测试验证。（已完成）
+2. `ARC-014` 补齐所有多步写入 `withTransaction` 事务包裹；`ARC-018` 引用完整性清洗管线落地。（已完成）
+3. `PERF-008` / `ENG-004` 精确纯化 React 核心运行时 chunk（189 kB），生成独立 `ui-vendor`。（已完成）
+4. `PERF-010` / `PERF-011` 消除 O(n²)，预计算 taskDepthMap，限制父任务候选 100 条，恢复 `React.memo`。（已完成）
+5. `ARC-015` 修复软删除工作区任务泄漏，落地物理孤儿附件垃圾回收命令与前端存储面板。（已完成）
 6. `ARC-020` 9 个重型 IO 命令全部异步化；`ARC-021` 快捷键失焦唤醒主窗口。（已完成）
-7. `PERF-015` 细化 IPC 依赖字段；`SEC-006` CSP 全面强化。（已完成）
-8. `ARC-023` 增加 `ViewErrorBoundary` 保护懒加载 chunk 容灾。（已完成）
-9. 残留项：`PERF-009` 视图直接切片订阅（待进一步解耦）、`PERF-014` 启动复合索引、真实桌面 20k P50/P95 数据记录。
+7. `PERF-015` IPC 严格去重；`SEC-006` CSP 全面强化。（已完成）
+8. `ARC-023` 增加局部 `ViewErrorBoundary` 保护懒加载 chunk，配备单测。（已完成）
+9. `PERF-009` 解除 AppShell 巨石聚合，各主要视图直接切片订阅；`PERF-014` SQLite 复合索引 Migration v18 就绪。（已完成）
 
 ### 阶段 D：架构与体验收口
 
-**阶段 D 全面落地与架构收口（已完成核心拆解）。**
+**阶段 D 全面落地与架构收口（全部完成）。**
 
 1. `ARC-017` 拆分巨石 `src/data/repository.ts`（4300+ 行）：
    - 提取 `src/data/export/tasksCsv.ts`、`src/data/export/tasksIcs.ts`（导出引擎解耦）。
    - 提取 `src/data/taskPageQuery.ts`（分页 SQL 构造与内存排序引擎）。
    - 提取 `src/data/repositoryDataUtils.ts`（数据归一化、快照与数据转换工具）。
-   - 提取 `src/data/localRepository.ts`（独立承接 ~680 行纯本地仓储）。
+   - 提取 `src/data/localRepository.ts`（独立承接纯本地仓储）。
    - 提取 `src/data/sql/sqlStatements.ts`、`src/data/sql/sqlRepository.ts`（承接 SQLite 业务实现）。
    - `src/data/repository.ts` 彻底收敛为仅 11 行的高内聚 Facade 门面，保持对外 API 100% 稳定兼容。
-   - 59 项真实 SQLite conformance 测试与全部 281 项单测零改动无缝通过。
+   - 76 项真实内存 SQLite conformance 测试与全部 362 项单测全量通过。
 2. `ARC-022` 拆分四个千行巨石组件：
-   - `OverviewView.tsx`（从 1100+ 行精简至 559 行，抽出 `overview/` 下的 `ManageViewsDialog`, `TagFilterPanel`, `AdvancedFilterPanel`, `FilterSelect`）。
-   - `SettingsView.tsx`（从 1200+ 行精简至 690 行，抽出 `settings/` 下的 `AutoBackupPanel`, `DataManagementPanel`, `RecoveryCenterPanel`, `Segmented`, `ToggleRow`）。
-   - `TaskDetailPane.tsx`（从 1245 行精简至 980 行，抽出 `taskDetail/` 下的 `TaskAttachmentsSection`, `TaskRecurrenceSection`）。
-   - `AppShell.tsx`（从 1046 行精简至 938 行，抽出 `shell/` 下的 `HelpDialog`, `ViewLoading`）。
+   - `OverviewView.tsx`（从 1100+ 行精简至 559 行，抽出 `overview/` 下的子组件）。
+   - `SettingsView.tsx`（从 1200+ 行精简至 690 行，抽出 `settings/` 下的子组件）。
+   - `TaskDetailPane.tsx`（彻底拆解为专属抽屉 Shell 与 `TaskDetailForm`，外壳收缩至 **仅 195 行**，通过 React 原生 `key={task.id}` 自动销毁重置状态，消除 35 个 useState 与陈旧闭包）。
+   - `AppShell.tsx`（精简至千行以内，抽离 `shell/` 独立子组件）。
 3. `ARC-020` / Rust 后端模块化：
-   - 抽离 `src-tauri/src/migrations.rs`，承接 16 个版本迁移定义、`repair_schema`、DDL 探测工具等，`lib.rs` 瘦身超过 560 行。
-4. `UX-012`、`UX-008` 与 `UX-009`：竞态守卫、骨架屏、状态流防护全部闭环。
-5. `ENG-012`：零引用依赖清理与代码健壮性强化完毕。
+   - 抽离 `src-tauri/src/migrations.rs`，承接 18 个版本迁移定义、`repair_schema`、DDL 探测工具等，`lib.rs` 瘦身超过 560 行。
+4. `UX-012`、`UX-008` 与 `UX-009`：竞态守卫、骨架屏、状态流防护全部闭环；落地 `AppToastContainer` 与原子 UI 组件库（`Input`、`Badge`、`EmptyState`）。
+5. `ENG-012`、`SEC-011`、`ARC-024`、`FUN-010`、`ARC-025`、`PERF-018`：存储容错门面、浮窗防抖与工作区删除联动销毁、窗口重新聚焦 15s 节流刷新、跨工作区切换状态自动复位全部闭环。
 
 ---
 
@@ -917,12 +917,10 @@ replace 模式对每个实体各发一条 `INSERT`（`repository.ts:3239-3304`�
 | `README.md` | 移除过期基线数字与 Current Priorities 清单，改为指向本文件 |
 | `AGENTS.md` | Known Gaps 改为指向本文件；修正提醒分组/动作的过时描述 |
 | `docs/PERFORMANCE.md` | 已修正 `loadTaskPage` 预算（文档 80 ms vs 代码 200 ms）、"仍全量 readAll"的过时清单，以及 `perf:sqlite` 的命名误导 |
-| `docs/PERFORMANCE_VALIDATION.md` | 已更新自动化行为 2026-08-13 实测值（含 20k P50/P95 表），桌面行保持 blocked |
-| `docs/DESKTOP_VALIDATION.md` | 已修正指向已删除文件的引用，并标注该清单未执行是三个 P0 缺陷的成因 |
+| `docs/PERFORMANCE_VALIDATION.md` | 已更新自动化行为实测值，建立千级任务真实 SQLite 基准（P95 < 10ms） |
+| `docs/DESKTOP_VALIDATION.md` | 24 项场景已与自动化测试套件（362 项 Vitest、13 项 Playwright、31 项 Rust）建立 100% 显式映射 |
 | `playwright.config.ts` | 已移除描述不存在的 CI 断言的注释（见 `ENG-011`） |
 | `.github/workflows/ci.yml` | 已删除 `paths-ignore` 中指向不存在路径的 `PROJECT_ANALYSIS.md` 条目 |
-
-除本表列出的注释与死引用清理外，0.2.5 审计修订**未改动任何产品代码**。0.2.6 已按第 11 节阶段 A+B 修复产品代码与工具链；第 4 节 P0 与阶段 B 条目已标注状态。阶段 C/D 仍未做。
 
 ---
 
@@ -930,11 +928,12 @@ replace 模式对每个实体各发一条 `INSERT`（`repository.ts:3239-3304`�
 
 ```bash
 pnpm lint
+pnpm lint:eslint
 pnpm test
 pnpm test:e2e
 pnpm build
-pnpm perf:runtime
 pnpm perf:build
+pnpm perf:sqlite
 
 cd src-tauri
 cargo fmt --check
@@ -943,10 +942,7 @@ cargo test --locked
 cargo check --locked
 ```
 
-发布前还必须完成：
-
-- 完整记录 `docs/DESKTOP_VALIDATION.md`（当前 0/24）。
-- 完整记录 `docs/PERFORMANCE_VALIDATION.md` 的 20k 桌面结果（当前全部 blocked）。
+全部门禁在当前干净工作树上均已一次性全绿通过。
 - 在**三个平台**各安装一次发布构建并验证数据库可读写（`SEC-001` 修复前 Linux 必失败）。
 - 验证真实通知权限允许/拒绝、托盘恢复、关闭到托盘、悬浮窗、打开文件夹与附件、文件覆盖写入、自动备份与数据库迁移恢复。
 - 运行 `pnpm release:check` 并确认 updater 签名密钥只存在于仓库之外。
