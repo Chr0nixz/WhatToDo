@@ -263,12 +263,28 @@ export function HomeView({
             )}
           </div>
           {taskPage.isLoading && taskPage.tasks.length === 0 ? (
-            <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground">
+            <div
+              className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-border bg-card/35 px-6 text-center text-sm text-muted-foreground"
+              role="status"
+              aria-live="polite"
+            >
               {t("loadingTasks")}
             </div>
           ) : taskPage.error && taskPage.tasks.length === 0 ? (
-            <div className="motion-status flex min-h-36 items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-destructive/10 px-6 text-center text-sm text-destructive">
-              {taskPage.error}
+            <div
+              className="motion-status flex min-h-36 flex-col items-center justify-center gap-2.5 rounded-lg border border-dashed border-destructive/40 bg-destructive/10 px-6 text-center text-sm text-destructive"
+              role="alert"
+              aria-live="assertive"
+            >
+              <span>{taskPage.error}</span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs border-destructive/40 hover:bg-destructive/15"
+                onClick={() => void taskPage.reload()}
+              >
+                {t("retry")}
+              </Button>
             </div>
           ) : (
             <TaskList

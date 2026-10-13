@@ -192,4 +192,50 @@ describe("HomeView performance list behavior", () => {
       expect(vi.mocked(actions.loadDueDateCounts).mock.calls.length).toBeGreaterThan(calls);
     });
   }, 20_000);
+
+  it("renders error state with role='alert' and triggers reload on retry click (UX-009)", async () => {
+    let callCount = 0;
+    const actions = {
+      loadTaskPage: vi.fn(async () => {
+        callCount += 1;
+        if (callCount === 1) {
+          throw new Error("Simulated network failure");
+        }
+        return {
+          tasks: [makeTask(1)],
+          total: 1,
+          reminders: [],
+        } satisfies TaskPageResult;
+      }),
+      loadDueDateCounts: vi.fn(async () => ({ "2026-06-01": 1 })),
+    } as unknown as TodoActions;
+
+    const data = makeData([]);
+
+    render(
+      <HomeView
+        actions={actions}
+        data={data}
+        searchQuery=""
+        selectedDate="2026-06-01"
+        selectedTaskId={null}
+        setSearchQuery={vi.fn()}
+        setSelectedDate={vi.fn()}
+        setSelectedTaskId={vi.fn()}
+      />,
+    );
+
+    const alert = await screen.findByRole("alert", undefined, { timeout: 10_000 });
+    expect(alert).toBeInTheDocument();
+    expect(alert).toHaveTextContent("Simulated network failure");
+
+    const retryButton = screen.getByRole("button", { name: /重试|Retry/i });
+    expect(retryButton).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(retryButton);
+    });
+
+    expect(await screen.findByText("Task 1", undefined, { timeout: 10_000 })).toBeInTheDocument();
+  }, 20_000);
 });

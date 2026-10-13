@@ -54,6 +54,7 @@ export function useTaskPage({
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const inputKey = useMemo(() => JSON.stringify(input), [input]);
   const loadedCountRef = useRef(0);
   const prevInputKeyRef = useRef<string | null>(null);
@@ -125,7 +126,11 @@ export function useTaskPage({
     return () => {
       active = false;
     };
-  }, [enabled, inputKey, loadPage, pageSize, reloadKey]);
+  }, [enabled, inputKey, loadPage, pageSize, reloadKey, reloadNonce]);
+
+  const reload = useCallback(() => {
+    setReloadNonce((v) => v + 1);
+  }, []);
 
   const loadMore = useCallback(async () => {
     if (!enabled || isLoading || isLoadingMore || result.tasks.length >= result.total) {
@@ -168,5 +173,6 @@ export function useTaskPage({
     isLoadingMore,
     error,
     loadMore,
+    reload,
   };
 }
