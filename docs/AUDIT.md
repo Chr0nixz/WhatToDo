@@ -55,7 +55,7 @@ WhatToDo 的功能密度、CI 矩阵、双引擎一致性验证和前后端工�
 
 | 命令 | 结果 |
 |---|---|
-| `pnpm test` | 通过 — **48 个测试文件 / 363 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
+| `pnpm test` | 通过 — **49 个测试文件 / 365 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
 | `pnpm lint` | 通过 — 连续检查 `tsconfig.json` / `tsconfig.vitest.json` / `tsconfig.node.json` 全部 0 错误通过 |
 | `pnpm lint:eslint` | 通过 — **0 error, 0 warning**，整库 ESLint 9 严格校验完全干净 |
 | `pnpm test:e2e` | 通过 — **13 个 Playwright E2E webview smoke 测试全部通过** |
@@ -549,6 +549,14 @@ export const runGlobalShortcut = (handler: () => void) => {
 **正确性上**，`deletedTasks` / `deletedWorkspaceFolders` / `availableTasks` 三个字段被硬编码成空数组，但对象类型声明为 `AppData`——它在这三个字段上撒谎，下游读取会静默拿到空数组且类型系统无法提示。
 
 **建议**：让各视图直接调用需要的切片 hook；若要减少改动面，至少改成显式的 `AppShellData` 子集类型。
+
+### PERF-020 [P2] 应用索引构建内存分配优化与空态零成本单例复用
+
+**状态：已修复（0.2.7+）。** 
+1. 重构 `src/data/appIndexes.ts` 中的核心索引构建算法 `buildAppIndexes`。
+2. 引入全局不可变冻结单例 `EMPTY_APP_INDEXES`，在冷启动、切换至空工作区或清空数据时直接返回单例，彻底消灭无意义的 Map/Set 分配，达成零内存开销。
+3. 使用直接单次遍历（`for (const p of projects) projectsById.set(...)`）全面替代原 `new Map(items.map(...))` 模式，消除大量短命临时元组中间数组带来的堆内存占用与 V8 GC 压力。
+4. 新增 `appIndexes.test.ts` 专属单元测试，覆盖空态单例恒等复用与非空索引构建，Vitest 单测用例数升至 365 项全绿。
 
 ### PERF-010 [P2] TaskList 每行渲染做 O(n) 工作，且 `React.memo` 完全失效
 
