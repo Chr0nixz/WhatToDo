@@ -139,4 +139,23 @@ describe("taskPageQuery module", () => {
     const pattern3 = params[3] as string;
     expect(pattern3).toBe('%"snake\\_case"%');
   });
+
+  it("generates SQL non-truth check (IS NOT 1) for negated filter groups to guard against NULL three-valued logic (PERF-021)", () => {
+    const group: FilterGroup = {
+      operator: "AND",
+      negate: true,
+      groups: [],
+      conditions: [
+        { field: "projectId", op: "eq", value: "p-secret" },
+      ],
+    };
+
+    const where: string[] = [];
+    const params: unknown[] = [];
+    appendAdvancedFilterSql(where, params, group);
+
+    expect(where.length).toBe(1);
+    expect(where[0]).toBe("(project_id = ?) IS NOT 1");
+    expect(params).toEqual(["p-secret"]);
+  });
 });

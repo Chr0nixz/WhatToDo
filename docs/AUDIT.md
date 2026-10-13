@@ -55,7 +55,7 @@ WhatToDo 的功能密度、CI 矩阵、双引擎一致性验证和前后端工�
 
 | 命令 | 结果 |
 |---|---|
-| `pnpm test` | 通过 — **49 个测试文件 / 365 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
+| `pnpm test` | 通过 — **49 个测试文件 / 366 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
 | `pnpm lint` | 通过 — 连续检查 `tsconfig.json` / `tsconfig.vitest.json` / `tsconfig.node.json` 全部 0 错误通过 |
 | `pnpm lint:eslint` | 通过 — **0 error, 0 warning**，整库 ESLint 9 严格校验完全干净 |
 | `pnpm test:e2e` | 通过 — **13 个 Playwright E2E webview smoke 测试全部通过** |
@@ -557,6 +557,13 @@ export const runGlobalShortcut = (handler: () => void) => {
 2. 引入全局不可变冻结单例 `EMPTY_APP_INDEXES`，在冷启动、切换至空工作区或清空数据时直接返回单例，彻底消灭无意义的 Map/Set 分配，达成零内存开销。
 3. 使用直接单次遍历（`for (const p of projects) projectsById.set(...)`）全面替代原 `new Map(items.map(...))` 模式，消除大量短命临时元组中间数组带来的堆内存占用与 V8 GC 压力。
 4. 新增 `appIndexes.test.ts` 专属单元测试，覆盖空态单例恒等复用与非空索引构建，Vitest 单测用例数升至 365 项全绿。
+
+### PERF-021 [P2] 高级过滤器否定组与 SQL NULL 三值逻辑边界加固
+
+**状态：已修复（0.2.7+）。** 
+1. `src/data/taskPageQuery.ts` 重构高级筛选否定组 SQL 生成：将原 `NOT (${joined})` 改写为 `(${joined}) IS NOT 1`。
+2. 彻底解决 SQLite 三值逻辑陷阱：在否定反选场景下，若任务字段为 NULL（如无项目的任务 `project_id IS NULL`），原 SQL 会因 `NOT (UNKNOWN) = UNKNOWN` 导致任务被静默丢弃；加固后非真判断精准将 `FALSE` 和 `UNKNOWN` 统一保留，与前端内存 JS 过滤语义严格对齐。
+3. 在 `taskPageQuery.test.ts` 中新增否定条件组专项单测覆盖，Vitest 单测用例数升至 366 项全绿。
 
 ### PERF-010 [P2] TaskList 每行渲染做 O(n) 工作，且 `React.memo` 完全失效
 

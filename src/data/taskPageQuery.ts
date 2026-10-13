@@ -241,7 +241,7 @@ export const appendAdvancedFilterSql = (
     return;
   }
   const joined = parts.join(` ${group.operator} `);
-  where.push(group.negate ? `NOT (${joined})` : `(${joined})`);
+  where.push(group.negate ? `(${joined}) IS NOT 1` : `(${joined})`);
   values.push(...partValues);
 };
 

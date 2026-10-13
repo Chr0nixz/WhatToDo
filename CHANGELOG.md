@@ -60,9 +60,10 @@
   - Fixes `PERF-019`: Aligns `dueTime` sorting semantics across `LocalRepository` (`a.dueTime || "99:99"`) and `SqlRepository` (`COALESCE(NULLIF(due_time, ''), '99:99') ASC`) so both `null` and empty strings consistently sort after timed tasks with identical priority tie-breaking, backed by real SQLite conformance tests.
   - Fixes `SEC-012`: Implements `sanitizeErrorMessage` in `backendError.ts` to automatically redact local Windows (`C:\Users\<user>`) and Unix/macOS (`/Users/<user>`, `/home/<user>`) user home directory paths in raw error details, preventing OS username and internal directory structure leaks in UI alerts, backed by unit tests.
   - Fixes `PERF-020`: Optimizes `buildAppIndexes` to return frozen `EMPTY_APP_INDEXES` singleton on empty inputs (zero allocation) and directly populate Maps to eliminate intermediate tuple allocations during workspace switches, backed by `appIndexes.test.ts`.
+  - Fixes `PERF-021`: Hardens advanced filter group negation SQL generation with non-truth evaluation (`IS NOT 1`) instead of naive `NOT ()`, eliminating SQLite three-valued logic pitfalls where tasks with NULL attributes were unintentionally dropped when negating filter groups, backed by unit tests.
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
-  - Hardens all new submodules with thorough unit test coverage: all 365 Vitest tests (including 76 real SQLite conformance tests), 13 Playwright E2E tests, and 31 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
+  - Hardens all new submodules with thorough unit test coverage: all 366 Vitest tests (including 76 real SQLite conformance tests), 13 Playwright E2E tests, and 31 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
 
 ## 0.2.6
 
