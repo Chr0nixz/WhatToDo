@@ -55,7 +55,7 @@ WhatToDo 的功能密度、CI 矩阵、双引擎一致性验证和前后端工�
 
 | 命令 | 结果 |
 |---|---|
-| `pnpm test` | 通过 — **48 个测试文件 / 362 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
+| `pnpm test` | 通过 — **48 个测试文件 / 363 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
 | `pnpm lint` | 通过 — 连续检查 `tsconfig.json` / `tsconfig.vitest.json` / `tsconfig.node.json` 全部 0 错误通过 |
 | `pnpm lint:eslint` | 通过 — **0 error, 0 warning**，整库 ESLint 9 严格校验完全干净 |
 | `pnpm test:e2e` | 通过 — **13 个 Playwright E2E webview smoke 测试全部通过** |
@@ -501,12 +501,12 @@ export const runGlobalShortcut = (handler: () => void) => {
 
 - `libsqlite3-sys` 已对齐升级至 0.30.1（已修复）。
 
-### SEC-008 [P3] 其它
+### SEC-008 / SEC-012 [P3] 其它安全与错误路径脱敏
 
 **状态：已修复（0.2.7+）。** 
 1. 浮窗明文日志落盘保护：`floating-window.log` 已限制仅在 `#[cfg(debug_assertions)]` 下生效，Release 生产构建彻底杜绝明文记录敏感信息落盘。
 2. 托盘菜单原生本地化：托盘在 `setup` 启动时已支持原生探测系统语言区域，消除前端就绪前固定硬编码英文的问题。
-3. 后端错误消息 i18n 本地化通道建立：实现 `formatBackendError`（`src/lib/backendError.ts`），将后端底层异常（锁中毒、迁移失败、越界拒绝等）映射为中英双语可读文案，`DatabaseRecoveryScreen.tsx` 错误呈现全面接入，消除英文堆栈直接穿透给用户的问题，并在 `backendError.test.ts` 中完成单测覆盖。
+3. 后端错误消息 i18n 本地化与敏感路径脱敏通道建立（`SEC-008` / `SEC-012`）：实现 `formatBackendError` 与 `sanitizeErrorMessage`（`src/lib/backendError.ts`），将后端底层异常（锁中毒、迁移失败、越界拒绝等）映射为中英双语可读文案，并自动脱敏 Windows 用户路径（`C:\Users\<user>\...` -> `<user-path>\...`）与 Unix/macOS 用户主目录路径（`/Users/<user>/...`、`/home/<user>/...` -> `~/...`），杜绝用户名与内部文件系统结构外泄，在 `backendError.test.ts` 中完成单测覆盖（Vitest 单测增至 363 项全绿）。
 
 ### SEC-009 [P2] 自动备份与历史目录修剪敏感系统路径纵深防御
 

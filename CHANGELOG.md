@@ -58,9 +58,10 @@
   - Fixes `SEC-011`: Wraps `localStorage` calls with a resilient storage facade (`safeStorage.ts`) in `AppShell`, `TaskComposer`, and `useAutoBackup`, gracefully handling `QuotaExceededError` and sandboxed environments to prevent unhandled `DOMException` white-screen crashes, backed by `safeStorage.test.ts`.
   - Fixes `UX-009`: Exposes explicit `reload()` on `useTaskPage` and upgrades `HomeView` loading and error states with accessible `role="status"` / `role="alert"` attributes and a retry action button, backed by `HomeView.test.tsx`.
   - Fixes `PERF-019`: Aligns `dueTime` sorting semantics across `LocalRepository` (`a.dueTime || "99:99"`) and `SqlRepository` (`COALESCE(NULLIF(due_time, ''), '99:99') ASC`) so both `null` and empty strings consistently sort after timed tasks with identical priority tie-breaking, backed by real SQLite conformance tests.
+  - Fixes `SEC-012`: Implements `sanitizeErrorMessage` in `backendError.ts` to automatically redact local Windows (`C:\Users\<user>`) and Unix/macOS (`/Users/<user>`, `/home/<user>`) user home directory paths in raw error details, preventing OS username and internal directory structure leaks in UI alerts, backed by unit tests.
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
-  - Hardens all new submodules with thorough unit test coverage: all 362 Vitest tests (including 76 real SQLite conformance tests), 13 Playwright E2E tests, and 31 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
+  - Hardens all new submodules with thorough unit test coverage: all 363 Vitest tests (including 76 real SQLite conformance tests), 13 Playwright E2E tests, and 31 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
 
 ## 0.2.6
 

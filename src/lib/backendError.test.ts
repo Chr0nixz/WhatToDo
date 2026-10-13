@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatBackendError } from "./backendError";
+import { formatBackendError, sanitizeErrorMessage } from "./backendError";
 
 describe("formatBackendError", () => {
   const mockTranslate = ((key: string, options?: { detail?: string }) => {
@@ -39,5 +39,22 @@ describe("formatBackendError", () => {
   it("formats generic unknown error with detail prefix", () => {
     const error = "Unexpected SQLite disk IO failure";
     expect(formatBackendError(error, mockTranslate)).toBe("dbErrorUnknown:Unexpected SQLite disk IO failure");
+  });
+
+  it("redacts Windows and Unix user home paths in error details (SEC-012)", () => {
+    const winError = "Failed to access C:\\Users\\secret_user\\AppData\\Local\\whattodo\\file.json";
+    expect(sanitizeErrorMessage(winError)).toBe("Failed to access <user-path>\\AppData\\Local\\whattodo\\file.json");
+    expect(formatBackendError(winError, mockTranslate)).toBe(
+      "dbErrorUnknown:Failed to access <user-path>\\AppData\\Local\\whattodo\\file.json",
+    );
+
+    const macError = "IO error at /Users/john_doe/.config/whattodo/backup.json";
+    expect(sanitizeErrorMessage(macError)).toBe("IO error at ~/.config/whattodo/backup.json");
+    expect(formatBackendError(macError, mockTranslate)).toBe(
+      "dbErrorUnknown:IO error at ~/.config/whattodo/backup.json",
+    );
+
+    const linuxError = "IO error at /home/developer/.config/whattodo/backup.json";
+    expect(sanitizeErrorMessage(linuxError)).toBe("IO error at ~/.config/whattodo/backup.json");
   });
 });
