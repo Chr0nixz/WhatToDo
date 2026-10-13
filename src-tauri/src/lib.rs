@@ -944,6 +944,46 @@ fn sanitize_attachment_filename(filename: &str) -> Result<String, String> {
     if name == "." || name == ".." || name.contains("..") {
         return Err("Attachment filename must be a plain file name.".to_string());
     }
+
+    // SEC-013: Reject control characters and Windows illegal filename symbols (<, >, :, ", |, ?, *)
+    if name
+        .chars()
+        .any(|c| c < ' ' || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*'))
+    {
+        return Err("Attachment filename contains invalid characters.".to_string());
+    }
+
+    // SEC-013: Reject Windows reserved DOS device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+    let stem = name.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let is_reserved_device = matches!(
+        stem.as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    );
+    if is_reserved_device {
+        return Err("Attachment filename contains reserved system device name.".to_string());
+    }
+
     Ok(name.to_string())
 }
 
@@ -2114,6 +2154,40 @@ mod tests {
         );
         assert!(sanitize_attachment_filename("").is_err());
         assert!(sanitize_attachment_filename("..").is_err());
+    }
+
+    #[test]
+    fn sanitize_attachment_filename_rejects_reserved_device_names_and_invalid_chars() {
+        // Windows reserved DOS devices
+        let reserved_cases = [
+            "con.txt", "CON", "aux.png", "AUX", "nul", "NUL.dat", "com1.bin", "COM9", "lpt1.log",
+        ];
+        for case in reserved_cases {
+            let err =
+                sanitize_attachment_filename(case).expect_err("should reject reserved device name");
+            assert!(
+                err.contains("reserved system device name"),
+                "expected reserved device error for {case}"
+            );
+        }
+
+        // Illegal characters and control characters
+        let invalid_char_cases = [
+            "file:name.txt",
+            "doc*name.pdf",
+            "image?.png",
+            "report<1>.txt",
+            "pipe|file.dat",
+            "null\0byte.txt",
+        ];
+        for case in invalid_char_cases {
+            let err =
+                sanitize_attachment_filename(case).expect_err("should reject invalid characters");
+            assert!(
+                err.contains("invalid characters"),
+                "expected invalid character error for {case}"
+            );
+        }
     }
 
     #[test]

@@ -64,7 +64,7 @@ WhatToDo 的功能密度、CI 矩阵、双引擎一致性验证和前后端工�
 | `pnpm perf:sqlite` | 通过 — 真实内存 SQLite 引擎基准测试（千级任务模糊搜索 P50 < 3ms，P95 < 10ms） |
 | `cargo fmt --check` | 通过 — 0 diff |
 | `cargo clippy --all-targets -- -D warnings` | 通过 — 0 warning / 0 error |
-| `cargo test --locked` | 通过 — **31 个 Rust 单元测试全部通过** |
+| `cargo test --locked` | 通过 — **32 个 Rust 单元测试全部通过** |
 | `pnpm audit --prod` | 无已知 npm 生产依赖漏洞；`rusqlite` 升级至 `0.32.1`（`libsqlite3-sys 0.30.1`）消除 CVE-2025-6965 |
 | i18n 键对齐 | 中英文键集合 100% 对齐，由自动化测试守护 |
 | 仓库卫生 | `dist` / `output` / `tmp` / `coverage` / `test-results` 均无文件入库 |
@@ -382,6 +382,13 @@ fn export_attachment_sidecar(
 1. `import_attachment_sidecar` 强制接入 `validate_text_file_path(&backup_json_path, &["json"])` 校验，拦截空路径、非法扩展名、`..` 相对遍历以及跨平台系统关键敏感目录。
 2. 校验解包源路径必须满足 `is_path_within_root_lenient(&source, &sidecar_root)` 且为常规文件，坚决阻断越界读取与主机任意文件搬移。
 3. 在 Rust 单元测试中新增 `import_attachment_sidecar_path_validation_rejects_traversal_and_sensitive_paths` 专项测试，Rust 单元测试用例增至 31 项全绿。
+
+### SEC-013 [P2] 附件文件名 Windows 保留设备名称（CON/PRN/AUX/NUL/COM/LPT）阻断加固
+
+**状态：已修复（0.2.7+）。** 
+1. `src-tauri/src/lib.rs` 的 `sanitize_attachment_filename` 增加 Windows 保留 DOS 设备名称严格检测，拒绝 `CON`、`PRN`、`AUX`、`NUL`、`COM1-9`、`LPT1-9`（含 `con.txt`、`aux.png` 等扩展名变体），彻底消除 Windows 文件系统驱动层 `ERROR_INVALID_NAME` 与死锁风险。
+2. 过滤 ASCII 控制字符（`c < ' '`）与 Windows 禁止符号（`:`、`*`、`?`、`"`、`<`、`>`、`|`），杜绝跨平台文件名注入。
+3. 在 Rust 单元测试中新增 `sanitize_attachment_filename_rejects_reserved_device_names_and_invalid_chars` 专项测试，Rust 单元测试用例增至 32 项全绿。
 
 ### SEC-011 [P2] 客户端偏好与 LocalStorage 存储解析容错防崩加固
 
