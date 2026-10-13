@@ -272,7 +272,7 @@ export const taskPageComparator = (sort: TaskPageInput["sort"]) => (a: TaskSumma
     return dueDate;
   }
 
-  const dueTime = (a.dueTime ?? "99:99").localeCompare(b.dueTime ?? "99:99");
+  const dueTime = (a.dueTime || "99:99").localeCompare(b.dueTime || "99:99");
   if (dueTime !== 0) {
     return dueTime;
   }

@@ -691,6 +691,58 @@ describe("repository conformance", () => {
       expect(afterDelete.some((item) => item.task.id === ws1TaskId)).toBe(false);
       expect(afterDelete.some((item) => item.task.id === ws2TaskId)).toBe(true);
     });
+
+    it("orders tasks consistently by dueDate ASC, dueTime ASC with nulls/empty last, and priority tie-breaking (PERF-019)", async () => {
+      const repository = await createRepo();
+      await repository.load();
+
+      // Task A: 2026-06-01 at 14:00, medium priority
+      await repository.createTask({
+        title: "Task A",
+        dueDate: "2026-06-01",
+        dueTime: "14:00",
+        priority: "medium",
+      });
+      // Task B: 2026-06-01 at 09:00, low priority (earlier time beats higher priority)
+      await repository.createTask({
+        title: "Task B",
+        dueDate: "2026-06-01",
+        dueTime: "09:00",
+        priority: "low",
+      });
+      // Task C: 2026-06-01 all day (null dueTime), high priority
+      await repository.createTask({
+        title: "Task C",
+        dueDate: "2026-06-01",
+        dueTime: null,
+        priority: "high",
+      });
+      // Task D: 2026-06-01 all day (empty dueTime), medium priority
+      await repository.createTask({
+        title: "Task D",
+        dueDate: "2026-06-01",
+        dueTime: "",
+        priority: "medium",
+      });
+      // Task E: 2026-06-02 at 08:00, high priority (next day)
+      await repository.createTask({
+        title: "Task E",
+        dueDate: "2026-06-02",
+        dueTime: "08:00",
+        priority: "high",
+      });
+
+      const page = await repository.loadTaskPage({
+        scope: "all",
+        limit: 10,
+        offset: 0,
+        sort: "dueAsc",
+        dateRange: "all",
+      });
+
+      const titles = page.tasks.map((t) => t.title);
+      expect(titles).toEqual(["Task B", "Task A", "Task C", "Task D", "Task E"]);
+    });
   });
 });
 

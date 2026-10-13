@@ -55,7 +55,7 @@ WhatToDo 的功能密度、CI 矩阵、双引擎一致性验证和前后端工�
 
 | 命令 | 结果 |
 |---|---|
-| `pnpm test` | 通过 — **48 个测试文件 / 360 个用例全部通过**（含 74 项真实内存 SQLite Conformance 测试） |
+| `pnpm test` | 通过 — **48 个测试文件 / 362 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
 | `pnpm lint` | 通过 — 连续检查 `tsconfig.json` / `tsconfig.vitest.json` / `tsconfig.node.json` 全部 0 错误通过 |
 | `pnpm lint:eslint` | 通过 — **0 error, 0 warning**，整库 ESLint 9 严格校验完全干净 |
 | `pnpm test:e2e` | 通过 — **13 个 Playwright E2E webview smoke 测试全部通过** |
@@ -290,7 +290,8 @@ permissions = [
 8. **`addAttachment` 任务存在性校验对齐**：目标任务不存在时两端均坚决抛错拒绝，消灭孤儿附件。
 9. **`setTaskParent` 跨工作区校验对齐**：两端均显式校验父子任务所属工作区必须绝对一致，非法时抛出 `invalidParentTask`。
 10. **`importBackup(merge)` 多工作区合并对齐**：合并导入时在全量工作区集合中解析活跃 ID 并完整保留本地现有工作区任务。
-11. 在 `repositoryConformance.test.ts` 中构建 72 项双引擎严格一致性测试套件，在真实内存 SQLite 引擎上 100% 全绿。
+11. **`dueTime` 排序与空值/空串语义对齐（`PERF-019`）**：`taskPageComparator`（`a.dueTime || "99:99"`）与 SQLite 排序（`COALESCE(NULLIF(due_time, ''), '99:99') ASC`）严格一致，确保空串与 NULL 统一排在带具体时间的任务之后，优先级决胜规则双端完全一致。
+12. 在 `repositoryConformance.test.ts` 中构建 76 项双引擎严格一致性测试套件，在真实内存 SQLite 引擎上 100% 全绿。
 
 ### ARC-014 [P1] 多步写入缺事务包裹
 

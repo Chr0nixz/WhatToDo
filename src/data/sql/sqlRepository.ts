@@ -362,7 +362,7 @@ export class SqlRepository implements TodoRepository {
       normalized.sort === "createdDesc"
         ? "created_at DESC"
         : `${normalized.sort === "overview" ? "CASE status WHEN 'todo' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'completed' THEN 2 ELSE 3 END ASC, " : ""}due_date ASC,
-           COALESCE(due_time, '99:99') ASC,
+           COALESCE(NULLIF(due_time, ''), '99:99') ASC,
            CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END ASC,
            created_at ASC`;
     const countRows = (await db.select(`SELECT COUNT(*) AS total FROM tasks WHERE ${whereSql}`, values)) as Record<
