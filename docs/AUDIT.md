@@ -55,7 +55,7 @@ WhatToDo 的功能密度、CI 矩阵、双引擎一致性验证和前后端工�
 
 | 命令 | 结果 |
 |---|---|
-| `pnpm test` | 通过 — **49 个测试文件 / 366 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
+| `pnpm test` | 通过 — **49 个测试文件 / 368 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
 | `pnpm lint` | 通过 — 连续检查 `tsconfig.json` / `tsconfig.vitest.json` / `tsconfig.node.json` 全部 0 错误通过 |
 | `pnpm lint:eslint` | 通过 — **0 error, 0 warning**，整库 ESLint 9 严格校验完全干净 |
 | `pnpm test:e2e` | 通过 — **13 个 Playwright E2E webview smoke 测试全部通过** |
@@ -178,6 +178,15 @@ permissions = [
 1. **独立跨工作区到期提醒数据源**：双引擎统一落地 `loadDueReminders(nowIso)` 仓储 API，在底层直接跨工作区扫描活跃未完成任务到期提醒，提醒轮询完全脱离前端活动工作区切片。
 2. **通知载荷与跳转闭环**：`ReminderNotifyPayload` 载荷丰富携带 `workspaceId`，用户在桌面通知或应用内 Toast 上点击“查看”（View）时，宿主组件自动感知任务所属工作区并调用 `selectWorkspace` 平滑切换，彻底解决跨工作区提醒点击无响应或白屏的体验断层。
 3. **双引擎严格契约测试覆盖**：在 `repositoryConformance.test.ts` 中新增针对 `loadDueReminders` 的跨工作区到期提醒综合测试，验证跨工作区提醒稳定检出，且已软删除任务或已删除工作区绝不误报，在真实内存 SQLite 引擎上 100% 全绿。
+
+### PERF-022 [P2] 到期提醒判定纯函数（dueRemindersForData）单次哈希与非法时间戳防护
+
+**状态：已修复（0.2.7+）。** 
+1. 重构 `src/hooks/useReminders.ts` 中的 `dueRemindersForData` 判定纯函数。
+2. 引入 `data.reminders.length === 0` 零内存分配短路，在无到期提醒场景下彻底避免分配无意义的 `tasksById` Map。
+3. 使用直接单次遍历（`for (const task of data.tasks) tasksById.set(...)`）全面替代原 `new Map(data.tasks.map(...))` 模式，消除每次提醒轮询（高频 tick）产生的堆内存中间元组数组分配与 V8 GC 压力。
+4. 补充 `Number.isFinite(targetTime)` 严格防御，优雅过滤非法日期字符串或破损的 ISO 时间戳，杜绝 `NaN` 比较的边界异常。
+5. 在 `useReminders.test.ts` 中新增空集合短路与非法时间戳容错专属单测，Vitest 单测用例数升至 368 项全绿。
 
 ### ARC-011 [P0] 事务通过连接池逐条下发，原子性无保障；`importBackup` 存在全量数据丢失风险
 

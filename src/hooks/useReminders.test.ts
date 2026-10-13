@@ -114,6 +114,23 @@ describe("dueRemindersForData", () => {
       "due",
     ]);
   });
+
+  it("returns empty array without allocating map when reminders array is empty (PERF-022)", () => {
+    const data = makeData([makeTask({ id: "t1" })], []);
+    expect(dueRemindersForData(data)).toEqual([]);
+  });
+
+  it("gracefully excludes reminders with invalid or NaN timestamp strings (PERF-022)", () => {
+    const data = makeData(
+      [makeTask({ id: "t1" })],
+      [
+        makeReminder({ id: "invalid-time", taskId: "t1", remindAt: "not-a-valid-date" }),
+        makeReminder({ id: "invalid-snooze", taskId: "t1", remindAt: "2026-06-01T00:00:00.000Z", snoozedUntil: "bad-iso" }),
+      ],
+    );
+
+    expect(dueRemindersForData(data, Date.now())).toEqual([]);
+  });
 });
 
 describe("useReminders notification failure", () => {

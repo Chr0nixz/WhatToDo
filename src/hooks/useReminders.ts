@@ -18,20 +18,32 @@ export type ReminderNotifyPayload = {
 };
 
 export const dueRemindersForData = (data: ReminderTickData, now = Date.now()) => {
-  const tasksById = new Map(data.tasks.map((task) => [task.id, task]));
+  if (data.reminders.length === 0) {
+    return [];
+  }
+
+  const tasksById = new Map<string, (typeof data.tasks)[number]>();
+  for (const task of data.tasks) {
+    tasksById.set(task.id, task);
+  }
 
   return data.reminders.filter((reminder) => {
     const task = tasksById.get(reminder.taskId);
 
-    return (
-      reminder.enabled &&
-      reminder.firedAt === null &&
-      reminder.failedAt === null &&
-      task?.deletedAt === null &&
-      // Active tasks (todo + in_progress) still need reminders; terminal states don't
-      (task?.status === "todo" || task?.status === "in_progress") &&
-      new Date(reminder.snoozedUntil ?? reminder.remindAt).getTime() <= now
-    );
+    if (
+      !reminder.enabled ||
+      reminder.firedAt !== null ||
+      reminder.failedAt !== null ||
+      !task ||
+      task.deletedAt !== null ||
+      (task.status !== "todo" && task.status !== "in_progress")
+    ) {
+      return false;
+    }
+
+    const rawTime = reminder.snoozedUntil ?? reminder.remindAt;
+    const targetTime = new Date(rawTime).getTime();
+    return Number.isFinite(targetTime) && targetTime <= now;
   });
 };
 
