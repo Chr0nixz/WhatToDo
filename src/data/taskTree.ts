@@ -53,6 +53,32 @@ export const getDirectChildProgress = (
   return { completed, total: children.length };
 };
 
+/**
+ * PERF-023: Single-pass aggregation of direct children and completion progress,
+ * avoiding duplicate O(n) array scans across thousands of tasks in TaskDetailForm.
+ */
+export const getDirectChildrenWithProgress = <
+  T extends Pick<TaskSummary, "id" | "parentId" | "deletedAt" | "status">,
+>(
+  tasks: ReadonlyArray<T>,
+  parentId: string,
+): { children: T[]; progress: { completed: number; total: number } | null } => {
+  const children: T[] = [];
+  let completed = 0;
+
+  for (const task of tasks) {
+    if (task.deletedAt === null && task.parentId === parentId) {
+      children.push(task);
+      if (task.status === "completed") {
+        completed += 1;
+      }
+    }
+  }
+
+  const progress = children.length > 0 ? { completed, total: children.length } : null;
+  return { children, progress };
+};
+
 export const computeAllChildProgress = (
   tasks: ReadonlyArray<Pick<TaskSummary, "id" | "parentId" | "deletedAt" | "status">>,
 ): Map<string, { completed: number; total: number }> => {

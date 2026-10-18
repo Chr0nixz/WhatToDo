@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getDirectChildren,
   getDirectChildProgress,
+  getDirectChildrenWithProgress,
   isHiddenByCollapsedAncestor,
   taskDepthInList,
   wouldCreateParentCycle,
@@ -61,5 +62,25 @@ describe("isHiddenByCollapsedAncestor", () => {
     expect(isHiddenByCollapsedAncestor(tasks, "a", collapsed)).toBe(false);
     expect(isHiddenByCollapsedAncestor(tasks, "b", collapsed)).toBe(true);
     expect(isHiddenByCollapsedAncestor(tasks, "c", collapsed)).toBe(true);
+  });
+});
+
+describe("getDirectChildrenWithProgress (PERF-023)", () => {
+  it("yields direct children and completion progress in a single pass", () => {
+    const taskSet = [
+      { id: "root", parentId: null, deletedAt: null, status: "todo" as const },
+      { id: "c1", parentId: "root", deletedAt: null, status: "completed" as const },
+      { id: "c2", parentId: "root", deletedAt: null, status: "in_progress" as const },
+      { id: "c3_del", parentId: "root", deletedAt: "2026-06-01T00:00:00.000Z", status: "completed" as const },
+      { id: "other", parentId: "other_root", deletedAt: null, status: "completed" as const },
+    ];
+
+    const result = getDirectChildrenWithProgress(taskSet, "root");
+    expect(result.children.map((t) => t.id)).toEqual(["c1", "c2"]);
+    expect(result.progress).toEqual({ completed: 1, total: 2 });
+
+    const emptyResult = getDirectChildrenWithProgress(taskSet, "c1");
+    expect(emptyResult.children).toEqual([]);
+    expect(emptyResult.progress).toBeNull();
   });
 });

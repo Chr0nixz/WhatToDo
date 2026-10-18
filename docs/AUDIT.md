@@ -55,7 +55,7 @@ WhatToDo 的功能密度、CI 矩阵、双引擎一致性验证和前后端工�
 
 | 命令 | 结果 |
 |---|---|
-| `pnpm test` | 通过 — **49 个测试文件 / 368 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
+| `pnpm test` | 通过 — **49 个测试文件 / 369 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
 | `pnpm lint` | 通过 — 连续检查 `tsconfig.json` / `tsconfig.vitest.json` / `tsconfig.node.json` 全部 0 错误通过 |
 | `pnpm lint:eslint` | 通过 — **0 error, 0 warning**，整库 ESLint 9 严格校验完全干净 |
 | `pnpm test:e2e` | 通过 — **13 个 Playwright E2E webview smoke 测试全部通过** |
@@ -600,6 +600,14 @@ export const runGlobalShortcut = (handler: () => void) => {
 ```100:111:src/components/app/TaskDetailPane.tsx
   const parentTaskOptions = useMemo(
 ```
+
+### PERF-023 [P2] TaskDetailForm 子任务与进度单次 O(n) 预计算优化
+
+**状态：已修复（0.2.7+）。** 
+1. `src/data/taskTree.ts` 实现单次遍历纯函数 `getDirectChildrenWithProgress(tasks, parentId)`。
+2. 在 $O(n)$ 单次循环内同时产出直接子任务列表（严格过滤软删除任务）并聚合完成进度对象，彻底消除 `TaskDetailForm` 每次打开时对数千至 20k 任务数组进行两次重复全量线性扫描的计算瓶颈。
+3. `TaskDetailForm.tsx` 接入单次聚合解构，削减 50% 数组扫描时间开销。
+4. 在 `taskTree.test.ts` 中新增单次遍历直接子任务与完成度聚合专属单测，Vitest 单测用例数升至 369 项全绿。
 
 ### ARC-022 [P2] 四个千行组件
 

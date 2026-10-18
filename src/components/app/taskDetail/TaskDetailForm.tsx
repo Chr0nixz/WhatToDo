@@ -10,7 +10,7 @@ import { formatReminderDateTime } from "@/data/dateFormat";
 import { prepareManagedAttachmentPath } from "@/data/managedAttachments";
 import { projectById } from "@/data/project";
 import { createId, isTauriRuntime } from "@/data/repositoryContract";
-import { getDirectChildren, getDirectChildProgress, wouldCreateParentCycle } from "@/data/taskTree";
+import { getDirectChildrenWithProgress, wouldCreateParentCycle } from "@/data/taskTree";
 import type {
   Attachment,
   Project,
@@ -156,8 +156,10 @@ export function TaskDetailForm({
     return candidates;
   }, [tasks, tasksById, task, parentId, projectId]);
 
-  const childTasks = useMemo(() => getDirectChildren(tasks, task.id), [tasks, task.id]);
-  const childProgress = useMemo(() => getDirectChildProgress(tasks, task.id), [tasks, task.id]);
+  const { children: childTasks, progress: childProgress } = useMemo(
+    () => getDirectChildrenWithProgress(tasks, task.id),
+    [tasks, task.id],
+  );
   const inheritedFolder = selectedProject?.workingFolder ?? settings.defaultWorkingFolder ?? "";
   const effectiveFolder = workingFolder.trim() || inheritedFolder;
 
