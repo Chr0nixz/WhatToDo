@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.7
+## 0.3.0
 
 - Architecture Milestone D Closeout & Hardening:
   - Decomposes monolithic `repository.ts` (4,300+ lines) into clean modular services (`export/`, `sql/`, `localRepository.ts`, `taskPageQuery.ts`, and `repositoryDataUtils.ts`), slimming the facade down to 11 lines with 100% API compatibility.
