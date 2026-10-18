@@ -1,3 +1,4 @@
+import { memo, useCallback } from "react";
 import { Repeat2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -40,7 +41,7 @@ const weekdayShortKeys = [
   "weekdaySat",
 ];
 
-export function TaskRecurrenceSection({
+function TaskRecurrenceSectionComponent({
   recurringTemplate,
   recurrenceFrequency,
   recurrenceInterval,
@@ -58,6 +59,15 @@ export function TaskRecurrenceSection({
   onDisableFutureRepeats,
 }: TaskRecurrenceSectionProps) {
   const { t } = useTranslation();
+
+  const handleToggleWeekday = useCallback(
+    (day: number) => {
+      setRecurrenceByWeekday((prev) =>
+        prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b),
+      );
+    },
+    [setRecurrenceByWeekday],
+  );
 
   return (
     <div className="grid gap-3 rounded-md border border-border bg-muted/35 p-3">
@@ -115,11 +125,7 @@ export function TaskRecurrenceSection({
                     active ? "border-ring bg-accent text-accent-foreground ring-1 ring-ring" : "bg-background hover:bg-accent",
                   )}
                   type="button"
-                  onClick={() =>
-                    setRecurrenceByWeekday((prev) =>
-                      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b),
-                    )
-                  }
+                  onClick={() => handleToggleWeekday(day)}
                 >
                   {t(key)}
                 </button>
@@ -170,3 +176,5 @@ export function TaskRecurrenceSection({
     </div>
   );
 }
+
+export const TaskRecurrenceSection = memo(TaskRecurrenceSectionComponent);

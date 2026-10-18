@@ -55,7 +55,7 @@ WhatToDo 的功能密度、CI 矩阵、双引擎一致性验证和前后端工�
 
 | 命令 | 结果 |
 |---|---|
-| `pnpm test` | 通过 — **49 个测试文件 / 369 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
+| `pnpm test` | 通过 — **50 个测试文件 / 371 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
 | `pnpm lint` | 通过 — 连续检查 `tsconfig.json` / `tsconfig.vitest.json` / `tsconfig.node.json` 全部 0 错误通过 |
 | `pnpm lint:eslint` | 通过 — **0 error, 0 warning**，整库 ESLint 9 严格校验完全干净 |
 | `pnpm test:e2e` | 通过 — **13 个 Playwright E2E webview smoke 测试全部通过** |
@@ -614,6 +614,13 @@ export const runGlobalShortcut = (handler: () => void) => {
 **状态：已修复（0.2.7+）。** 
 1. 全面拆解前端四大巨石组件：`OverviewView`、`SettingsView`、`AppShell`、`TaskDetailPane` 全部完成按需子模块拆分（分别抽出 overview/、settings/、shell/、taskDetail/ 独立子组件），各个主视图行数均缩减至千行以内。
 2. 彻底修复 `TaskDetailPane` 状态重置与陈旧闭包缺陷：将表单核心拆解为 `TaskDetailForm`（`src/components/app/taskDetail/TaskDetailForm.tsx`），在外层抽屉 Shell 中以 `<TaskDetailForm key={task.id} ... />` 挂载，通过 React 原生 key 生命周期在任务切换时自动销毁旧实例并初始化新状态，彻底消灭手动同步 props 进 state 的脆弱 effect 与陈旧闭包隐患。
+
+### PERF-024 [P2] TaskRecurrenceSection 重复周几选择器状态派生防抖与 memo 保护
+
+**状态：已修复（0.2.7+）。** 
+1. `src/components/app/taskDetail/TaskRecurrenceSection.tsx` 提取稳定的 `useCallback` 星期派生函数 `handleToggleWeekday`，消除每次渲染内联创建 7 个闭包的问题。
+2. 使用 `React.memo` 浅比较保护整个重复设置区块，在用户在任务详情面板编辑标题、修改备注或更改标签时，阻断该组件及其下属多输入控件的无意义重复重渲染。
+3. 新增 `TaskRecurrenceSection.test.tsx` 专属单元测试，覆盖按键切换与派生排序，Vitest 单测用例数升至 371 项全绿。
 
 `TaskDetailPane.tsx`（1174 行，**35 个 `useState`**，0 个 `useCallback`）、`OverviewView.tsx`（1056 行，内含 4 个未分文件的子组件）、`SettingsView.tsx`（952 行，0 个 `useMemo`/`useCallback`，7 个几乎零耦合的 section）、`AppShell.tsx`（947 行，18 个 state + 4 个 ref）。
 

@@ -64,9 +64,10 @@
   - Fixes `SEC-013`: Enhances `sanitize_attachment_filename` in `src-tauri/src/lib.rs` to detect and reject Windows reserved DOS device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`) and illegal control characters (`:`, `*`, `?`, `"`, `<`, `>`, `|`), preventing filesystem deadlocks and cross-platform name injection attacks, backed by unit tests.
   - Fixes `PERF-022`: Optimizes `dueRemindersForData` pure helper with zero-allocation short-circuit on empty reminder sets, replaces intermediate tuple allocations with direct loop population, and hardens timestamp comparisons against NaN/corrupt ISO strings, backed by `useReminders.test.ts`.
   - Fixes `PERF-023`: Introduces single-pass `getDirectChildrenWithProgress` in `taskTree.ts` and wires it into `TaskDetailForm`, combining subtask filtering and progress calculation to eliminate duplicate O(n) array scans across large task datasets, backed by unit tests.
+  - Fixes `PERF-024`: Optimizes `TaskRecurrenceSection` with stable `useCallback` weekday dispatch and wraps the section in `React.memo` to eliminate unnecessary re-renders during title/notes editing in `TaskDetailForm`, backed by `TaskRecurrenceSection.test.tsx`.
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
-  - Hardens all new submodules with thorough unit test coverage: all 369 Vitest tests (including 76 real SQLite conformance tests), 13 Playwright E2E tests, and 32 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
+  - Hardens all new submodules with thorough unit test coverage: all 371 Vitest tests (including 76 real SQLite conformance tests), 13 Playwright E2E tests, and 32 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
 
 ## 0.2.6
 
