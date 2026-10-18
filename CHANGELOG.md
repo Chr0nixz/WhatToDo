@@ -65,9 +65,15 @@
   - Fixes `PERF-022`: Optimizes `dueRemindersForData` pure helper with zero-allocation short-circuit on empty reminder sets, replaces intermediate tuple allocations with direct loop population, and hardens timestamp comparisons against NaN/corrupt ISO strings, backed by `useReminders.test.ts`.
   - Fixes `PERF-023`: Introduces single-pass `getDirectChildrenWithProgress` in `taskTree.ts` and wires it into `TaskDetailForm`, combining subtask filtering and progress calculation to eliminate duplicate O(n) array scans across large task datasets, backed by unit tests.
   - Fixes `PERF-024`: Optimizes `TaskRecurrenceSection` with stable `useCallback` weekday dispatch and wraps the section in `React.memo` to eliminate unnecessary re-renders during title/notes editing in `TaskDetailForm`, backed by `TaskRecurrenceSection.test.tsx`.
+  - Comprehensive codebase review & security/reliability hardening:
+    - Replaces raw `localStorage` calls with `safeStorage` across `i18n`, `commandPalette`, `HomeView`, `SettingsView`, and `LocalRepository` to prevent `SecurityError` and `QuotaExceededError` crashes in sandboxed webviews.
+    - Enhances `is_sensitive_system_path` to normalize forward slashes on Windows paths (`C:/Windows/...`) and blocks trailing periods/spaces in `sanitize_attachment_filename`.
+    - Hardens `import_attachment_sidecar` and `export_attachment_sidecar` to reject symlinks and double-guard target path traversal.
+    - Broadens `sanitizeErrorMessage` to redact forward-slash and escaped Windows user paths.
+    - Stabilizes callbacks in `TaskDetailForm` to guarantee `TaskRecurrenceSection`'s `React.memo` prevents spurious re-renders on task edits.
   - Extracts Rust backend database migrations and DDL checks into `src-tauri/src/migrations.rs`, reducing `lib.rs` by over 560 lines.
   - Adds SQLite migration v17 (`idx_tasks_workspace_deleted_created`) to eliminate temporary B-tree sorting on cold start with 20k tasks.
-  - Hardens all new submodules with thorough unit test coverage: all 371 Vitest tests (including 76 real SQLite conformance tests), 13 Playwright E2E tests, and 32 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
+  - Hardens all new submodules with thorough unit test coverage: all 372 Vitest tests (including 76 real SQLite conformance tests), 13 Playwright E2E tests, and 33 Rust tests pass with zero warnings across ESLint, TypeScript, and Clippy.
 
 ## 0.2.6
 

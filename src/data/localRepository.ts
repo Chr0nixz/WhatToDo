@@ -3,6 +3,7 @@ import { buildReminderDate, todayKey } from "./date";
 import { buildTasksCsv } from "./export/tasksCsv";
 import { buildTasksIcs } from "./export/tasksIcs";
 import { deleteManagedAttachmentFile } from "./managedAttachments";
+import { safeGetItem, safeSetItem } from "@/lib/safeStorage";
 import { buildTaskFromRecurringTemplate, getNextRecurrenceDate } from "./recurrence";
 import {
   buildFullPatch,
@@ -72,7 +73,7 @@ export class LocalRepository implements TodoRepository {
   private reminderEvents: ReminderEvent[] = [];
 
   async load(workspaceId?: string): Promise<AppData> {
-    const raw = localStorage.getItem(LOCAL_KEY) ?? localStorage.getItem(LEGACY_LOCAL_KEY);
+    const raw = safeGetItem(LOCAL_KEY) ?? safeGetItem(LEGACY_LOCAL_KEY);
     let parsed: (Partial<AppData> & { reminderEvents?: ReminderEvent[] }) | null = null;
     if (raw) {
       try {
@@ -1096,7 +1097,7 @@ export class LocalRepository implements TodoRepository {
 
   private async persist(): Promise<RepositoryResult> {
     this.data = { ...this.data, workspaceId: this.workspaceId };
-    localStorage.setItem(LOCAL_KEY, JSON.stringify({ ...this.data, reminderEvents: this.reminderEvents }));
+    safeSetItem(LOCAL_KEY, JSON.stringify({ ...this.data, reminderEvents: this.reminderEvents }));
     const patch = this.prevData ? diffPatch(this.prevData, this.data) : buildFullPatch();
     this.prevData = this.data;
     return { data: this.snapshot(), patch };

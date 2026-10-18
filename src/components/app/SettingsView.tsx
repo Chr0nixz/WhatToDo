@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { accentSwatches } from "@/data/accentSwatches";
+import { safeSetItem, safeRemoveItem } from "@/lib/safeStorage";
 import {
   restoreAttachmentSidecar,
   writeBackupBundle,
@@ -181,7 +182,7 @@ export function SettingsView({ data, actions, onOpenHelp }: SettingsViewProps) {
     try {
       await actions.saveSettings(nextSettings);
       if (patch.language) {
-        localStorage.setItem(LANGUAGE_STORAGE_KEY, patch.language);
+        safeSetItem(LANGUAGE_STORAGE_KEY, patch.language);
         await i18n.changeLanguage(patch.language);
       }
       setSaveState("saved");
@@ -440,12 +441,12 @@ export function SettingsView({ data, actions, onOpenHelp }: SettingsViewProps) {
       } catch {
         // Retention is best-effort after a successful write.
       }
-      localStorage.setItem("whattodo:auto-backup:last-run", String(Date.now()));
-      localStorage.removeItem(AUTO_BACKUP_LAST_ERROR_KEY);
+      safeSetItem("whattodo:auto-backup:last-run", String(Date.now()));
+      safeRemoveItem(AUTO_BACKUP_LAST_ERROR_KEY);
       setAutoBackupState("backup_done");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      localStorage.setItem(AUTO_BACKUP_LAST_ERROR_KEY, message);
+      safeSetItem(AUTO_BACKUP_LAST_ERROR_KEY, message);
       setAutoBackupFeedback(message);
       setAutoBackupState("error");
     }

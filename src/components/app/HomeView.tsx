@@ -7,6 +7,7 @@ import { todayKey } from "@/data/date";
 import { formatHeaderDate, selectedDateTaskLabel } from "@/data/dateFormat";
 import { planRescheduleDrop } from "@/data/taskDrag";
 import { DEFAULT_SETTINGS, type AppData } from "@/data/types";
+import { safeGetItem, safeSetItem } from "@/lib/safeStorage";
 import { useTaskPage } from "@/hooks/useTaskPage";
 import {
   useProjects,
@@ -176,11 +177,11 @@ export function HomeView({
     }
   }, [refreshCounts, tasksRevision]);
 
-  const isFirstRun = taskPage.total === 0 && tasks.length === 0 && localStorage.getItem("whattodo:firstRunSeen") === null;
+  const isFirstRun = taskPage.total === 0 && tasks.length === 0 && safeGetItem("whattodo:firstRunSeen") === null;
 
   useEffect(() => {
     if (isFirstRun) {
-      localStorage.setItem("whattodo:firstRunSeen", "1");
+      safeSetItem("whattodo:firstRunSeen", "1");
     }
   }, [isFirstRun]);
 

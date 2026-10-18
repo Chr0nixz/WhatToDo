@@ -1,5 +1,6 @@
 import type { AppData, AppView, SavedTaskView } from "./types";
 import { sortSavedViews } from "./savedViews";
+import { safeGetItem, safeSetItem } from "@/lib/safeStorage";
 
 export type CommandGroup = "recent" | "navigation" | "tasks" | "workspaces" | "folders" | "savedViews" | "manage";
 
@@ -208,7 +209,7 @@ const emptyRecentStore = (): CommandRecentStore => ({ commands: [], tasks: [] })
 
 export const loadCommandRecent = (): CommandRecentStore => {
   try {
-    const raw = localStorage.getItem(COMMAND_RECENT_KEY);
+    const raw = safeGetItem(COMMAND_RECENT_KEY);
     if (!raw) {
       return emptyRecentStore();
     }
@@ -227,7 +228,7 @@ export const loadCommandRecent = (): CommandRecentStore => {
 };
 
 export const saveCommandRecent = (store: CommandRecentStore) => {
-  localStorage.setItem(COMMAND_RECENT_KEY, JSON.stringify(store));
+  safeSetItem(COMMAND_RECENT_KEY, JSON.stringify(store));
 };
 
 export const pushRecentId = (ids: string[], id: string, limit = COMMAND_RECENT_LIMIT) => {

@@ -45,4 +45,17 @@ describe("safeStorage", () => {
     const success = safeRemoveItem("locked-key");
     expect(success).toBe(false);
   });
+
+  it("safely falls back to globalThis when window is undefined", () => {
+    const originalWindow = globalThis.window;
+    try {
+      // @ts-expect-error simulating headless node runtime
+      delete globalThis.window;
+      expect(safeGetItem("fallback-key")).toBeNull();
+      expect(safeSetItem("fallback-key", "fallback-val")).toBe(true);
+      expect(safeGetItem("fallback-key")).toBe("fallback-val");
+    } finally {
+      globalThis.window = originalWindow;
+    }
+  });
 });

@@ -55,16 +55,16 @@ WhatToDo 的功能密度、CI 矩阵、双引擎一致性验证和前后端工�
 
 | 命令 | 结果 |
 |---|---|
-| `pnpm test` | 通过 — **50 个测试文件 / 371 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
+| `pnpm test` | 通过 — **50 个测试文件 / 372 个用例全部通过**（含 76 项真实内存 SQLite Conformance 测试） |
 | `pnpm lint` | 通过 — 连续检查 `tsconfig.json` / `tsconfig.vitest.json` / `tsconfig.node.json` 全部 0 错误通过 |
 | `pnpm lint:eslint` | 通过 — **0 error, 0 warning**，整库 ESLint 9 严格校验完全干净 |
 | `pnpm test:e2e` | 通过 — **13 个 Playwright E2E webview smoke 测试全部通过** |
 | `pnpm build` | 通过 — 生产打包产物完全受控 |
-| `pnpm perf:build` | 通过 — 双轨体积硬预算门禁（Main JS 273.3 kB <= 350 kB，Total JS 911.9 kB <= 1,200 kB） |
+| `pnpm perf:build` | 通过 — 双轨体积硬预算门禁（Main JS 275.1 kB <= 350 kB，Total JS 913.9 kB <= 1,200 kB） |
 | `pnpm perf:sqlite` | 通过 — 真实内存 SQLite 引擎基准测试（千级任务模糊搜索 P50 < 3ms，P95 < 10ms） |
 | `cargo fmt --check` | 通过 — 0 diff |
 | `cargo clippy --all-targets -- -D warnings` | 通过 — 0 warning / 0 error |
-| `cargo test --locked` | 通过 — **32 个 Rust 单元测试全部通过** |
+| `cargo test --locked` | 通过 — **33 个 Rust 单元测试全部通过** |
 | `pnpm audit --prod` | 无已知 npm 生产依赖漏洞；`rusqlite` 升级至 `0.32.1`（`libsqlite3-sys 0.30.1`）消除 CVE-2025-6965 |
 | i18n 键对齐 | 中英文键集合 100% 对齐，由自动化测试守护 |
 | 仓库卫生 | `dist` / `output` / `tmp` / `coverage` / `test-results` 均无文件入库 |

@@ -1,6 +1,8 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
+import { safeGetItem } from "@/lib/safeStorage";
+
 const LANGUAGE_STORAGE_KEY = "whattodo:language";
 const LEGACY_LANGUAGE_STORAGE_KEY = "ddl-todo:language";
 
@@ -1140,7 +1142,7 @@ export const resources = {
 
 i18n.use(initReactI18next).init({
   resources,
-  lng: localStorage.getItem(LANGUAGE_STORAGE_KEY) ?? localStorage.getItem(LEGACY_LANGUAGE_STORAGE_KEY) ?? "zh",
+  lng: safeGetItem(LANGUAGE_STORAGE_KEY) ?? safeGetItem(LEGACY_LANGUAGE_STORAGE_KEY) ?? "zh",
   fallbackLng: "en",
   interpolation: {
     escapeValue: false,

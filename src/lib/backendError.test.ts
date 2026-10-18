@@ -48,6 +48,9 @@ describe("formatBackendError", () => {
       "dbErrorUnknown:Failed to access <user-path>\\AppData\\Local\\whattodo\\file.json",
     );
 
+    const winForwardSlash = "Failed at C:/Users/secret_user/Documents/backup.json";
+    expect(sanitizeErrorMessage(winForwardSlash)).toBe("Failed at <user-path>/Documents/backup.json");
+
     const macError = "IO error at /Users/john_doe/.config/whattodo/backup.json";
     expect(sanitizeErrorMessage(macError)).toBe("IO error at ~/.config/whattodo/backup.json");
     expect(formatBackendError(macError, mockTranslate)).toBe(

@@ -9,9 +9,9 @@ export const sanitizeErrorMessage = (message: string): string => {
     return "";
   }
 
-  // Redact Windows user home paths (e.g. C:\Users\username\... -> <user-path>\...)
+  // Redact Windows user home paths (e.g. C:\Users\username or C:/Users/username -> <user-path>)
   let sanitized = message.replace(
-    /[A-Za-z]:\\Users\\[^\\/:*?"<>|\r\n]+/gi,
+    /[A-Za-z]:[/\\]+Users[/\\]+[^\\/:*?"<>|\r\n]+/gi,
     "<user-path>",
   );
 

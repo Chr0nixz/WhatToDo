@@ -1,7 +1,7 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { revealLocalPath } from "@/lib/openLocalPath";
 import { Check, FolderOpen, PanelRightClose, Plus, Trash2, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ConfirmDialog } from "@/components/app/ConfirmDialog";
@@ -364,14 +364,19 @@ export function TaskDetailForm({
     setNewAttachmentPath("");
   };
 
-  const disableFutureRepeats = async () => {
+  const handleOpenFutureUpdateTemplate = useCallback(() => {
+    setFutureUpdateMode("template");
+    setFutureUpdateOpen(true);
+  }, []);
+
+  const disableFutureRepeats = useCallback(async () => {
     if (!recurringTemplate) return;
     try {
       await actions.disableRecurringTaskTemplate(recurringTemplate.id);
     } catch (err) {
       setSaveErrorMessage(`${t("taskUpdateFailed")}: ${describeError(err)}`);
     }
-  };
+  }, [actions, recurringTemplate, t]);
 
   return (
     <div className="motion-pane-content flex h-full min-w-[320px] flex-col max-sm:min-w-0">
@@ -746,10 +751,7 @@ export function TaskDetailForm({
                   futureSaveState={futureSaveState}
                   isSavingFuture={isSavingFuture}
                   onDisableFutureRepeats={disableFutureRepeats}
-                  onOpenFutureUpdate={() => {
-                    setFutureUpdateMode("template");
-                    setFutureUpdateOpen(true);
-                  }}
+                  onOpenFutureUpdate={handleOpenFutureUpdateTemplate}
                   recurrenceByWeekday={recurrenceByWeekday}
                   recurrenceEndDate={recurrenceEndDate}
                   recurrenceFrequency={recurrenceFrequency}

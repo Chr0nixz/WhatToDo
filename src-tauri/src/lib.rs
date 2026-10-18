@@ -155,13 +155,18 @@ fn is_sensitive_system_path(path: &Path) -> bool {
             r"\program files",
             r"\program files (x86)",
             r"\boot",
+            r"\recovery",
+            r"\system volume information",
         ];
+        // Normalize forward slashes to backslashes so C:/Windows behaves identically to C:\Windows
+        let normalized_slashes = lower.replace('/', "\\");
         // Strip drive letter if present (e.g. "C:\Windows" -> "\Windows")
-        let normalized = if lower.len() >= 2 && lower.as_bytes()[1] == b':' {
-            &lower[2..]
-        } else {
-            &lower
-        };
+        let normalized =
+            if normalized_slashes.len() >= 2 && normalized_slashes.as_bytes()[1] == b':' {
+                &normalized_slashes[2..]
+            } else {
+                &normalized_slashes
+            };
         for prefix in sensitive_prefixes {
             if normalized.starts_with(prefix) {
                 return true;
@@ -941,7 +946,7 @@ fn sanitize_attachment_filename(filename: &str) -> Result<String, String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "Attachment filename must be a plain file name.".to_string())?;
-    if name == "." || name == ".." || name.contains("..") {
+    if name == "." || name == ".." || name.contains("..") || name.ends_with('.') {
         return Err("Attachment filename must be a plain file name.".to_string());
     }
 
@@ -1358,6 +1363,15 @@ fn export_attachment_sidecar_sync(
             continue;
         }
 
+        // Reject symlinks to prevent arbitrary file exposure
+        if source
+            .symlink_metadata()
+            .map(|meta| meta.file_type().is_symlink())
+            .unwrap_or(true)
+        {
+            continue;
+        }
+
         // SEC-004: Enforce that exported attachments MUST originate from within the managed attachments directory.
         if let Some(root) = managed_root {
             if !is_path_within_root_lenient(&source, root) {
@@ -1366,10 +1380,15 @@ fn export_attachment_sidecar_sync(
         }
 
         let dest_dir = sidecar_root.join(&id);
-        if create_dir_all(&dest_dir).is_err() {
+        if !is_path_within_root_lenient(&dest_dir, &sidecar_root)
+            || create_dir_all(&dest_dir).is_err()
+        {
             continue;
         }
         let dest = dest_dir.join(&filename);
+        if !is_path_within_root_lenient(&dest, &sidecar_root) {
+            continue;
+        }
         if fs::copy(&source, &dest).is_ok() {
             exported.push(id);
         }
@@ -1417,11 +1436,26 @@ async fn import_attachment_sidecar(
         if !is_path_within_root_lenient(&source, &sidecar_root) || !source.is_file() {
             continue;
         }
+
+        // Reject symlinks to prevent symlink traversal attacks on untrusted backup extraction
+        if source
+            .symlink_metadata()
+            .map(|meta| meta.file_type().is_symlink())
+            .unwrap_or(true)
+        {
+            continue;
+        }
+
         let dest_dir = managed_root.join(&id);
-        if create_dir_all(&dest_dir).is_err() {
+        if !is_path_within_root_lenient(&dest_dir, &managed_root)
+            || create_dir_all(&dest_dir).is_err()
+        {
             continue;
         }
         let dest = dest_dir.join(&filename);
+        if !is_path_within_root_lenient(&dest, &managed_root) {
+            continue;
+        }
         if fs::copy(&source, &dest).is_ok() {
             restored.push(AttachmentSidecarImportResult {
                 id,
@@ -1727,9 +1761,10 @@ mod tests {
         apply_migrations, apply_version_schema, backup_database_verified,
         cleanup_auto_backups_sync, column_exists, confirm_reset_database_at,
         database_sidecar_paths, ensure_column, export_attachment_sidecar_sync, init_database_at,
-        is_path_within_root_lenient, join_backup_path, migrate_db_sidecar_files, repair_schema,
-        sanitize_attachment_filename, sanitize_attachment_id, sidecar_dir_for_backup_json,
-        table_exists, validate_managed_attachment_path, validate_text_file_path, INIT_SQL,
+        is_path_within_root_lenient, is_sensitive_system_path, join_backup_path,
+        migrate_db_sidecar_files, repair_schema, sanitize_attachment_filename,
+        sanitize_attachment_id, sidecar_dir_for_backup_json, table_exists,
+        validate_managed_attachment_path, validate_text_file_path, INIT_SQL,
     };
     use rusqlite::Connection;
     use std::fs;
@@ -2154,6 +2189,7 @@ mod tests {
         );
         assert!(sanitize_attachment_filename("").is_err());
         assert!(sanitize_attachment_filename("..").is_err());
+        assert!(sanitize_attachment_filename("trailing.dot.").is_err());
     }
 
     #[test]
@@ -2217,6 +2253,27 @@ mod tests {
         assert!(validate_managed_attachment_path(&inside, &root).is_ok());
         let err = validate_managed_attachment_path(&outside, &root).expect_err("outside");
         assert!(err.contains("outside the managed attachments directory"));
+    }
+
+    #[test]
+    fn sensitive_system_path_blocks_forward_slash_windows_paths() {
+        #[cfg(windows)]
+        {
+            assert!(is_sensitive_system_path(Path::new("C:/Windows/System32")));
+            assert!(is_sensitive_system_path(Path::new(
+                "c:/program files/common"
+            )));
+            assert!(is_sensitive_system_path(Path::new(r"C:\Windows\System32")));
+            assert!(!is_sensitive_system_path(Path::new(
+                r"C:\Users\tester\Documents"
+            )));
+        }
+        #[cfg(not(windows))]
+        {
+            assert!(is_sensitive_system_path(Path::new("/etc/passwd")));
+            assert!(is_sensitive_system_path(Path::new("/usr/bin/bash")));
+            assert!(!is_sensitive_system_path(Path::new("/home/tester/notes")));
+        }
     }
 
     #[test]
